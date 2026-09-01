@@ -61,7 +61,7 @@
 * **Ergonomie des Dialogues** : Les fenêtres modales (.app-dialog) intègrent une limitation de hauteur (max-height: 90vh) avec défilement vertical et interdiction de défilement horizontal. Les grilles de formulaires internes se réorganisent automatiquement en colonnes fluides sur petits écrans ou modales étroites.
 
 ### 9. Portail / Espace Client Sécurisé (Lot 3)
-* **Partage Sécurisé** : Un bouton **"🔗 Lien Espace Client"** sur les fiches praticien permet de copier une URL personnalisée (format `/#portal/:clientId`) pour le propriétaire.
+* **Partage Sécurisé** : Un bouton **"🔗 Lien Espace Client"** sur les fiches praticien permet de copier une URL personnalisée (format `/#portal/:uuid`) pour le propriétaire.
 * **Interface Épurée & Confidentialité** : La sidebar globale, le dashboard CRM, l'annuaire des professionnels, et les relances de rappels/tâches sont entièrement masqués. Les champs techniques comme le "Mode de suivi", la "Distance", les "Notes internes" et les "Notes cliniques privées" sont cachés. Le client ne peut voir que les résumés client des séances et les documents d'annotations via le bouton **"📄 Voir le CR"**.
 * **Anti-scintillement (FOUC)** : Un script d'interception inline dans la balise `<head>` applique immédiatement la classe `portal-mode` si l'URL contient `#portal`, masquant la sidebar et ré-organisant la disposition dès le parsing HTML/CSS avant même le démarrage de JavaScript.
 * **Droits Client** : Le client peut modifier ses coordonnées (Téléphone, E-mail, Adresse, Écurie principale), ajouter un nouvel animal via le bouton **"+ Ajouter un animal"** (avec propriétaire automatiquement verrouillé sur son ID et champs praticiens masqués), et mettre à jour les fiches de ses animaux (Alimentation, Hébergement/Mode de vie, Objectifs). Il dispose également du droit d'ajouter, modifier et supprimer ses séances externes (vétérinaire, ostéopathe, maréchal, etc.) pour compléter son carnet de suivi.
@@ -74,6 +74,7 @@ L'application utilise 5 magasins d'objets (tables) :
 
 1. **`clients`** :
    * `id` (Clé primaire auto-incrémentée)
+   * `uuid` (Identifiant unique sécurisé pour l'Espace Client)
    * `nom`, `prenom`, `telephone`, `email`, `adresse`, `ecurie`, `notes`
 2. **`professionals`** :
    * `id` (Clé primaire auto-incrémentée)

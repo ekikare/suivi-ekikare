@@ -139,7 +139,7 @@ function setupDateHeader() {
 }
 
 // --- UTILITAIRE URL PORTAIL CLIENT (COMPATIBLE GITHUB PAGES & LOCALHOST) ---
-function getClientPortalUrl(clientOrToken) {
+function getClientPortalUrl(clientOrUuid) {
   const origin = window.location.origin;
   let pathname = window.location.pathname || '/';
   if (pathname.endsWith('index.html')) {
@@ -148,11 +148,13 @@ function getClientPortalUrl(clientOrToken) {
   if (!pathname.endsWith('/')) {
     pathname += '/';
   }
-  let token = clientOrToken;
-  if (clientOrToken && typeof clientOrToken === 'object') {
-    token = clientOrToken.uuid || clientOrToken.portal_token || clientOrToken.id;
+  let uuid = '';
+  if (clientOrUuid && typeof clientOrUuid === 'object') {
+    uuid = clientOrUuid.uuid || clientOrUuid.id || '';
+  } else {
+    uuid = clientOrUuid || '';
   }
-  return `${origin}${pathname}#portal/${token}`;
+  return `${origin}${pathname}#portal/${uuid}`;
 }
 
 // --- SÉCURITÉ & VERROUILLAGE PRATICIEN ---
@@ -327,7 +329,7 @@ async function checkPortalContext() {
     let client = await fetchClientPortalData(routeParam);
     if (client) {
       currentPortalClientId = client.id;
-      currentPortalClientToken = client.uuid || client.portal_token || String(client.id);
+      currentPortalClientToken = client.uuid || String(client.id);
       sessionStorage.setItem('portalClientId', currentPortalClientId);
       sessionStorage.setItem('portalClientToken', currentPortalClientToken);
     } else {
@@ -1080,7 +1082,7 @@ async function renderClientDetails(clientId) {
   document.getElementById('detail-client-email').textContent = client.email || '-';
   document.getElementById('detail-client-address').textContent = client.adresse || '-';
   document.getElementById('detail-client-stable').textContent = client.ecurie || '-';
-  document.getElementById('detail-client-notes').textContent = client.notes || 'Aucune note enregistrée.';
+  document.getElementById('detail-client-notes').textContent = client.notes ? String(client.notes).replace(/\[portal_token:[^\]]+\]/g, '').trim() : 'Aucune note enregistrée.';
 
   // Charger les animaux du client
   const animals = await getByIndex('animals', 'client_id', clientId);
@@ -1120,8 +1122,12 @@ async function renderClientDetails(clientId) {
   }
 
   // Configurer le clic boutons d'actions
-  document.getElementById('btn-copy-client-portal-link').onclick = () => {
-    const portalUrl = getClientPortalUrl(client);
+  document.getElementById('btn-copy-client-portal-link').onclick = async () => {
+    if (!client.uuid) {
+      client.uuid = generateUUID();
+      await update('clients', client);
+    }
+    const portalUrl = getClientPortalUrl(client.uuid);
     navigator.clipboard.writeText(portalUrl).then(() => {
       showToast('Lien Espace Client sécurisé copié dans le presse-papier !');
     }).catch(err => {
@@ -1688,7 +1694,15 @@ async function renderAnimalDetails(animalId) {
   // Boutons d'actions
   document.getElementById('btn-copy-animal-portal-link').onclick = async () => {
     const client = await getById('clients', animal.client_id);
-    const portalUrl = getClientPortalUrl(client || animal.client_id);
+    if (!client) {
+      showToast('Client associé introuvable.', 'error');
+      return;
+    }
+    if (!client.uuid) {
+      client.uuid = generateUUID();
+      await update('clients', client);
+    }
+    const portalUrl = getClientPortalUrl(client.uuid);
     navigator.clipboard.writeText(portalUrl).then(() => {
       showToast('Lien Espace Client sécurisé copié dans le presse-papier !');
     }).catch(err => {
@@ -5165,7 +5179,7 @@ function openClientDialog(client = null) {
     document.getElementById('client-form-email').value = client.email || '';
     document.getElementById('client-form-address').value = client.adresse || '';
     document.getElementById('client-form-stable').value = client.ecurie || '';
-    document.getElementById('client-form-notes').value = client.notes || '';
+    document.getElementById('client-form-notes').value = client.notes ? String(client.notes).replace(/\[portal_token:[^\]]+\]/g, '').trim() : '';
   } else {
     titleEl.textContent = 'Nouveau Client';
     idInput.value = '';
@@ -5195,15 +5209,12 @@ function openClientDialog(client = null) {
     if (idInput.value) {
       clientData.id = Number(idInput.value);
       if (client) {
-        clientData.uuid = client.uuid || client.portal_token || generateUUID();
-        clientData.portal_token = clientData.uuid;
+        clientData.uuid = client.uuid || generateUUID();
       }
       await update('clients', clientData);
       showToast('Client modifié.');
     } else {
-      const token = generateUUID();
-      clientData.uuid = token;
-      clientData.portal_token = token;
+      clientData.uuid = generateUUID();
       await add('clients', clientData);
       showToast('Client créé.');
     }
@@ -6806,7 +6817,7 @@ async function renderPortalDetails(tokenOrId) {
   }
 
   currentPortalClientId = client.id;
-  currentPortalClientToken = client.uuid || client.portal_token || String(client.id);
+  currentPortalClientToken = client.uuid || String(client.id);
   sessionStorage.setItem('portalClientId', currentPortalClientId);
   sessionStorage.setItem('portalClientToken', currentPortalClientToken);
 

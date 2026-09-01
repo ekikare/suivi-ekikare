@@ -51,12 +51,7 @@ export function mapLocalToSupabase(storeName, item) {
   let specificFields = {};
   switch (storeName) {
     case 'clients':
-      let clientNotes = item.notes || '';
-      const token = item.portal_token || item.uuid;
-      if (token && !clientNotes.includes(`[portal_token:${token}]`)) {
-        clientNotes = clientNotes.replace(/\[portal_token:[^\]]+\]/g, '').trim();
-        clientNotes = clientNotes ? `${clientNotes} [portal_token:${token}]` : `[portal_token:${token}]`;
-      }
+      let cleanNotes = item.notes ? String(item.notes).replace(/\[portal_token:[^\]]+\]/g, '').trim() : '';
       specificFields = {
         first_name: item.prenom || item.first_name || '',
         last_name: item.nom || item.last_name || '',
@@ -64,7 +59,8 @@ export function mapLocalToSupabase(storeName, item) {
         email: item.email || '',
         address: item.adresse || item.address || '',
         main_stable: item.ecurie || item.main_stable || item.mainStable || '',
-        notes: clientNotes
+        notes: cleanNotes,
+        uuid: item.uuid || null
       };
       break;
     case 'animals':
@@ -157,14 +153,8 @@ export function mapSupabaseToLocal(storeName, item) {
 
   switch (storeName) {
     case 'clients':
-      let rawNotes = item.notes || '';
-      let extractedToken = null;
-      const tokenMatch = rawNotes.match(/\[portal_token:([a-zA-Z0-9\-]+)\]/);
-      if (tokenMatch) {
-        extractedToken = tokenMatch[1];
-        rawNotes = rawNotes.replace(/\[portal_token:[^\]]+\]/g, '').trim();
-      }
-      const finalToken = item.portal_token || item.uuid || extractedToken || String(item.id);
+      let cleanNotesFromDb = item.notes ? String(item.notes).replace(/\[portal_token:[^\]]+\]/g, '').trim() : '';
+      const clientUuid = item.uuid || (item.id ? String(item.id) : null);
       return {
         ...local,
         prenom: item.first_name || '',
@@ -173,9 +163,8 @@ export function mapSupabaseToLocal(storeName, item) {
         email: item.email || '',
         adresse: item.address || '',
         ecurie: item.main_stable || '',
-        notes: rawNotes,
-        uuid: finalToken,
-        portal_token: finalToken
+        notes: cleanNotesFromDb,
+        uuid: clientUuid
       };
     case 'animals':
       return {
@@ -461,10 +450,8 @@ export async function addLocal(storeName, item) {
  */
 export async function add(storeName, item) {
   if (storeName === 'clients') {
-    if (!item.portal_token && !item.uuid) {
-      const token = generateUUID();
-      item.portal_token = token;
-      item.uuid = token;
+    if (!item.uuid) {
+      item.uuid = generateUUID();
     }
   }
   if (SYNCED_STORES.includes(storeName)) {
@@ -709,32 +696,42 @@ export function generateUUID() {
 }
 
 /**
- * Récupère un client via son token aléatoire UUID ou son identifiant numérique de repli.
+ * Récupère un client via son UUID sécurisé ou son identifiant numérique de repli.
  */
-export async function getClientByToken(token) {
+export async function getClientByUuid(token) {
   if (!token) return null;
   const clients = await getAll('clients');
   const tokenStr = String(token).trim().toLowerCase();
-  let found = clients.find(c => (c.portal_token && String(c.portal_token).toLowerCase() === tokenStr) || 
-                                (c.uuid && String(c.uuid).toLowerCase() === tokenStr));
+  let found = clients.find(c => c.uuid && String(c.uuid).toLowerCase() === tokenStr);
   if (!found) {
     found = clients.find(c => String(c.id).toLowerCase() === tokenStr);
   }
   return found || null;
 }
+export const getClientByToken = getClientByUuid;
 
 /**
- * Assure la migration et présence d'un token UUID sécurisé pour tous les clients existants.
+ * Assure la migration et présence d'un token UUID sécurisé pour tous les clients existants et nettoie les notes.
  */
 export async function ensureClientsHaveUUID() {
   const clients = await getAll('clients');
   let hasChanges = false;
   for (const client of clients) {
     let changed = false;
-    if (!client.portal_token || !client.uuid) {
-      const token = client.portal_token || client.uuid || generateUUID();
-      client.portal_token = token;
-      client.uuid = token;
+    // Nettoyage des résidus [portal_token:...] dans le champ notes
+    if (client.notes && client.notes.includes('[portal_token:')) {
+      client.notes = client.notes.replace(/\[portal_token:[^\]]+\]/g, '').trim();
+      changed = true;
+    }
+    if (client.portal_token) {
+      if (!client.uuid) {
+        client.uuid = client.portal_token;
+      }
+      delete client.portal_token;
+      changed = true;
+    }
+    if (!client.uuid) {
+      client.uuid = generateUUID();
       changed = true;
     }
     if (changed || !client.synced) {
@@ -751,77 +748,77 @@ export async function ensureClientsHaveUUID() {
 /**
  * Récupère le dossier complet d'un client et ses animaux/séances depuis Supabase pour le portail distant.
  */
-export async function fetchClientPortalData(token) {
-  if (!token) return null;
+export async function fetchClientPortalData(portalUuid) {
+  if (!portalUuid) return null;
+  const tokenStr = String(portalUuid).trim();
   
-  // 1. Chercher d'abord dans IndexedDB local
-  let localClient = await getClientByToken(token);
-  if (localClient) {
-    return localClient;
+  // 1. Tenter la récupération distante depuis Supabase si connecté
+  if (navigator.onLine) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        // Requête directe standard sur la colonne uuid
+        let { data: clientData, error: clientErr } = await supabase
+          .from('clients')
+          .select('*')
+          .eq('uuid', tokenStr)
+          .maybeSingle();
+
+        // Repli si tokenStr est un ID numérique
+        if (!clientData && !isNaN(Number(tokenStr))) {
+          const { data: fallbackData } = await supabase
+            .from('clients')
+            .select('*')
+            .eq('id', tokenStr)
+            .maybeSingle();
+          clientData = fallbackData;
+        }
+
+        if (clientData) {
+          const localClient = mapSupabaseToLocal('clients', clientData);
+          await updateLocal('clients', localClient);
+
+          // Récupérer les animaux associés
+          const { data: animalsData } = await supabase.from('animals')
+            .select('*')
+            .eq('client_id', String(clientData.id));
+
+          if (animalsData && animalsData.length > 0) {
+            for (const an of animalsData) {
+              await updateLocal('animals', mapSupabaseToLocal('animals', an));
+            }
+          }
+
+          // Récupérer les séances associées
+          const { data: sessionsData } = await supabase.from('sessions')
+            .select('*')
+            .eq('client_id', String(clientData.id));
+
+          if (sessionsData && sessionsData.length > 0) {
+            for (const s of sessionsData) {
+              await updateLocal('sessions', mapSupabaseToLocal('sessions', s));
+            }
+          }
+
+          // Récupérer les rappels/tâches associés
+          const { data: tasksData } = await supabase.from('tasks')
+            .select('*')
+            .eq('client_id', String(clientData.id));
+
+          if (tasksData && tasksData.length > 0) {
+            for (const t of tasksData) {
+              await updateLocal('reminders', mapSupabaseToLocal('reminders', t));
+            }
+          }
+
+          return localClient;
+        }
+      } catch (err) {
+        console.warn("fetchClientPortalData distant a échoué:", err);
+      }
+    }
   }
 
-  // 2. Si non trouvé en local et réseau disponible, chercher sur Supabase
-  if (!navigator.onLine) return null;
-  const supabase = getSupabaseClient();
-  if (!supabase) return null;
-
-  try {
-    const tokenStr = String(token).trim();
-
-    const { data: allClients, error: clientErr } = await supabase.from('clients').select('*');
-    if (clientErr || !allClients || allClients.length === 0) {
-      return null;
-    }
-
-    const found = allClients.find(c => {
-      if (String(c.id).toLowerCase() === tokenStr.toLowerCase()) return true;
-      if (c.notes && c.notes.toLowerCase().includes(tokenStr.toLowerCase())) return true;
-      return false;
-    });
-
-    if (!found) {
-      return null;
-    }
-
-    localClient = mapSupabaseToLocal('clients', found);
-    await updateLocal('clients', localClient);
-
-    // Récupérer les animaux associés
-    const { data: animalsData } = await supabase.from('animals')
-      .select('*')
-      .eq('client_id', String(found.id));
-
-    if (animalsData && animalsData.length > 0) {
-      for (const an of animalsData) {
-        await updateLocal('animals', mapSupabaseToLocal('animals', an));
-      }
-    }
-
-    // Récupérer les séances associées
-    const { data: sessionsData } = await supabase.from('sessions')
-      .select('*')
-      .eq('client_id', String(found.id));
-
-    if (sessionsData && sessionsData.length > 0) {
-      for (const s of sessionsData) {
-        await updateLocal('sessions', mapSupabaseToLocal('sessions', s));
-      }
-    }
-
-    // Récupérer les rappels/tâches associés
-    const { data: tasksData } = await supabase.from('tasks')
-      .select('*')
-      .eq('client_id', String(found.id));
-
-    if (tasksData && tasksData.length > 0) {
-      for (const t of tasksData) {
-        await updateLocal('reminders', mapSupabaseToLocal('reminders', t));
-      }
-    }
-
-    return localClient;
-  } catch (err) {
-    console.error("Erreur fetchClientPortalData:", err);
-    return null;
-  }
+  // 2. Repli local IndexedDB (mode hors-ligne ou Supabase inaccessible)
+  return await getClientByUuid(tokenStr);
 }
