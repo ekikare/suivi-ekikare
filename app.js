@@ -23,7 +23,8 @@ import {
   registerDatabaseChangeCallback,
   generateUUID,
   getClientByToken,
-  ensureClientsHaveUUID
+  ensureClientsHaveUUID,
+  fetchClientPortalData
 } from './db.js';
 
 // --- INITIALISATION SPEECH RECOGNITION ---
@@ -323,46 +324,7 @@ async function checkPortalContext() {
   const isPortalRoute = routeBase === 'portal' || (window.location.hash && window.location.hash.includes('portal'));
 
   if (routeBase === 'portal' && routeParam) {
-    let client = await getClientByToken(routeParam);
-    
-    // Si non trouvé en local et en ligne, tenter de récupérer le client depuis Supabase
-    if (!client && navigator.onLine) {
-      const supabase = getSupabaseClient();
-      if (supabase) {
-        try {
-          const tokenStr = String(routeParam).trim();
-          const { data } = await supabase.from('clients')
-            .select('*')
-            .or(`uuid.eq.${tokenStr},portal_token.eq.${tokenStr},id.eq.${tokenStr}`)
-            .maybeSingle();
-
-          if (data) {
-            client = mapSupabaseToLocal('clients', data);
-            await updateLocal('clients', client);
-
-            const { data: animalsData } = await supabase.from('animals')
-              .select('*')
-              .eq('client_id', String(data.id));
-            if (animalsData) {
-              for (const an of animalsData) {
-                await updateLocal('animals', mapSupabaseToLocal('animals', an));
-              }
-            }
-            const { data: sessionsData } = await supabase.from('sessions')
-              .select('*')
-              .eq('client_id', String(data.id));
-            if (sessionsData) {
-              for (const s of sessionsData) {
-                await updateLocal('sessions', mapSupabaseToLocal('sessions', s));
-              }
-            }
-          }
-        } catch (err) {
-          console.error("Erreur récupération portail client Supabase:", err);
-        }
-      }
-    }
-
+    let client = await fetchClientPortalData(routeParam);
     if (client) {
       currentPortalClientId = client.id;
       currentPortalClientToken = client.uuid || client.portal_token || String(client.id);
@@ -6800,47 +6762,46 @@ async function checkAndInjectMockData() {
 async function renderPortalDetails(tokenOrId) {
   hidePractitionerLockOverlay();
 
-  let client = await getClientByToken(tokenOrId);
+  const portalAnimalsContainer = document.getElementById('portal-client-animals');
+  const ownerTitle = document.getElementById('portal-owner-title');
+
+  // 1. Indicateur de chargement immédiat
+  if (ownerTitle) ownerTitle.textContent = "Chargement de votre espace de suivi...";
+  if (portalAnimalsContainer) {
+    portalAnimalsContainer.innerHTML = `
+      <div class="portal-loading-card glass-card" style="text-align: center; padding: 48px 24px; margin: 16px 0; border-radius: 16px;">
+        <div class="sync-icon-spin" style="width: 32px; height: 32px; border-width: 3px; color: var(--color-primary, #6366f1); margin: 0 auto 16px;"></div>
+        <h3 style="font-size: 1.15rem; font-weight: 600; color: #fff; margin-bottom: 6px;">Récupération de votre dossier...</h3>
+        <p style="font-size: 0.88rem; color: var(--text-sub, #94a3b8); max-width: 380px; margin: 0 auto;">Connexion sécurisée en cours avec la base de données eKiKare.</p>
+      </div>
+    `;
+  }
+
+  // 2. Recherche locale puis Supabase
+  let client = await fetchClientPortalData(tokenOrId);
   if (!client && !isNaN(Number(tokenOrId))) {
     client = await getById('clients', Number(tokenOrId));
   }
-  
-  if (!client && navigator.onLine) {
-    const supabase = getSupabaseClient();
-    if (supabase) {
-      try {
-        const tokenStr = String(tokenOrId).trim();
-        const { data } = await supabase.from('clients')
-          .select('*')
-          .or(`uuid.eq.${tokenStr},portal_token.eq.${tokenStr},id.eq.${tokenStr}`)
-          .maybeSingle();
 
-        if (data) {
-          client = mapSupabaseToLocal('clients', data);
-          await updateLocal('clients', client);
-
-          const { data: animalsData } = await supabase.from('animals')
-            .select('*')
-            .eq('client_id', String(data.id));
-          if (animalsData) {
-            for (const an of animalsData) {
-              await updateLocal('animals', mapSupabaseToLocal('animals', an));
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Erreur récupération client Supabase:", err);
-      }
-    }
-  }
-
+  // 3. Cas non trouvé
   if (!client) {
-    const portalAnimalsContainer = document.getElementById('portal-client-animals');
     if (portalAnimalsContainer) {
-      portalAnimalsContainer.innerHTML = '<p class="empty-state" style="padding: 40px; font-size: 1.1rem;">Espace client introuvable ou lien expiré.<br><span style="font-size: 0.9rem; color: var(--text-sub);">Veuillez contacter votre praticienne pour obtenir un lien valide.</span></p>';
+      portalAnimalsContainer.innerHTML = `
+        <div class="empty-state glass-card" style="text-align: center; padding: 48px 24px; margin: 16px 0; border-radius: 16px;">
+          <div style="font-size: 2.2rem; margin-bottom: 12px;">🔍</div>
+          <h3 style="font-size: 1.15rem; font-weight: 600; color: #fff; margin-bottom: 6px;">Espace client introuvable</h3>
+          <p style="font-size: 0.88rem; color: var(--text-sub, #94a3b8); max-width: 420px; margin: 0 auto; line-height: 1.5;">
+            Ce lien de suivi est introuvable ou a été désactivé.<br>
+            Veuillez contacter votre praticienne pour obtenir un nouveau lien personnalisé.
+          </p>
+        </div>
+      `;
     }
-    const ownerTitle = document.getElementById('portal-owner-title');
     if (ownerTitle) ownerTitle.textContent = "Espace Suivi eKiKare";
+    document.getElementById('portal-client-phone').textContent = "-";
+    document.getElementById('portal-client-email').textContent = "-";
+    document.getElementById('portal-client-address').textContent = "-";
+    document.getElementById('portal-client-stable').textContent = "-";
     return;
   }
 
@@ -6849,9 +6810,9 @@ async function renderPortalDetails(tokenOrId) {
   sessionStorage.setItem('portalClientId', currentPortalClientId);
   sessionStorage.setItem('portalClientToken', currentPortalClientToken);
 
-  // Mettre à jour l'en-tête et les infos de contact
-  document.getElementById('portal-owner-title').textContent = `Espace Suivi de ${client.prenom} ${client.nom.toUpperCase()}`;
-  document.getElementById('portal-client-phone').textContent = client.telephone;
+  // 4. Mettre à jour l'en-tête et les infos de contact
+  if (ownerTitle) ownerTitle.textContent = `Espace Suivi de ${client.prenom} ${client.nom.toUpperCase()}`;
+  document.getElementById('portal-client-phone').textContent = client.telephone || '-';
   document.getElementById('portal-client-email').textContent = client.email || '-';
   document.getElementById('portal-client-address').textContent = client.adresse || '-';
   document.getElementById('portal-client-stable').textContent = client.ecurie || '-';
@@ -6868,7 +6829,6 @@ async function renderPortalDetails(tokenOrId) {
 
   // Récupérer et afficher les animaux associés à ce client
   const animals = await getByIndex('animals', 'client_id', client.id);
-  const portalAnimalsContainer = document.getElementById('portal-client-animals');
   portalAnimalsContainer.innerHTML = '';
 
   if (animals.length === 0) {
