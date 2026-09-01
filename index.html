@@ -1,0 +1,1995 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suivi eKiKare - Gestionnaire de soins équins et canins</title>
+  <script>
+    if (window.location.hash && window.location.hash.includes('portal')) {
+      document.documentElement.classList.add('portal-mode');
+    }
+  </script>
+  <!-- Google Fonts: Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1.0.7">
+  <!-- Leaflet library -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Supabase library -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar de navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <svg class="brand-icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 2.67-2.76 4-2.26 1.4.53 1.13 2.1.26 3.74.88 1.48 1.48 3.25.74 5.26-.74 2-2.5 3-4.5 3H9.5c-2 0-3.76-1-4.5-3-.74-2.01-.14-3.78.74-5.26-.87-1.64-1.14-3.21.26-3.74 1.33-.5 2.22.26 4 2.26.65-.17 1.33-.26 2-.26z"/>
+          <path d="M12 12c-2.5 0-4.5 1-4.5 3s2 4 4.5 4 4.5-2 4.5-4-2-3-4.5-3z"/>
+          <circle cx="12" cy="16" r="1.5" fill="currentColor"/>
+        </svg>
+        <span class="brand-text">Suivi <span class="accent-text">eKiKare</span></span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="#dashboard" class="nav-item active" data-target="dashboard">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+          Tableau de bord
+        </a>
+        <a href="#clients" class="nav-item" data-target="clients">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Clients
+        </a>
+        <a href="#animals" class="nav-item" data-target="animals">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-2.5 0-4.5 1-4.5 3s2 4 4.5 4 4.5-2 4.5-4-2-3-4.5-3z"/><circle cx="8.5" cy="15" r="1"/><circle cx="15.5" cy="15" r="1"/></svg>
+          Animaux suivis
+        </a>
+        <a href="#tournee" class="nav-item" data-target="tournee">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          Lieux de vie / Tournées
+        </a>
+        <a href="#sessions" class="nav-item" data-target="sessions">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Séances & CR
+        </a>
+        <a href="#professionals" class="nav-item" data-target="professionals">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+          Professionnels
+        </a>
+        <a href="#reminders" class="nav-item" data-target="reminders">
+          <div class="nav-item-content">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span>Suivi Tâches</span>
+          </div>
+          <span class="badge" id="reminder-badge" style="display: none;">0</span>
+        </a>
+        <a href="#settings" class="nav-item" data-target="settings">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Sauvegarde & Analyses
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <p class="app-version">eKiKare v1.1.0 &bull; Offline Database</p>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Top Header -->
+      <header class="app-header">
+        <div id="sync-status-container"></div>
+        <div class="header-meta">
+          <span class="header-date" id="current-date">-</span>
+        </div>
+      </header>
+
+      <!-- 1. DASHBOARD VIEW -->
+      <section id="view-dashboard" class="view-section active">
+        <div class="section-header">
+          <h1>Tableau de bord</h1>
+          <p class="section-subtitle">CRM Praticienne eKiKare & Suivi d'activité</p>
+        </div>
+
+        <!-- Quick Stats Cards -->
+        <div class="stats-grid">
+          <div class="stat-card glass-card clickable-card" id="card-nav-clients">
+            <div class="stat-icon client-accent">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Clients</span>
+              <span class="stat-value" id="stat-clients-count">0</span>
+            </div>
+          </div>
+          <div class="stat-card glass-card clickable-card" id="card-nav-animals">
+            <div class="stat-icon animal-accent">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 12c-2.5 0-4.5 1-4.5 3s2 4 4.5 4 4.5-2 4.5-4-2-3-4.5-3z"/></svg>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Animaux suivis</span>
+              <span class="stat-value" id="stat-animals-count">0</span>
+            </div>
+          </div>
+          <div class="stat-card glass-card clickable-card" id="card-nav-sessions">
+            <div class="stat-icon session-accent">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Séances</span>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <span class="stat-value" id="stat-sessions-month" style="font-size: 1.5rem; line-height: 1.1;">0 <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-sub);">ce mois</span></span>
+                <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">Total : <span id="stat-sessions-total">0</span></span>
+              </div>
+            </div>
+          </div>
+          <div class="stat-card glass-card clickable-card" id="card-nav-reminders">
+            <div class="stat-icon reminder-accent">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Rappels imminents</span>
+              <span class="stat-value" id="stat-reminders-count">0</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-details-grid">
+          <!-- Rappels urgents/imminents -->
+          <div class="dashboard-panel glass-card">
+            <div class="panel-header">
+              <h2>Tâches & Rappels Actifs (Moins de 2 semaines)</h2>
+              <span class="panel-badge alert-badge" id="urgent-reminders-badge">0 actif</span>
+            </div>
+            <div class="panel-body">
+              <div class="reminder-list" id="dashboard-reminders-list">
+                <p class="empty-state">Aucun rappel actif. Tout est à jour !</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions rapides -->
+          <div class="dashboard-panel glass-card">
+            <div class="panel-header">
+              <h2>Actions rapides</h2>
+            </div>
+            <div class="panel-body quick-actions-panel">
+              <button class="btn btn-primary" id="btn-quick-new-client">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Ajouter un client
+              </button>
+              <button class="btn btn-primary" id="btn-quick-new-animal">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Ajouter un animal
+              </button>
+              <button class="btn btn-secondary" id="btn-quick-new-session">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="12" y1="18" x2="12" y2="12"/></svg>
+                Nouvelle séance de soin
+              </button>
+              <div class="quick-stats-mini">
+                <h3>Répartition des suivis par espèces</h3>
+                <div class="species-chart-container" id="species-chart-legend">
+                  <p class="empty-state">Aucune statistique disponible</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. CLIENTS VIEW -->
+      <section id="view-clients" class="view-section">
+        <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 1.5rem;">
+          <div class="page-title-group">
+            <h1>Annuaire des Clients</h1>
+            <p class="subtitle">Gestion des coordonnées propriétaires d'animaux</p>
+          </div>
+          <button class="btn btn-primary" id="btn-add-client" style="flex-shrink: 0; white-space: nowrap;">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nouveau client
+          </button>
+        </div>
+
+        <div class="search-filter-row">
+          <input type="text" id="client-search-input" class="search-input" placeholder="Rechercher par nom, téléphone, e-mail, adresse...">
+        </div>
+
+        <div class="glass-card table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th class="sortable" data-sort="name">Nom / Contact <span class="sort-icon"></span></th>
+                <th>Téléphone</th>
+                <th>E-mail</th>
+                <th>Animaux</th>
+                <th class="sortable" data-sort="location">Lieu de vie des animaux <span class="sort-icon"></span></th>
+                <th class="actions-column">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="clients-table-body">
+              <!-- Dynamique -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 2B. CLIENT DETAILS VIEW -->
+      <section id="view-clients-details" class="view-section">
+        <div class="section-header-actions">
+          <div>
+            <button class="btn btn-link" id="btn-back-to-clients">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+              Retour aux clients
+            </button>
+            <h1 id="detail-client-name">Fiche Client</h1>
+          </div>
+          <div class="button-group">
+            <button class="btn btn-secondary" id="btn-copy-client-portal-link">🔗 Lien Espace Client</button>
+            <button class="btn btn-secondary" id="btn-edit-client-detail">Modifier</button>
+            <button class="btn btn-primary" id="btn-add-animal-to-client">Ajouter un animal</button>
+          </div>
+        </div>
+
+        <div class="detail-grid">
+          <div class="glass-card detail-card">
+            <h3>Informations & Contact</h3>
+            <div class="info-list">
+              <div class="info-item">
+                <span class="info-label">Téléphone</span>
+                <span class="info-value" id="detail-client-phone">-</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">E-mail</span>
+                <span class="info-value" id="detail-client-email">-</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Adresse</span>
+                <span class="info-value" id="detail-client-address">-</span>
+              </div>
+              <div class="info-item" id="client-detail-stable-row">
+                <span class="info-label">Écurie / Pension</span>
+                <span class="info-value" id="detail-client-stable">-</span>
+              </div>
+              <div class="info-item practitioner-only">
+                <span class="info-label">Notes et remarques</span>
+                <span class="info-value text-block" id="detail-client-notes">-</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-card detail-card">
+            <h3>Animaux associés</h3>
+            <div class="animal-cards-list" id="detail-client-animals">
+              <!-- Dynamique -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2E. PORTAL CLIENT VIEW -->
+      <section id="view-portal" class="view-section">
+        <div class="portal-container">
+          <div class="portal-header-card glass-card" style="margin-bottom: 25px; padding: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+              <span style="font-size: 2rem;">🐾</span>
+              <div>
+                <h1 style="margin: 0; font-size: 1.5rem; color: var(--color-secondary);" id="portal-owner-title">Espace Suivi de -</h1>
+                <p style="margin: 4px 0 0 0; font-size: 0.9rem; color: var(--color-primary); font-weight: bold;">Bienvenue sur votre portail sécurisé eKiKare</p>
+              </div>
+            </div>
+            <button class="btn btn-secondary" id="btn-portal-edit-contact">Modifier mes coordonnées</button>
+          </div>
+
+          <div class="detail-grid">
+            <!-- Contact & Info Card -->
+            <div class="glass-card detail-card">
+              <h3>Mes Coordonnées</h3>
+              <div class="info-list">
+                <div class="info-item">
+                  <span class="info-label">Téléphone</span>
+                  <span class="info-value" id="portal-client-phone">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">E-mail</span>
+                  <span class="info-value" id="portal-client-email">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Adresse</span>
+                  <span class="info-value" id="portal-client-address">-</span>
+                </div>
+                <div class="info-item" id="portal-client-stable-row">
+                  <span class="info-label">Écurie principale</span>
+                  <span class="info-value" id="portal-client-stable">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Associated Animals Card -->
+            <div class="glass-card detail-card">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="margin: 0;">Mes Animaux</h3>
+                <button class="btn btn-primary btn-small" id="btn-portal-add-animal">+ Ajouter un animal</button>
+              </div>
+              <div class="animal-cards-list" id="portal-client-animals">
+                <!-- Dynamique -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. ANIMALS VIEW -->
+      <section id="view-animals" class="view-section">
+        <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 1.5rem;">
+          <div class="page-title-group">
+            <h1>Animaux Suivis</h1>
+            <p class="subtitle">Liste globale des animaux enregistrés</p>
+          </div>
+          <button class="btn btn-primary" id="btn-add-animal" style="flex-shrink: 0; white-space: nowrap;">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nouvel animal
+          </button>
+        </div>
+
+        <div class="search-filter-row">
+          <input type="text" id="animal-search-input" class="search-input" placeholder="Rechercher par nom, race, lieu de vie, propriétaire...">
+          <select id="animal-species-filter">
+            <option value="">Toutes les espèces</option>
+            <option value="Cheval">Cheval</option>
+            <option value="Chien">Chien</option>
+            <option value="Chat">Chat</option>
+            <option value="Autre">Autre</option>
+          </select>
+        </div>
+
+        <div class="glass-card table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th class="sortable" data-sort="name">Nom de l'animal <span class="sort-icon"></span></th>
+                <th class="sortable" data-sort="breed">Race / Robe <span class="sort-icon"></span></th>
+                <th class="sortable" data-sort="owner">Propriétaire <span class="sort-icon"></span></th>
+                <th class="sortable" data-sort="location">Lieu de vie <span class="sort-icon"></span></th>
+                <th class="sortable" data-sort="age">Âge <span class="sort-icon"></span></th>
+                <th>Problématique(s) principale(s)</th>
+                <th class="sortable" data-sort="tracking">Mode de suivi <span class="sort-icon"></span></th>
+                <th class="actions-column">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="animals-table-body">
+              <!-- Dynamique -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 3B. ANIMAL DETAILS VIEW -->
+      <section id="view-animals-details" class="view-section">
+        <div class="section-header-actions">
+          <div>
+            <div class="back-buttons-row" style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+              <button class="btn btn-link" id="btn-back-to-animals">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                Annuaire des animaux
+              </button>
+              <button class="btn btn-link" id="btn-back-contextual" style="display: none;">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                <span id="btn-back-contextual-text">Retour</span>
+              </button>
+            </div>
+            <h1 id="detail-animal-name">Fiche de l'Animal</h1>
+          </div>
+          <div class="button-group">
+            <button class="btn btn-secondary" id="btn-copy-animal-portal-link">🔗 Lien Espace Client</button>
+            <button class="btn btn-secondary" id="btn-edit-animal-detail">Modifier</button>
+            <button class="btn btn-secondary" id="btn-add-external-session-for-animal">+ Séance externe (Autre praticien)</button>
+            <button class="btn btn-primary" id="btn-new-session-for-animal">Nouvelle séance</button>
+          </div>
+        </div>
+
+        <div class="detail-grid">
+          <!-- Infos et Pros -->
+          <div class="detail-left-column">
+            <div class="glass-card detail-card">
+              <!-- Profil Header avec Photo -->
+              <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--glass-border); padding-bottom: 15px;">
+                <div id="detail-animal-photo-container" style="width: 80px; height: 80px; border-radius: 50%; overflow: hidden; border: 2px solid var(--color-primary); background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  <img id="detail-animal-photo" src="" alt="Photo Animal" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+                  <span id="detail-animal-photo-placeholder" style="font-size: 2.2rem;">🐾</span>
+                </div>
+                <div>
+                  <h3 id="detail-card-animal-name" style="margin: 0; font-size: 1.25rem; color: var(--color-secondary);">Fiche d'identité</h3>
+                  <p style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--color-primary); font-weight: 600;" id="detail-animal-tracking-mode-display" class="practitioner-only">-</p>
+                </div>
+              </div>
+
+              <div class="info-list">
+                <div class="info-item">
+                  <span class="info-label">Propriétaire</span>
+                  <span class="info-value" id="detail-animal-owner">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Espèce / Race / Robe</span>
+                  <span class="info-value" id="detail-animal-identity">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Sexe</span>
+                  <span class="info-value" id="detail-animal-sex">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Âge / Date de Naissance</span>
+                  <span class="info-value" id="detail-animal-age">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Pension / Lieu de vie</span>
+                  <span class="info-value" id="detail-animal-lieu">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Adresse lieu de vie</span>
+                  <span class="info-value" id="detail-animal-address">-</span>
+                </div>
+                <div class="info-item practitioner-only">
+                  <span class="info-label">Distance depuis domicile</span>
+                  <span class="info-value" id="detail-animal-distance">-</span>
+                </div>
+                <div class="info-item" id="detail-animal-housing-row">
+                  <span class="info-label">Mode de vie</span>
+                  <span class="info-value" id="detail-animal-housing">-</span>
+                </div>
+                <div class="info-item practitioner-only">
+                  <span class="info-label">Mode de suivi</span>
+                  <span class="info-value" id="detail-animal-tracking-mode">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Suivi par une nutritionniste</span>
+                  <span class="info-value" id="detail-animal-nutritionist">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Alimentation / Ration</span>
+                  <span class="info-value" id="detail-animal-nutrition-details">-</span>
+                </div>
+                <div class="info-item" id="detail-animal-work-row">
+                  <span class="info-label">Travail & Objectif</span>
+                  <span class="info-value" id="detail-animal-work">-</span>
+                </div>
+                <div class="info-item" id="detail-animal-lifestyle-row" style="display: none;">
+                  <span class="info-label">Précisions mode de vie / activité</span>
+                  <span class="info-value text-block" id="detail-animal-lifestyle">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Problématiques principales</span>
+                  <span class="info-value text-block" id="detail-animal-problems">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Historique Médical & Pathologique Card -->
+            <div class="glass-card detail-card">
+              <div class="card-header-action" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="margin: 0;">Historique Médical & Pathologies</h3>
+                <button class="btn btn-secondary btn-small" id="btn-add-medical-event">+ Ajouter un événement</button>
+              </div>
+              <div id="detail-animal-medical-history" class="medical-history-list">
+                <!-- Rendu dynamique chronologique -->
+              </div>
+            </div>
+
+            <div class="glass-card detail-card">
+              <div class="card-header-action">
+                <h3>Professionnels partenaires</h3>
+                <button class="btn btn-secondary btn-small" id="btn-associate-prof">Gérer</button>
+              </div>
+              <div class="prof-list" id="detail-animal-professionals">
+                <p class="empty-state">Aucun professionnel associé.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Historique et Rappels -->
+          <div class="detail-right-column">
+            <div class="glass-card detail-card">
+              <h3>Historique des Séances</h3>
+              <div class="sessions-timeline" id="detail-animal-sessions">
+                <p class="empty-state">Aucune séance enregistrée pour le moment.</p>
+              </div>
+            </div>
+
+            <div class="glass-card detail-card">
+              <div class="card-header-action" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="margin: 0;">Suivis & Rappels Programmés</h3>
+                <button class="btn btn-secondary btn-small" id="btn-add-reminder-for-animal">+ Ajouter un rappel</button>
+              </div>
+              <div class="reminder-list" id="detail-animal-reminders">
+                <p class="empty-state">Aucun rappel programmé.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3C. LIEUX DE VIE / TOURNEES VIEW -->
+      <section id="view-tournee" class="view-section">
+        <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 1.5rem;">
+          <div class="page-title-group">
+            <h1>Organisation des Tournées & Lieux de vie</h1>
+            <p class="subtitle">Regroupement géographique des animaux suivis pour planifier vos déplacements</p>
+          </div>
+          <div class="tournee-filters" style="flex-shrink: 0;">
+            <select id="tournee-grouping-mode" style="box-sizing: border-box;">
+              <option value="location" selected>Grouper par Lieu de vie</option>
+              <option value="client">Grouper par Client</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="search-filter-row">
+          <input type="text" id="tournee-search-input" class="search-input" placeholder="Rechercher par animal, propriétaire, écurie, ville, CP, département...">
+        </div>
+
+        <!-- Carte des Lieux de Vie -->
+        <div class="glass-card" style="margin-bottom: 25px; padding: 15px;">
+          <div class="card-header-action" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
+            <button class="btn btn-secondary" id="btn-toggle-tours-map" style="display: flex; align-items: center; gap: 8px;">
+              <span>🗺️</span> <span id="btn-toggle-tours-map-text">Afficher la carte des lieux de vie</span>
+            </button>
+          </div>
+          <div id="tours-map-container" style="height: 350px; border-radius: var(--border-radius-md); overflow: hidden; border: 1px solid var(--glass-border); margin-top: 15px; display: none;">
+            <div id="tours-map" style="width: 100%; height: 100%; z-index: 1;"></div>
+          </div>
+        </div>
+
+        <div id="tournee-container">
+          <!-- Dynamique -->
+          <p class="empty-state">Aucune donnée disponible. Ajoutez des animaux avec des lieux de vie pour commencer.</p>
+        </div>
+      </section>
+
+      <!-- 4. SESSIONS VIEW -->
+      <section id="view-sessions" class="view-section">
+        <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 1.5rem;">
+          <div class="page-title-group">
+            <h1>Séances & Comptes-rendus</h1>
+            <p class="subtitle">Historique des séances thérapeutiques eKiKare</p>
+          </div>
+          <button class="btn btn-primary" id="btn-add-session" style="flex-shrink: 0; white-space: nowrap;">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nouvelle séance
+          </button>
+        </div>
+
+        <div class="search-filter-row">
+          <input type="text" id="session-search-input" class="search-input" placeholder="Rechercher une séance par animal, propriétaire, motif...">
+        </div>
+
+        <div class="glass-card table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Animal</th>
+                <th>Propriétaire</th>
+                <th>Motif / consultation</th>
+                <th>Résumé de séance</th>
+                <th>Séance de l'année</th>
+                <th class="actions-column">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="sessions-table-body">
+              <!-- Dynamique -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 4B. SESSION EDITOR VIEW -->
+      <section id="view-session-editor" class="view-section">
+        <div class="section-header-actions">
+          <div>
+            <button class="btn btn-link" id="btn-back-to-sessions">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+              Annuler
+            </button>
+            <h1 id="session-editor-title">Nouvelle Séance</h1>
+          </div>
+        </div>
+
+        <div class="glass-card form-container-large">
+          <form id="session-form">
+            <input type="hidden" id="session-form-id">
+
+            <div class="form-grid-3">
+              <div class="form-group">
+                <label for="session-form-animal">Animal concerné <span class="required">*</span></label>
+                <select id="session-form-animal" required>
+                  <!-- Dynamique -->
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="session-form-date">Date de la séance <span class="required">*</span></label>
+                <input type="date" id="session-form-date" required>
+              </div>
+              <div class="form-group">
+                <label for="session-form-number">N° de séance dans l'année</label>
+                <input type="number" id="session-form-number" min="1" max="100" value="1">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="session-form-objective">Motif de consultation <span class="required">*</span></label>
+              <textarea id="session-form-objective" rows="2" placeholder="Ex: Bilan général, boiterie, stress..." required></textarea>
+            </div>
+
+            <!-- Intelligent Prefill Banner -->
+            <div id="session-prefill-banner-container"></div>
+
+            <!-- 2. QUESTIONNAIRES DYNAMIQUES -->
+            <!-- A. Questionnaire Avant Séance -->
+            <h2 class="questionnaire-section-title">Questionnaire Avant Séance</h2>
+            <div class="question-grid" id="q-avant-seance-container">
+              <!-- Dynamique -->
+            </div>
+
+            <!-- B. Questionnaire de suivi (à 3 semaines) -->
+            <div id="q-suivi-wrapper" style="display: none;">
+              <h2 class="questionnaire-section-title">Questionnaire de suivi</h2>
+              <div class="question-grid" id="q-3-semaines-container">
+                <!-- Dynamique -->
+              </div>
+            </div>
+            
+            <div id="container-add-followup-q" style="margin: 20px 0; text-align: center;">
+              <button type="button" class="btn btn-secondary" id="btn-add-followup-q-form">Ajouter le questionnaire de suivi</button>
+            </div>
+
+            <!-- Champ Observations Initiales -->
+            <div class="form-group" style="margin: 20px 0;">
+              <label for="session-form-notes-obs" style="font-weight: 600; color: var(--color-secondary);">Notes d'observations</label>
+              <textarea id="session-form-notes-obs" rows="3" placeholder="Saisissez vos observations initiales sur l'état général de l'animal, posture, comportement..."></textarea>
+            </div>
+
+            <!-- 3. FORMULAIRE METIER : LES 6 PROTOCOLES DE SOIN -->
+            <h2 class="questionnaire-section-title">Protocoles réalisés</h2>
+            
+            <!-- Protocole 1 : Shiatsu -->
+            <div class="protocol-accordion" id="protocol-shiatsu-acc">
+              <div class="protocol-header">
+                <input type="checkbox" class="protocol-checkbox" id="proto-shiatsu-enable">
+                <label class="protocol-title" for="proto-shiatsu-enable">Shiatsu</label>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+              <div class="protocol-body">
+                <div class="shiatsu-grid-columns" style="display: grid; grid-template-columns: 80px repeat(6, 1fr); gap: 10px; margin-bottom: 15px; overflow-x: auto; align-items: center;">
+                  <!-- Headers Elements -->
+                  <div style="font-weight: bold; color: var(--text-sub); font-size: 0.9rem;">Élément</div>
+                  <div class="element-header element-bois" style="text-align: center; font-weight: bold; padding: 5px; border-radius: 4px; background: rgba(16, 185, 129, 0.1); color: #10b981; font-size: 0.9rem;">Bois</div>
+                  <div class="element-header element-feu" style="text-align: center; font-weight: bold; padding: 5px; border-radius: 4px; background: rgba(239, 68, 68, 0.1); color: #ef4444; font-size: 0.9rem;">Feu</div>
+                  <div class="element-header element-feu-min" style="text-align: center; font-weight: bold; padding: 5px; border-radius: 4px; background: rgba(236, 72, 153, 0.1); color: #ec4899; font-size: 0.9rem;">Feu M.</div>
+                  <div class="element-header element-terre" style="text-align: center; font-weight: bold; padding: 5px; border-radius: 4px; background: rgba(249, 115, 22, 0.1); color: #f97316; font-size: 0.9rem;">Terre</div>
+                  <div class="element-header element-metal" style="text-align: center; font-weight: bold; padding: 5px; border-radius: 4px; background: rgba(100, 116, 139, 0.1); color: #94a3b8; font-size: 0.9rem;">Métal</div>
+                  <div class="element-header element-eau" style="text-align: center; font-weight: bold; padding: 5px; border-radius: 4px; background: rgba(59, 130, 246, 0.1); color: #3b82f6; font-size: 0.9rem;">Eau</div>
+ 
+                  <!-- Yin Row -->
+                  <div style="font-weight: bold; color: var(--text-muted); font-size: 0.85rem;">Méridiens Yin</div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #10b981; font-weight: 600;"><input type="checkbox" id="meridian-foie"> F²</label>
+                  </div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #ef4444; font-weight: 600;"><input type="checkbox" id="meridian-coeur"> C³</label>
+                  </div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #ec4899; font-weight: 600;"><input type="checkbox" id="meridian-maitre-coeur"> MC²</label>
+                  </div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #f97316; font-weight: 600;"><input type="checkbox" id="meridian-rate"> Rte¹</label>
+                  </div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #94a3b8; font-weight: 600;"><input type="checkbox" id="meridian-poumon"> P¹</label>
+                  </div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #3b82f6; font-weight: 600;"><input type="checkbox" id="meridian-reins"> Rein³</label>
+                  </div>
+ 
+                  <!-- Yang Row -->
+                  <div style="font-weight: bold; color: var(--text-muted); font-size: 0.85rem;">Méridiens Yang</div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #10b981; font-weight: 600;"><input type="checkbox" id="meridian-vesicule"> VB²</label>
+                  </div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #ef4444; font-weight: 600;"><input type="checkbox" id="meridian-grele"> IG¹</label>
+                  </div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #ec4899; font-weight: 600;"><input type="checkbox" id="meridian-triple-rechauffeur"> TR²</label>
+                  </div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #f97316; font-weight: 600;"><input type="checkbox" id="meridian-estomac"> E³</label>
+                  </div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #94a3b8; font-weight: 600;"><input type="checkbox" id="meridian-gros-intestin"> GI³</label>
+                  </div>
+                  <div class="meridian-cell" style="padding: 10px; border: 1px solid var(--glass-border); border-radius: 4px; text-align: center; background: rgba(255,255,255,0.02);">
+                    <label style="cursor: pointer; display: block; color: #3b82f6; font-weight: 600;"><input type="checkbox" id="meridian-vessie"> V¹</label>
+                  </div>
+                </div>
+
+                <div class="merv-vaisseaux" style="margin-top: 15px;">
+                  <label class="checkbox-item"><input type="checkbox" id="mv-gouverneur"> Vaisseau Gouverneur (VG)</label>
+                  <label class="checkbox-item"><input type="checkbox" id="mv-conception"> Vaisseau Conception (VC)</label>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Protocole 2 : Techniques manuelles -->
+            <div class="protocol-accordion" id="protocol-manuelles-acc">
+              <div class="protocol-header">
+                <input type="checkbox" class="protocol-checkbox" id="proto-manuelles-enable">
+                <label class="protocol-title" for="proto-manuelles-enable">Techniques manuelles</label>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+              <div class="protocol-body">
+                <div class="form-group">
+                  <label for="proto-manuelles-texte">Observations & Travail effectué</label>
+                  <textarea id="proto-manuelles-texte" rows="4" placeholder="Décrivez le travail structurel, fascial ou tissulaire réalisé..."></textarea>
+                </div>
+              </div>
+            </div>
+
+            <!-- Protocole 3 : Tenségrité -->
+            <div class="protocol-accordion" id="protocol-tensegrite-acc">
+              <div class="protocol-header">
+                <input type="checkbox" class="protocol-checkbox" id="proto-tensegrite-enable">
+                <label class="protocol-title" for="proto-tensegrite-enable">Tenségrité</label>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+              <div class="protocol-body">
+                <div class="tensegrite-grid">
+                  <!-- 1. FTM -->
+                  <div class="tensegrite-category-box" data-category="ftm">
+                    <div class="tensegrite-category-header">
+                      <span class="tensegrite-category-title">1. FTM (Fascia Temporo-Massétérin)</span>
+                      <div class="tensegrite-override-container">
+                        <label for="override-ftm">Moyenne / Surcharge :</label>
+                        <select id="override-ftm" class="tensegrite-select">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="tensegrite-sub-grid">
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Queue</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="queue">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Œil Droit</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="oeil_droit">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Œil Gauche</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="oeil_gauche">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Énergétique</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="energetique">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 2. Torsion physiologique -->
+                  <div class="tensegrite-category-box" data-category="torsion">
+                    <div class="tensegrite-category-header">
+                      <span class="tensegrite-category-title">2. Torsion Physiologique</span>
+                      <div class="tensegrite-override-container">
+                        <label for="override-torsion">Moyenne / Surcharge :</label>
+                        <select id="override-torsion" class="tensegrite-select">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="tensegrite-sub-grid">
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Hanche Droite</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="hanche_droite">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Hanche Gauche</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="hanche_gauche">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Occiput</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="occiput">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 3. Diaphragmes -->
+                  <div class="tensegrite-category-box" data-category="diaphragme">
+                    <div class="tensegrite-category-header">
+                      <span class="tensegrite-category-title">3. Diaphragmes</span>
+                      <div class="tensegrite-override-container">
+                        <label for="override-diaphragme">Moyenne / Surcharge :</label>
+                        <select id="override-diaphragme" class="tensegrite-select">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="tensegrite-sub-grid">
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Pelvien</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="pelvien">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Thoraco-lombaire</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="thoraco_lombaire">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Cervico-thoracique</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="cervico_thoracique">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">C0-C1</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="c0_c1">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 4. Loges -->
+                  <div class="tensegrite-category-box" data-category="loge">
+                    <div class="tensegrite-category-header">
+                      <span class="tensegrite-category-title">4. Loges tissulaires</span>
+                      <div class="tensegrite-override-container">
+                        <label for="override-loge">Moyenne / Surcharge :</label>
+                        <select id="override-loge" class="tensegrite-select">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="tensegrite-sub-grid">
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Digestive</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="digestive">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Thoracique</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="thoracique">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">De la Gorge</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="gorge">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                      <div class="tensegrite-sub-item">
+                        <span class="tensegrite-sub-name">Du cervelet</span>
+                        <select class="tensegrite-select sub-intensity" data-sub="cervelet">
+                          <option value="Faible">Faible</option>
+                          <option value="Moyen" selected>Moyen</option>
+                          <option value="Élevé">Élevé</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-group" style="margin-top: 10px;">
+                  <label for="proto-tensegrite-helices">Hélices Fasciales</label>
+                  <input type="text" id="proto-tensegrite-helices" placeholder="Remarques hélices fasciales...">
+                </div>
+              </div>
+            </div>
+
+            <!-- Protocole 4 : Cranio-Sacrée -->
+            <div class="protocol-accordion" id="protocol-cranio-acc">
+              <div class="protocol-header">
+                <input type="checkbox" class="protocol-checkbox" id="proto-cranio-enable">
+                <label class="protocol-title" for="proto-cranio-enable">Réflexologie Cranio-Sacrée</label>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+              <div class="protocol-body">
+                <div class="form-group">
+                  <label for="proto-cranio-ambiance">Ambiance émotionnelle de départ</label>
+                  <input type="text" id="proto-cranio-ambiance" placeholder="Ex: Animal craintif, hypervigilant, calme...">
+                </div>
+
+                <div class="cranio-hierarchy">
+                  <!-- 1. Adaptatif -->
+                  <div class="cranio-box">
+                    <div class="cranio-box-title"><label class="checkbox-item-parent" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="cranio-parent-adaptatif"> 1. Adaptatif</label></div>
+                    <div class="checkbox-flow cranio-indented-flow">
+                      <label class="checkbox-item"><input type="checkbox" id="cranio-sacro"> Sacro-iliaque</label>
+                      <label class="checkbox-item"><input type="checkbox" id="cranio-rre"> Os du crâne</label>
+                      <label class="checkbox-item"><input type="checkbox" id="cranio-occiput"> Occiput</label>
+                      <label class="checkbox-item"><input type="checkbox" id="cranio-couple"> Couple scapho-cuboïdien</label>
+                      <label class="checkbox-item"><input type="checkbox" id="cranio-strains"> sphénoïde</label>
+                      <label class="checkbox-item"><input type="checkbox" id="cranio-grosse-art"> Grosse articulation</label>
+                    </div>
+                  </div>
+
+                  <!-- 2. Somatique -->
+                  <div class="cranio-box">
+                    <div class="cranio-box-title">2. Somatique</div>
+                    
+                    <div class="cranio-sub-box">
+                      <div class="cranio-sub-box-title"><label class="checkbox-item-parent" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="cranio-parent-pelvienne"> Ceinture pelvienne</label></div>
+                      <div class="checkbox-flow cranio-indented-flow">
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-iliaque-ensemble"> Iliaques ensemble</label>
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-coccygienne"> Coccygienne</label>
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-ixions"> Ixions</label>
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-pubis"> Pubis</label>
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-iliaque-indep"> Iliaques indépendamment</label>
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-sacrum-liaison"> Liaison Iliaque-Sacrum</label>
+                      </div>
+                    </div>
+
+                    <div class="cranio-sub-box">
+                      <div class="cranio-sub-box-title">Autres structures somatiques</div>
+                      <div class="checkbox-flow">
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-vertebres"> Vertèbres</label>
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-scapulaire"> Ceinture scapulaire</label>
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-ant-complet"> Membres ant. Complet</label>
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-post-complet"> Membres post. Complet</label>
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-genoux"> Genoux</label>
+                        <label class="checkbox-item"><input type="checkbox" id="cranio-jarrets"> Jarrets</label>
+                      </div>
+                    </div>
+
+                    <div class="cranio-sub-box">
+                      <div class="cranio-sub-box-title">Viscéral</div>
+                      <div class="checkbox-flow">
+                        <label class="checkbox-item">
+                          <input type="checkbox" id="cranio-visceres"> Viscères
+                          <input type="text" class="text-specifier" id="cranio-visceres-text" placeholder="Préciser les organes...">
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Protocole 5 : Kinésiologie -->
+            <div class="protocol-accordion" id="protocol-kinesio-acc">
+              <div class="protocol-header">
+                <input type="checkbox" class="protocol-checkbox" id="proto-kinesiologie-enable">
+                <label class="protocol-title" for="proto-kinesiologie-enable">Kinésiologie</label>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+              <div class="protocol-body">
+                <div class="kinesio-type-box form-group">
+                  <label for="proto-kinesiologie-type">Type de protocole kinésio</label>
+                  <select id="proto-kinesiologie-type">
+                    <option value="Classique" selected>Classique</option>
+                    <option value="Couple">Couple</option>
+                    <option value="Émotions réactives">Émotions réactives</option>
+                    <option value="Émotion d’urgence">Émotion d’urgence</option>
+                    <option value="Autre">Autre</option>
+                  </select>
+                </div>
+
+                <!-- Problématique travaillée (commun, affiché en haut, masqué pour urgence) -->
+                <div class="form-group" id="container-kinesio-problematique" style="width: 100%; display: block; clear: both;">
+                  <label for="kinesio-problematique">Problématique travaillée</label>
+                  <textarea id="kinesio-problematique" rows="2" placeholder="La source de tension émotionnelle..." style="width: 100%; display: block; box-sizing: border-box;"></textarea>
+                </div>
+
+                <!-- Panels conditionnels -->
+                <!-- Émotions Réactives -->
+                <div class="conditional-panel" id="panel-kinesio-emotions-reactives" style="width: 100%; display: none; clear: both; box-sizing: border-box;">
+                  <div style="display: flex; flex-direction: column; gap: 15px; width: 100%;">
+                    <div class="form-group" style="width: 100%; display: block;">
+                      <label for="kinesio-reactives">Émotions réactives</label>
+                      <textarea id="kinesio-reactives" rows="2" placeholder="Ex: Colère, abattement..." style="width: 100%; display: block; box-sizing: border-box;"></textarea>
+                    </div>
+                    <div class="form-group" style="width: 100%; display: block;">
+                      <label for="kinesio-reactrice">Émotions réactrices</label>
+                      <textarea id="kinesio-reactrice" rows="2" placeholder="L'émotion racine/déclencheuse..." style="width: 100%; display: block; box-sizing: border-box;"></textarea>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Émotion d'Urgence -->
+                <div class="conditional-panel" id="panel-kinesio-emotion-urgence">
+                  <div class="form-group">
+                    <label for="kinesio-liberee">Émotion libérée</label>
+                    <input type="text" id="kinesio-liberee" placeholder="Émotion d'urgence libérée lors de la séance...">
+                  </div>
+                </div>
+
+                <!-- Autre -->
+                <div class="conditional-panel" id="panel-kinesio-autre">
+                </div>
+
+                <!-- Champs Communs (sauf urgence, géré par JS) -->
+                <div class="common-panel" id="panel-kinesio-commun">
+                  <div class="form-group" id="container-kinesio-syntho" style="width: 100%; display: block; clear: both;">
+                    <label for="kinesio-syntho">Syntonisation</label>
+                    <textarea id="kinesio-syntho" rows="2" placeholder="Outil d'harmonisation..." style="width: 100%; display: block; box-sizing: border-box;"></textarea>
+                    <span class="field-explanation" style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">il s'agit de syntonisation, qui est le schéma de fonctionnement de l'animal.</span>
+                  </div>
+                  <div class="form-group">
+                    <label for="kinesio-objectif">Objectif positif de séance</label>
+                    <input type="text" id="kinesio-objectif" placeholder="Formulation positive. Ex: Se déplacer en sécurité...">
+                  </div>
+                  <div class="form-grid-2">
+                    <div class="form-group">
+                      <label for="kinesio-cen-debut">CEN Début (%)</label>
+                      <input type="number" id="kinesio-cen-debut" min="0" value="100" placeholder="Ex: 80">
+                    </div>
+                    <div class="form-group">
+                      <label for="kinesio-cen-fin">CEN Fin (%)</label>
+                      <input type="number" id="kinesio-cen-fin" min="0" value="0" placeholder="Ex: 10">
+                    </div>
+                  </div>
+                  <div class="form-group" style="margin-top: 15px;">
+                    <label for="kinesio-ldt">LDT (Ligne de Temps)</label>
+                    <textarea id="kinesio-ldt" rows="2" placeholder="Généalogie, âge de blocage..."></textarea>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Protocole 6 : Aura -->
+            <div class="protocol-accordion" id="protocol-aura-acc">
+              <div class="protocol-header">
+                <input type="checkbox" class="protocol-checkbox" id="proto-aura-enable">
+                <label class="protocol-title" for="proto-aura-enable">Soin de l'Aura & Énergétique subtile</label>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+              <div class="protocol-body">
+                <div class="cranio-hierarchy">
+                  <div class="cranio-box">
+                    <div class="cranio-box-title">Étapes globales du soin</div>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 20px;">
+                      <label class="checkbox-item"><input type="checkbox" id="aura-recentrage"> Recentrage de l'aura</label>
+                      <label class="checkbox-item"><input type="checkbox" id="aura-liens"> Section des liens énergétiques</label>
+                      <label class="checkbox-item"><input type="checkbox" id="aura-vidange"> Vidange des énergies usagées</label>
+                      <label class="checkbox-item"><input type="checkbox" id="aura-filet"> Technique du filet</label>
+                      <div class="checkbox-container-block" style="display: flex; flex-direction: column;">
+                        <label class="checkbox-item"><input type="checkbox" id="aura-fleches"> Élimination des flèches</label>
+                        <div id="panel-aura-fleches-loc" style="display: none; margin-top: 5px; padding-left: 20px;">
+                          <input type="text" id="aura-fleches-loc" placeholder="Préciser la localisation..." style="max-width: 250px; width: 100%; font-size: 0.8rem; padding: 5px; border-radius: 4px; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: white; display: block; box-sizing: border-box;">
+                        </div>
+                      </div>
+                      <div class="checkbox-container-block" style="display: flex; flex-direction: column;">
+                        <label class="checkbox-item"><input type="checkbox" id="aura-masses"> Élimination des masses</label>
+                        <div id="panel-aura-masses-loc" style="display: none; margin-top: 5px; padding-left: 20px;">
+                          <input type="text" id="aura-masses-loc" placeholder="Préciser la localisation..." style="max-width: 250px; width: 100%; font-size: 0.8rem; padding: 5px; border-radius: 4px; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: white; display: block; box-sizing: border-box;">
+                        </div>
+                      </div>
+                      <label class="checkbox-item"><input type="checkbox" id="aura-recharge"> Recharge énergétique & comblement</label>
+                      <label class="checkbox-item"><input type="checkbox" id="aura-chakras"> Régulation des chakras</label>
+                      <label class="checkbox-item"><input type="checkbox" id="aura-circulation"> Relance de la circulation générale</label>
+                      <label class="checkbox-item"><input type="checkbox" id="aura-mouvement"> Relance du mouvement primordial</label>
+                    </div>
+
+                    <!-- Sous-options du filet, affichées uniquement si le filet est coché -->
+                    <div id="panel-filet-options" style="margin-top: 15px; padding: 10px; border-left: 3px solid var(--color-secondary); background: rgba(255,255,255,0.02); display: none;">
+                      <div style="font-weight: 600; margin-bottom: 5px; font-size: 0.85rem; color: var(--color-secondary);">Éléments filtrés par le filet :</div>
+                      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                        <label class="checkbox-item"><input type="checkbox" id="filet-energies"> Énergies négatives</label>
+                        <label class="checkbox-item"><input type="checkbox" id="filet-emotions"> Émotions négatives</label>
+                        <label class="checkbox-item"><input type="checkbox" id="filet-parasites"> Parasites</label>
+                        <label class="checkbox-item"><input type="checkbox" id="filet-entites"> Petites entités</label>
+                        <label class="checkbox-item"><input type="checkbox" id="filet-sorts"> Sorts</label>
+                        <label class="checkbox-item"><input type="checkbox" id="filet-incorporations"> Incorporations</label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Soins Locaux -->
+                  <div class="cranio-box">
+                    <div class="cranio-box-title">Soins spécifiques / locaux</div>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 20px;">
+                      <label class="checkbox-item"><input type="checkbox" id="aura-repolarisation"> Repolarisation du corps (détente)</label>
+                      <label class="checkbox-item"><input type="checkbox" id="aura-local-filament"> Filament incandescent</label>
+                      <label class="checkbox-item"><input type="checkbox" id="aura-local-polarites"> Équilibre des polarités</label>
+                      <label class="checkbox-item"><input type="checkbox" id="aura-local-recharge"> Recharge énergétique locale</label>
+                      <label class="checkbox-item" style="grid-column: span 2;">
+                        <input type="checkbox" id="aura-local-complement"> Techniques complém.
+                        <input type="text" class="text-specifier" id="aura-local-complement-text" placeholder="Précisez le soin..." style="width: 250px; display: inline-block; margin-left: 10px; padding: 4px 8px;">
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- 4. MODULE D'ANNOTATION SUR IMAGE (CANVAS) -->
+            <h2 class="questionnaire-section-title">Schéma d'annotation de la séance</h2>
+            <div class="canvas-wrapper">
+              <div class="canvas-toolbar">
+                <div class="color-palette">
+                  <button type="button" class="color-btn active" style="background-color: #ef4444;" data-color="#ef4444" title="Tension / Douleur (Rouge)"></button>
+                  <button type="button" class="color-btn" style="background-color: #3b82f6;" data-color="#3b82f6" title="Froid / Vide (Bleu)"></button>
+                  <button type="button" class="color-btn" style="background-color: #10b981;" data-color="#10b981" title="Libération / Soin (Vert)"></button>
+                  <button type="button" class="color-btn" style="background-color: #1e293b;" data-color="#1e293b" title="Notes / Autre (Noir)"></button>
+                </div>
+                
+                <div class="brush-slider-box">
+                  <span>Taille :</span>
+                  <input type="range" class="brush-slider" id="canvas-brush-size" min="1" max="20" value="2">
+                  <span id="brush-size-display">2px</span>
+                </div>
+
+                <button type="button" class="btn btn-secondary btn-small" id="btn-canvas-eraser">Gomme</button>
+                <button type="button" class="btn btn-secondary btn-small" id="btn-canvas-undo">Annuler</button>
+                <button type="button" class="btn btn-danger btn-small" id="btn-canvas-clear">Effacer tout</button>
+              </div>
+
+              <div class="canvas-container">
+                <!-- Image de fond squelette équin -->
+                <img src="horse_skeleton.png" id="canvas-skeleton-img" class="canvas-bg-img" alt="Squelette cheval">
+                <!-- Calque transparent de dessin -->
+                <canvas id="annotation-canvas" class="canvas-drawing" width="600" height="400"></canvas>
+              </div>
+            </div>
+
+            <!-- 5. SYNTHESE & RESUME CLIENT -->
+            <h2 class="questionnaire-section-title">Résumé de séance & Suite</h2>
+            
+            <div class="form-group">
+              <label for="session-form-precisions">Précisions générales de la séance</label>
+              <textarea id="session-form-precisions" rows="3" placeholder="Saisissez les précisions générales à transmettre (ex: conseils, préconisations, exercices...)."></textarea>
+            </div>
+
+            <div class="form-group">
+              <label for="session-form-cr-practicienne">Notes personnelles (Privé - Ne figure pas sur le compte-rendu client)</label>
+              <textarea id="session-form-cr-practicienne" rows="3" placeholder="Écrivez vos notes cliniques privées, ressentis, intuition..."></textarea>
+            </div>
+
+            <!-- Planification Rappels automatiques multiples -->
+            <div class="reminder-scheduler-box">
+              <h3>Planification des rappels de suivi</h3>
+              <p class="box-desc">Planifiez un ou plusieurs rappels pour recontacter le propriétaire ou fixer un nouveau rendez-vous.</p>
+              
+              <div id="reminders-dynamic-list" style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 15px;">
+                <!-- Les rappels dynamiques figureront ici -->
+              </div>
+              
+              <button type="button" class="btn btn-secondary btn-small" id="btn-add-reminder-item" style="display: flex; align-items: center; gap: 5px; justify-content: center; width: auto; padding: 8px 12px;">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                + Ajouter un autre rappel
+              </button>
+            </div>
+
+            <!-- Résumé Client Généré -->
+            <div class="form-group">
+              <div class="label-row-dictate">
+                <label for="session-form-resume">Résumé Suivi Client (Généré automatiquement ou éditable)</label>
+                <button type="button" class="btn btn-secondary btn-small" id="btn-generate-client-summary">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  Générer le Résumé
+                </button>
+              </div>
+              <textarea id="session-form-resume" rows="6" placeholder="Cliquez sur le bouton ci-dessus pour générer le résumé basé sur les protocoles appliqués..."></textarea>
+            </div>
+
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" id="btn-cancel-session-form">Annuler</button>
+              <button type="submit" class="btn btn-primary">Enregistrer la séance</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- 4C. VIEW SESSION DETAIL (PRINTABLE) -->
+      <section id="view-sessions-details" class="view-section">
+        <div class="section-header-actions">
+          <div>
+            <div style="display: flex; gap: 15px; margin-bottom: 5px; flex-wrap: wrap;">
+              <button class="btn btn-link" id="btn-back-to-animal-from-session">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                Retour à la fiche animal
+              </button>
+              <button class="btn btn-link" id="btn-back-to-sessions-list">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                Retour à la liste des séances
+              </button>
+            </div>
+            <h1>Compte-rendu de séance</h1>
+          </div>
+          <div class="button-group">
+            <button class="btn btn-secondary" id="btn-edit-session-detail">Modifier</button>
+            <button class="btn btn-primary" id="btn-print-session">Imprimer / Partager PDF</button>
+          </div>
+        </div>
+
+        <div class="glass-card print-container" id="session-print-area">
+          <div class="print-header">
+            <div>
+              <h2 class="print-app-title">Compte-Rendu de Séance - eKiKare</h2>
+              <p class="print-date" id="print-session-date">Séance du : -</p>
+            </div>
+            <div class="print-branding">Techniques manuelles et énergétiques</div>
+          </div>
+          <hr class="divider">
+          
+          <div class="print-grid-2">
+            <div>
+              <h3>Propriétaire (Client)</h3>
+              <p><strong id="print-client-name">-</strong></p>
+              <p id="print-client-contact">-</p>
+            </div>
+            <div>
+              <h3>Animal</h3>
+              <p>Nom : <strong id="print-animal-name">-</strong></p>
+              <p id="print-animal-identity">-</p>
+              <p id="print-animal-details">-</p>
+              <p id="print-animal-living">-</p>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="print-section">
+            <h3 class="print-section-title">Motif de consultation</h3>
+            <p class="print-text-block" id="print-session-objective">-</p>
+          </div>
+
+          <div class="print-section" id="print-section-resume">
+            <h3 class="print-section-title">résumé de la séance</h3>
+            <p class="print-text-block" id="print-session-resume-content">-</p>
+          </div>
+
+          <div class="print-section" id="print-section-canvas" style="display: none;">
+            <h3 class="print-section-title">Schéma d'annotations</h3>
+            <div class="print-canvas-preview">
+              <img id="print-session-canvas-img" src="" alt="Schéma d'annotations de la séance">
+            </div>
+          </div>
+
+          <!-- Précisions générales de la séance (si renseignées) -->
+          <div class="print-section" id="print-section-precisions" style="display: none; margin-top: 20px;">
+            <h3 class="print-section-title">Précisions générales de la séance</h3>
+            <p class="print-text-block" id="print-session-precisions-content">-</p>
+          </div>
+
+          <!-- Historique des séances de l'animal dans le compte-rendu imprimé -->
+          <div class="print-section" id="print-section-history" style="margin-top: 20px;">
+            <h3 class="print-section-title">Historique des séances de l'animal</h3>
+            <div id="print-session-history-list">
+              <!-- Rempli dynamiquement en JS -->
+            </div>
+          </div>
+
+          <div class="print-footer" style="margin-top: 30px; border-top: 1px solid #cbd5e1; padding-top: 15px;">
+            <p style="font-size: 0.8rem; font-style: italic; line-height: 1.4;">« Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire ou éducatif. »</p>
+            <p style="margin-top: 10px; font-size: 0.75rem;">Généré via l'application Suivi eKiKare le <span id="print-generation-date">-</span></p>
+          </div>
+        </div>
+
+        <!-- Zone réservée au praticien (non imprimée) -->
+        <div class="glass-card practitioner-box-area" style="margin-top: 25px; padding: 20px;">
+          <h3 style="margin-top: 0; margin-bottom: 15px; color: var(--color-secondary); font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+            🛡️ Espace Praticienne (Privé)
+          </h3>
+          <div class="button-group" style="display: flex; gap: 15px;">
+            <button class="btn btn-secondary" id="btn-toggle-cr-detaille">Afficher le CR métier (détaillé)</button>
+            <button class="btn btn-secondary" id="btn-complete-followup-q">Compléter le questionnaire de suivi</button>
+          </div>
+          
+          <div id="practitioner-cr-detaille-content" class="glass-card" style="display: none; margin-top: 15px; padding: 15px; border-left: 3px solid var(--color-secondary);">
+            <!-- Rempli dynamiquement en JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. PROFESSIONALS VIEW -->
+      <section id="view-professionals" class="view-section">
+        <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 1.5rem;">
+          <div class="page-title-group">
+            <h1>Répertoire des Professionnels</h1>
+            <p class="subtitle">Gestion des contacts des praticiens, maréchaux et vétérinaires partenaires</p>
+          </div>
+          <button class="btn btn-primary" id="btn-add-professional" style="flex-shrink: 0; white-space: nowrap;">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nouveau professionnel
+          </button>
+        </div>
+
+        <div class="search-filter-row">
+          <input type="text" id="prof-search-input" class="search-input" placeholder="Rechercher par nom, spécialité, notes...">
+        </div>
+
+        <div class="glass-card table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Nom Complet</th>
+                <th>Spécialité / Métier</th>
+                <th>Téléphone</th>
+                <th>Animaux suivis</th>
+                <th>Commentaires</th>
+                <th class="actions-column">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="professionals-table-body">
+              <!-- Dynamique -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 6. REMINDERS VIEW -->
+      <section id="view-reminders" class="view-section">
+        <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 1.5rem;">
+          <div class="page-title-group">
+            <h1>Suivi des Tâches & Rappels programmés</h1>
+            <p class="subtitle">Suivez vos relances pour prendre des nouvelles ou proposer de nouveaux rendez-vous</p>
+          </div>
+          <button class="btn btn-primary" id="btn-add-reminder" style="flex-shrink: 0; white-space: nowrap;">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nouveau rappel / tâche
+          </button>
+        </div>
+
+        <div class="search-filter-row">
+          <input type="text" id="reminder-search-input" class="search-input" placeholder="Rechercher une tâche, un animal, un client..." style="flex-grow: 1;">
+          <select id="reminder-status-filter" style="width: auto;">
+            <option value="pending" selected>Rappels en attente</option>
+            <option value="completed">Rappels traités</option>
+            <option value="all">Tous les rappels</option>
+          </select>
+        </div>
+
+        <div class="glass-card table-container" style="padding: 24px;" id="reminders-grouped-container">
+          <!-- Dynamique par semaine -->
+        </div>
+      </section>
+
+      <!-- 7. BACKUP & SETTINGS VIEW -->
+      <section id="view-settings" class="view-section">
+        <div class="section-header">
+          <h1>Paramètres, Sauvegardes & Analyses</h1>
+          <p class="section-subtitle">Gérez la base de données locale (Offline) et exportez vos statistiques</p>
+        </div>
+
+        <div class="settings-grid">
+          <!-- Sauvegarde Locale -->
+          <div class="glass-card settings-card">
+            <h3>Sauvegarde des Données (Base de données locale)</h3>
+            <p>Toutes vos fiches clients et animaux sont stockées localement de manière sécurisée dans la mémoire de votre navigateur. Exporter un fichier de sauvegarde vous permet de sécuriser vos données à l'extérieur de votre machine.</p>
+            <div class="settings-actions">
+              <button class="btn btn-primary" id="btn-export-backup">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Exporter la base de données (JSON)
+              </button>
+              <label for="import-backup-file" class="btn btn-secondary btn-file-upload">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Importer une sauvegarde (JSON)
+                <input type="file" id="import-backup-file" accept=".json" style="display: none;">
+              </label>
+            </div>
+          </div>
+
+          <!-- Exports Excel/CSV -->
+          <div class="glass-card settings-card">
+            <h3>Analyses et Exports Excel / CSV</h3>
+            <p>Téléchargez vos données brutes pour les importer dans Microsoft Excel ou Google Sheets et effectuez vos propres tableaux croisés ou bilans.</p>
+            <div class="settings-actions">
+              <button class="btn btn-secondary" id="btn-export-csv-sessions">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+                Exporter les Séances (CSV)
+              </button>
+              <button class="btn btn-secondary" id="btn-export-csv-animals">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 12c-2.5 0-4.5 1-4.5 3s2 4 4.5 4 4.5-2 4.5-4-2-3-4.5-3z"/></svg>
+                Exporter les Animaux (CSV)
+              </button>
+            </div>
+          </div>
+
+          <!-- Statistiques de la Praticienne -->
+          <div class="glass-card settings-card span-2">
+            <h3>Métriques clés d'activité</h3>
+            <div class="analytics-metrics-row">
+              <div class="metric-box">
+                <h4 id="stat-avg-sessions-animal">0.0</h4>
+                <p>Séances moyennes par animal</p>
+              </div>
+              <div class="metric-box">
+                <h4 id="stat-reminders-done">0%</h4>
+                <p>Taux de rappels traités</p>
+              </div>
+              <div class="metric-box">
+                <h4 id="stat-most-species">Aucune</h4>
+                <p>Espèce majoritaire en soins</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- MODALS -->
+
+  <!-- Modal Client (Ajout/Édition) -->
+  <dialog class="app-dialog glass-card" id="dialog-client">
+    <div class="dialog-header">
+      <h2 id="dialog-client-title">Nouveau Client</h2>
+      <button class="btn-close-dialog">&times;</button>
+    </div>
+    <form id="dialog-client-form">
+      <input type="hidden" id="dialog-client-id">
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="client-form-lastname">Nom de famille <span class="required">*</span></label>
+          <input type="text" id="client-form-lastname" required>
+        </div>
+        <div class="form-group">
+          <label for="client-form-firstname">Prénom <span class="required">*</span></label>
+          <input type="text" id="client-form-firstname" required>
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="client-form-phone">Téléphone <span class="required">*</span></label>
+          <input type="tel" id="client-form-phone" placeholder="06 12 34 56 78" required>
+        </div>
+        <div class="form-group">
+          <label for="client-form-email">E-mail</label>
+          <input type="email" id="client-form-email" placeholder="client@exemple.com">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="client-form-address">Adresse complète</label>
+        <input type="text" id="client-form-address" placeholder="12 rue des Prés, 75000 Paris">
+      </div>
+      <div class="form-group">
+        <label for="client-form-stable">Écurie / Pension principale</label>
+        <input type="text" id="client-form-stable" placeholder="Ex: Écurie des Prés">
+      </div>
+      <div class="form-group practitioner-only">
+        <label for="client-form-notes">Notes client (Remarques facturation, disponibilités...)</label>
+        <textarea id="client-form-notes" rows="3" placeholder="Ex: Souhaite être appelé uniquement le matin..."></textarea>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary btn-cancel-dialog">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Modal Animal (Ajout/Édition) -->
+  <dialog class="app-dialog glass-card" id="dialog-animal">
+    <div class="dialog-header">
+      <h2 id="dialog-animal-title">Nouvel Animal</h2>
+      <button class="btn-close-dialog">&times;</button>
+    </div>
+    <form id="dialog-animal-form">
+      <input type="hidden" id="dialog-animal-id">
+      
+      <div class="animal-photo-uploader">
+        <div class="animal-photo-preview-wrapper">
+          <img id="animal-form-photo-preview" src="" alt="Aperçu" style="display: none;">
+          <span id="animal-form-photo-placeholder" class="animal-photo-placeholder-icon">🐾</span>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="animal-form-photo-file" style="margin-bottom: 5px;">Photo de l'animal</label>
+          <input type="file" id="animal-form-photo-file" accept="image/*" style="font-size: 0.85rem; color: var(--text-muted);">
+          <input type="hidden" id="animal-form-photo-data">
+        </div>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="animal-form-name">Nom de l'animal <span class="required">*</span></label>
+          <input type="text" id="animal-form-name" required>
+        </div>
+        <div class="form-group practitioner-only">
+          <label for="animal-form-owner">Propriétaire <span class="required">*</span></label>
+          <select id="animal-form-owner" required>
+            <!-- Liste dynamique des clients -->
+          </select>
+        </div>
+      </div>
+      <div class="form-grid-3">
+        <div class="form-group">
+          <label for="animal-form-species">Espèce <span class="required">*</span></label>
+          <select id="animal-form-species" required>
+            <option value="Cheval">Cheval</option>
+            <option value="Chien">Chien</option>
+            <option value="Chat">Chat</option>
+            <option value="Autre">Autre</option>
+          </select>
+          <input type="text" id="animal-form-species-other" placeholder="Précisez l'espèce..." style="display: none; margin-top: 5px;">
+        </div>
+        <div class="form-group">
+          <label for="animal-form-breed">Race</label>
+          <input type="text" id="animal-form-breed" placeholder="Ex: Selle Français, Golden...">
+        </div>
+        <div class="form-group">
+          <label for="animal-form-robe">Robe</label>
+          <input type="text" id="animal-form-robe" placeholder="Ex: Bai, Alzan, Fauve...">
+        </div>
+      </div>
+      <div class="form-grid-3">
+        <div class="form-group">
+          <label for="animal-form-sex">Sexe</label>
+          <select id="animal-form-sex">
+            <option value="Mâle castré (Hongre)">Mâle castré (Hongre)</option>
+            <option value="Femelle (Jument)">Femelle (Jument)</option>
+            <option value="Mâle entier">Mâle entier</option>
+            <option value="Femelle stérilisée">Femelle stérilisée</option>
+            <option value="Inconnu">Inconnu</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="animal-form-birthdate">Date de naissance</label>
+          <input type="date" id="animal-form-birthdate">
+        </div>
+        <div class="form-group">
+          <label for="animal-form-age-estimation">Ou Âge estimé</label>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="number" id="animal-form-age-estimation" min="0" max="60" placeholder="ex: 5" style="flex: 1;">
+            <span style="font-weight: 500; font-size: var(--font-size-base); color: var(--color-text-secondary);">ans</span>
+          </div>
+        </div>
+      </div>
+      <!-- Option: Vit au domicile -->
+      <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px; margin-top: 15px;">
+        <input type="checkbox" id="animal-form-stable-at-home" style="width: 20px; height: 20px; cursor: pointer;">
+        <label for="animal-form-stable-at-home" style="margin-bottom: 0; cursor: pointer; font-weight: 600;">Vit au domicile du propriétaire</label>
+      </div>
+
+      <!-- Grid: Lieu de vie & Pension -->
+      <div class="form-grid-2" id="animal-form-location-grid-1">
+        <div class="form-group">
+          <label for="animal-form-stable-name">Nom de l'écurie / pension</label>
+          <input type="text" id="animal-form-stable-name" placeholder="Ex: Écuries du Teich" list="stable-names-datalist">
+          <datalist id="stable-names-datalist"></datalist>
+        </div>
+        <div class="form-group">
+          <label for="animal-form-stable-address">Adresse (Rue)</label>
+          <input type="text" id="animal-form-stable-address" placeholder="Ex: 12 Rue du Port">
+        </div>
+      </div>
+      <div class="form-grid-3" id="animal-form-location-grid-2">
+        <div class="form-group">
+          <label for="animal-form-stable-zip">Code Postal</label>
+          <input type="text" id="animal-form-stable-zip" placeholder="Ex: 33470">
+        </div>
+        <div class="form-group">
+          <label for="animal-form-stable-city">Ville</label>
+          <input type="text" id="animal-form-stable-city" placeholder="Ex: Le Teich">
+        </div>
+        <div class="form-group practitioner-only">
+          <label for="animal-form-stable-distance">Distance depuis domicile (km)</label>
+          <input type="number" id="animal-form-stable-distance" min="0" placeholder="Ex: 25">
+        </div>
+      </div>
+
+      <!-- Grid: Mode de vie & Suivi nutritionnel -->
+      <div class="form-grid-3">
+        <div class="form-group" id="group-housing-type">
+          <label for="animal-form-housing-type">Type d'hébergement</label>
+          <select id="animal-form-housing-type">
+            <option value="Pré">Pré</option>
+            <option value="Pré + Box (Pré = grande surface)">Pré + Box (Pré = grande surface)</option>
+            <option value="Box">Box</option>
+            <option value="Box + Paddock (Paddock = petite surface)">Box + Paddock (Paddock = petite surface)</option>
+            <option value="Autre">Autre</option>
+          </select>
+          <input type="text" id="animal-form-housing-type-other" placeholder="Précisez l'hébergement..." style="display: none; margin-top: 5px;">
+        </div>
+        <div class="form-group" id="group-social-type">
+          <label for="animal-form-social-type">Vie sociale / Cohabitation</label>
+          <select id="animal-form-social-type">
+            <option value="Individuel">Individuel</option>
+            <option value="En duo">En duo</option>
+            <option value="À plusieurs (Non mixte)">À plusieurs (Non mixte)</option>
+            <option value="À plusieurs (Mixte)">À plusieurs (Mixte)</option>
+            <option value="Autre">Autre</option>
+          </select>
+        </div>
+        <div class="form-group practitioner-only">
+          <label for="animal-form-tracking-mode">Mode de suivi</label>
+          <select id="animal-form-tracking-mode">
+            <option value="À la demande">À la demande</option>
+            <option value="1x par an">1x par an</option>
+            <option value="2x par an">2x par an</option>
+            <option value="3x par an">3x par an</option>
+            <option value="4x par an">4x par an</option>
+            <option value="Autre">Autre</option>
+          </select>
+          <input type="text" id="animal-form-tracking-mode-other" placeholder="Précisez le suivi..." style="display: none; margin-top: 5px;">
+        </div>
+      </div>
+
+      <!-- Grid: Nutrition & Alimentation -->
+      <div class="form-grid-2">
+        <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-top: 25px;">
+          <input type="checkbox" id="animal-form-nutritionist" style="width: 20px; height: 20px; cursor: pointer;">
+          <label for="animal-form-nutritionist" style="margin-bottom: 0; cursor: pointer;">Suivi par une nutritionniste ?</label>
+        </div>
+        <div class="form-group">
+          <label for="animal-form-nutrition-details">Alimentation (ration/type)</label>
+          <input type="text" id="animal-form-nutrition-details" placeholder="Ex: Foin à volonté + 2L d'orge...">
+        </div>
+      </div>
+
+      <!-- Grid: Travail & Problématiques -->
+      <div class="form-group" id="group-work-objective">
+        <label for="animal-form-work-objective">Travail et objectif</label>
+        <input type="text" id="animal-form-work-objective" placeholder="Ex: 5j/semaine - CCE Amateur 2">
+      </div>
+      <div class="form-group" id="group-lifestyle-details" style="display: none;">
+        <label for="animal-form-lifestyle-details">Précisions mode de vie / activité</label>
+        <textarea id="animal-form-lifestyle-details" rows="2" placeholder="Mode de vie, habitudes, activité / travail..."></textarea>
+      </div>
+      <div class="form-group">
+        <label for="animal-form-main-problems">Problématique(s) principale(s)</label>
+        <textarea id="animal-form-main-problems" rows="2" placeholder="Ex: Sensibilité dos, raideur à gauche..."></textarea>
+      </div>
+
+      <!-- Historique Médical & Pathologique Structuré -->
+      <div class="form-group" style="margin-top: 20px;">
+        <label>Historique médical / événementiel structuré</label>
+        <div class="med-event-adder">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="animal-form-med-year" style="font-size: 0.75rem; margin-bottom: 2px;">Année <span class="required">*</span></label>
+            <input type="number" id="animal-form-med-year" min="1900" max="2100" placeholder="2024" style="padding: 5px;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="animal-form-med-month" style="font-size: 0.75rem; margin-bottom: 2px;">Mois (opt.)</label>
+            <input type="text" id="animal-form-med-month" placeholder="Juin" style="padding: 5px;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label for="animal-form-med-event" style="font-size: 0.75rem; margin-bottom: 2px;">Événement / Pathologie <span class="required">*</span></label>
+            <input type="text" id="animal-form-med-event" placeholder="Entorse du boulet..." style="padding: 5px;">
+          </div>
+          <button type="button" class="btn btn-secondary btn-small" id="btn-add-med-event" style="padding: 6px 12px; font-weight: bold; margin-bottom: 0;">Ajouter</button>
+        </div>
+        <div class="med-events-list-container" id="animal-form-med-events-list">
+          <!-- Les événements ajoutés s'afficheront ici -->
+        </div>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary btn-cancel-dialog">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Modal Professionnel (Ajout/Édition) -->
+  <dialog class="app-dialog glass-card" id="dialog-professional">
+    <div class="dialog-header">
+      <h2 id="dialog-professional-title">Nouveau Professionnel</h2>
+      <button class="btn-close-dialog">&times;</button>
+    </div>
+    <form id="dialog-professional-form">
+      <input type="hidden" id="dialog-professional-id">
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="prof-form-lastname">Nom de famille <span class="required">*</span></label>
+          <input type="text" id="prof-form-lastname" required>
+        </div>
+        <div class="form-group">
+          <label for="prof-form-firstname">Prénom <span class="required">*</span></label>
+          <input type="text" id="prof-form-firstname" required>
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="prof-form-specialty">Spécialité / Métier <span class="required">*</span></label>
+          <select id="prof-form-specialty" required>
+            <option value="Ostéopathe">Ostéopathe</option>
+            <option value="Masseur">Masseur</option>
+            <option value="Maréchal">Maréchal</option>
+            <option value="Podologue">Podologue</option>
+            <option value="Dentiste">Dentiste</option>
+            <option value="Nutritionniste">Nutritionniste</option>
+            <option value="Naturopathe">Naturopathe</option>
+            <option value="Nutri + Naturo">Nutri + Naturo</option>
+            <option value="Vétérinaire">Vétérinaire</option>
+            <option value="Coach">Coach</option>
+            <option value="Comportementaliste">Comportementaliste</option>
+            <option value="Saddle Fitter">Saddle Fitter</option>
+            <option value="Autre">Autre</option>
+          </select>
+          <input type="text" id="prof-form-specialty-other" placeholder="Précisez la spécialité..." style="display: none; margin-top: 5px;">
+        </div>
+        <div class="form-group">
+          <label for="prof-form-phone">Téléphone</label>
+          <input type="tel" id="prof-form-phone" placeholder="06 00 00 00 00">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="prof-form-notes">Commentaires et notes professionnelles</label>
+        <textarea id="prof-form-notes" rows="2" placeholder="Ex: Travaille uniquement sur Rambouillet, réputation..."></textarea>
+      </div>
+      <!-- Section: Animaux suivis par ce professionnel -->
+      <div class="form-group" style="margin-top: 15px;">
+        <label>Animaux suivis par ce professionnel</label>
+        <input type="text" id="prof-form-animal-search" placeholder="Rechercher un animal par nom ou espèce..." style="margin-bottom: 8px; padding: 6px 10px; font-size: 0.85rem; border-radius: var(--border-radius-sm); border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: var(--text-main);">
+        <div id="prof-form-animals-list" style="max-height: 150px; overflow-y: auto; padding: 8px; border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm); background: rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 8px;">
+          <!-- Dynamique -->
+        </div>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary btn-cancel-dialog">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Modal Associer des Professionnels à un Animal -->
+  <dialog class="app-dialog glass-card" id="dialog-associate-professionals">
+    <div class="dialog-header">
+      <h2>Suivi professionnels associés</h2>
+      <button class="btn-close-dialog">&times;</button>
+    </div>
+    <div class="dialog-body-content" style="padding: 15px; display: flex; flex-direction: column; gap: 12px;">
+      <p class="dialog-info" style="margin: 0;">Cochez les professionnels qui interviennent dans le suivi de cet animal pour pouvoir y faire référence.</p>
+      
+      <div style="display: flex; gap: 10px; align-items: center; width: 100%;">
+        <input type="text" id="associate-profs-search" placeholder="Rechercher par nom ou spécialité..." style="flex-grow: 1; padding: 8px 12px; font-size: 0.9rem; border-radius: var(--border-radius-sm); border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: var(--text-main);">
+        <button type="button" class="btn btn-link" id="btn-create-prof-quick" style="font-size: 0.85rem; white-space: nowrap; padding: 0;">+ Créer un professionnel</button>
+      </div>
+      
+      <div class="associate-list-container" id="associate-profs-list-container" style="max-height: 250px; overflow-y: auto; padding-right: 5px;">
+        <!-- Rendu dynamique -->
+      </div>
+      
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary btn-cancel-dialog">Annuler</button>
+        <button type="button" class="btn btn-primary" id="btn-save-associations">Enregistrer le suivi</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal Questionnaire de Suivi -->
+  <dialog class="app-dialog glass-card" id="dialog-followup-q">
+    <div class="dialog-header">
+      <h2 id="dialog-followup-q-title">Compléter le questionnaire de suivi</h2>
+      <button class="btn-close-dialog" type="button">&times;</button>
+    </div>
+    <form id="dialog-followup-q-form" style="display: flex; flex-direction: column; gap: 15px; padding: 15px;">
+      <div class="question-grid" id="q-followup-dialog-container" style="max-height: 400px; overflow-y: auto; padding-right: 5px; margin-bottom: 0;">
+        <!-- Dynamique -->
+      </div>
+      <div class="dialog-actions" style="margin-top: 15px;">
+        <button type="button" class="btn btn-secondary btn-cancel-dialog">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Modal Ajouter un événement médical -->
+  <dialog class="app-dialog glass-card" id="dialog-medical-event">
+    <div class="dialog-header">
+      <h2>Nouvel événement médical / pathologique</h2>
+      <button class="btn-close-dialog" type="button">&times;</button>
+    </div>
+    <form id="dialog-medical-event-form" style="padding: 15px; display: flex; flex-direction: column; gap: 15px;">
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="med-event-form-year">Année <span class="required">*</span></label>
+          <input type="number" id="med-event-form-year" min="1900" max="2100" required>
+        </div>
+        <div class="form-group">
+          <label for="med-event-form-month">Mois (Optionnel)</label>
+          <select id="med-event-form-month">
+            <option value="">-- Non spécifié --</option>
+            <option value="Janvier">Janvier</option>
+            <option value="Février">Février</option>
+            <option value="Mars">Mars</option>
+            <option value="Avril">Avril</option>
+            <option value="Mai">Mai</option>
+            <option value="Juin">Juin</option>
+            <option value="Juillet">Juillet</option>
+            <option value="Août">Août</option>
+            <option value="Septembre">Septembre</option>
+            <option value="Octobre">Octobre</option>
+            <option value="Novembre">Novembre</option>
+            <option value="Décembre">Décembre</option>
+          </select>
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label for="med-event-form-text">Événement / Pathologie <span class="required">*</span></label>
+        <input type="text" id="med-event-form-text" placeholder="Ex: Entorse jarret, vaccin, colique..." required>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary btn-cancel-dialog">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Modal Ajouter / Modifier un Rappel -->
+  <dialog class="app-dialog glass-card" id="dialog-reminder">
+    <div class="dialog-header">
+      <h2 id="dialog-reminder-title">Nouveau rappel / tâche</h2>
+      <button class="btn-close-dialog" type="button">&times;</button>
+    </div>
+    <form id="dialog-reminder-form" style="padding: 15px; display: flex; flex-direction: column; gap: 15px;">
+      <input type="hidden" id="dialog-reminder-id">
+      
+      <div class="form-group">
+        <label for="reminder-form-title">Intitulé / Motif <span class="required">*</span></label>
+        <input type="text" id="reminder-form-title" placeholder="Ex: Prendre des nouvelles, Facturation, Visite de contrôle..." required>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="reminder-form-animal">Animal associé</label>
+          <select id="reminder-form-animal">
+            <option value="">-- Aucun animal --</option>
+            <!-- Dynamique -->
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="reminder-form-client">Propriétaire / Client associé</label>
+          <select id="reminder-form-client">
+            <option value="">-- Aucun client --</option>
+            <!-- Dynamique -->
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="reminder-form-date">Date d'échéance <span class="required">*</span></label>
+        <input type="date" id="reminder-form-date" required>
+      </div>
+
+      <div class="form-group">
+        <label for="reminder-form-notes">Notes complémentaires</label>
+        <textarea id="reminder-form-notes" rows="3" placeholder="Notes additionnelles..."></textarea>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary btn-cancel-dialog">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="app-dialog glass-card" id="dialog-external-session" style="max-width: 600px; width: 90%;">
+    <div class="dialog-header">
+      <h2 id="dialog-external-session-title">Nouvelle séance externe (Autre praticien)</h2>
+      <button class="btn-close-dialog">&times;</button>
+    </div>
+    <form id="dialog-external-session-form" style="padding: 15px; display: flex; flex-direction: column; gap: 15px;">
+      <input type="hidden" id="dialog-external-session-id">
+      <input type="hidden" id="dialog-external-session-animal-id">
+      
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label for="ext-session-date">Date de la séance <span class="required">*</span></label>
+          <input type="date" id="ext-session-date" required>
+        </div>
+        <div class="form-group">
+          <label for="ext-session-profession">Spécialité / Type de séance <span class="required">*</span></label>
+          <select id="ext-session-profession" required>
+            <option value="">-- Sélectionner une spécialité --</option>
+            <option value="Ostéopathe">Ostéopathe</option>
+            <option value="Masseur">Masseur</option>
+            <option value="Maréchal">Maréchal</option>
+            <option value="Podologue">Podologue</option>
+            <option value="Dentiste">Dentiste</option>
+            <option value="Nutritionniste">Nutritionniste</option>
+            <option value="Naturopathe">Naturopathe</option>
+            <option value="Nutri + Naturo">Nutri + Naturo</option>
+            <option value="Vétérinaire">Vétérinaire</option>
+            <option value="Coach">Coach</option>
+            <option value="Comportementaliste">Comportementaliste</option>
+            <option value="Saddle Fitter">Saddle Fitter</option>
+            <option value="Autre">Autre</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group" id="group-ext-session-profession-other" style="display: none;">
+        <label for="ext-session-profession-other">Préciser la spécialité <span class="required">*</span></label>
+        <input type="text" id="ext-session-profession-other" placeholder="Ex: Acupuncteur, Phytothérapeute...">
+      </div>
+
+      <div class="form-group">
+        <label for="ext-session-practitioner">Nom du praticien</label>
+        <input type="text" id="ext-session-practitioner" placeholder="Ex: Dr Martin, Jean Dupont...">
+      </div>
+
+      <div class="form-group">
+        <label for="ext-session-motif">Motif de la séance</label>
+        <input type="text" id="ext-session-motif" placeholder="Ex: Boiterie, contrôle annuel, parage...">
+      </div>
+
+      <div class="form-group">
+        <label for="ext-session-summary">Résumé / Observations / Prescriptions</label>
+        <textarea id="ext-session-summary" rows="4" placeholder="Compte-rendu, observations ou recommandations du praticien..."></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="ext-session-file">Ajout de fichier / CR externe (Images ou PDF)</label>
+        <input type="file" id="ext-session-file" accept="image/*,application/pdf">
+        <div id="ext-session-file-info" style="margin-top: 5px; font-size: 0.85rem; display: none;">
+          <span id="ext-session-file-name" style="font-weight: 600; color: var(--color-primary);"></span>
+          <button type="button" class="btn btn-danger btn-small" id="btn-ext-session-file-delete" style="margin-left: 10px; padding: 2px 6px;">Supprimer</button>
+        </div>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary btn-cancel-dialog">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Toast notification system -->
+  <div id="toast-container"></div>
+
+  <!-- Script principal -->
+  <script type="module" src="app.js?v=1.3.6"></script>
+</body>
+</html>
