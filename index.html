@@ -4,7 +4,28 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Suivi eKiKare - Gestionnaire de soins équins et canins</title>
+  <style>
+    /* Anti-flicker: hide views while app initializes */
+    html.app-initializing .view-section,
+    html.app-initializing .app-header {
+      display: none !important;
+    }
+    html.portal-mode .sidebar,
+    html.portal-mode .app-header {
+      display: none !important;
+    }
+    html.portal-mode .main-content {
+      margin-left: 0 !important;
+      padding: 20px !important;
+    }
+    html.locked-practitioner .sidebar,
+    html.locked-practitioner .app-header,
+    html.locked-practitioner .view-section {
+      display: none !important;
+    }
+  </style>
   <script>
+    document.documentElement.classList.add('app-initializing');
     if (window.location.hash && window.location.hash.includes('portal')) {
       document.documentElement.classList.add('portal-mode');
     }
@@ -87,7 +108,7 @@
       </header>
 
       <!-- 1. DASHBOARD VIEW -->
-      <section id="view-dashboard" class="view-section active">
+      <section id="view-dashboard" class="view-section">
         <div class="section-header">
           <h1>Tableau de bord</h1>
           <p class="section-subtitle">CRM Praticienne eKiKare & Suivi d'activité</p>
@@ -1462,6 +1483,36 @@
               </div>
             </div>
           </div>
+
+          <!-- Sécurité & Code d'Accès Praticien -->
+          <div class="glass-card settings-card span-2">
+            <h3>Sécurité & Code d'Accès Praticien</h3>
+            <p>Protégez l'accès à vos dossiers clients, animaux et données de synchronisation lors de l'utilisation de l'application.</p>
+            <div class="settings-security-form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 16px 0;">
+              <div class="form-group">
+                <label for="settings-current-pin">Code PIN actuel</label>
+                <input type="password" id="settings-current-pin" class="form-control" maxlength="8" placeholder="Actuel (défaut: 1234)" inputmode="numeric">
+              </div>
+              <div class="form-group">
+                <label for="settings-new-pin">Nouveau code PIN</label>
+                <input type="password" id="settings-new-pin" class="form-control" maxlength="8" placeholder="4 à 8 chiffres" inputmode="numeric">
+              </div>
+              <div class="form-group">
+                <label for="settings-confirm-pin">Confirmer le nouveau PIN</label>
+                <input type="password" id="settings-confirm-pin" class="form-control" maxlength="8" placeholder="Confirmer" inputmode="numeric">
+              </div>
+            </div>
+            <div class="settings-actions" style="margin-top: 8px;">
+              <button class="btn btn-primary" id="btn-save-pin">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                Enregistrer le nouveau code PIN
+              </button>
+              <button class="btn btn-secondary" id="btn-lock-session-now" style="color: #f87171; border-color: rgba(239, 68, 68, 0.35);">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                Verrouiller l'espace praticien maintenant
+              </button>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -1986,10 +2037,53 @@
     </form>
   </dialog>
 
+  <!-- LOCK SCREEN PRATICIEN -->
+  <div id="practitioner-lock-overlay" class="lock-overlay" style="display: none;">
+    <div class="lock-card glass-card">
+      <div class="lock-header">
+        <div class="lock-icon-badge">
+          <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        </div>
+        <h2>Espace Praticien Sécurisé</h2>
+        <p class="lock-subtitle">Saisissez votre code PIN praticien pour accéder à l'application et synchroniser vos données.</p>
+      </div>
+
+      <form id="practitioner-lock-form" class="lock-form">
+        <div class="pin-input-container">
+          <input type="password" id="practitioner-pin-input" class="pin-input" maxlength="8" placeholder="••••" autocomplete="current-password" autofocus required inputmode="numeric">
+          <button type="button" id="btn-toggle-pin-visibility" class="btn-icon-subtle" title="Afficher/masquer le code">
+            <svg id="icon-pin-eye" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+
+        <div id="lock-error-msg" class="lock-error" style="display: none;">Code PIN incorrect.</div>
+
+        <div class="lock-options">
+          <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="remember-practitioner-device" checked>
+            <span>Se souvenir de moi sur cet appareil</span>
+          </label>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" style="width: 100%; margin-top: 16px; justify-content: center; padding: 12px;">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Déverrouiller l'espace
+        </button>
+
+        <div class="lock-footer-hint">
+          <span>Code PIN par défaut : <strong>1234</strong> (modifiable dans les Paramètres)</span>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Toast notification system -->
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.3.7"></script>
+  <script type="module" src="app.js?v=1.3.8"></script>
 </body>
 </html>

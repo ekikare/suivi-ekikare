@@ -79,6 +79,7 @@ const MAX_UNDO_STATES = 20;
 // --- INITIALISATION AU CHARGEMENT ---
 document.addEventListener('DOMContentLoaded', async () => {
   setupNavigation();
+  setupPractitionerLock();
   populateSpecialtyDropdown();
   setupDateHeader();
   
@@ -91,18 +92,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Écouteurs de connexion réseau
   window.addEventListener('online', () => {
     showToast("Connexion rétablie. Synchronisation des données...", "info");
-    syncData();
+    if (isPractitionerUnlocked() || currentPortalClientId) {
+      syncData();
+    }
   });
   window.addEventListener('offline', () => {
     showToast("Connexion perdue. Passage en mode hors-ligne.", "warning");
     updateSyncStatusUI('offline');
   });
 
-  await checkAndInjectMockData();
-  
-  // Synchronisation initiale
-  if (navigator.onLine) {
-    await syncData();
+  if (isPractitionerUnlocked() || currentPortalClientId) {
+    await checkAndInjectMockData();
+    if (navigator.onLine) {
+      await syncData();
+    }
   }
 
   setupFormListeners();
@@ -139,6 +142,130 @@ function getClientPortalUrl(clientId) {
     pathname += '/';
   }
   return `${origin}${pathname}#portal/${clientId}`;
+}
+
+// --- SÉCURITÉ & VERROUILLAGE PRATICIEN ---
+function isPractitionerUnlocked() {
+  return localStorage.getItem('ekikare_practitioner_unlocked') === 'true' ||
+         sessionStorage.getItem('ekikare_practitioner_unlocked') === 'true';
+}
+
+function getPractitionerPin() {
+  return localStorage.getItem('ekikare_practitioner_pin') || '1234';
+}
+
+function showPractitionerLockOverlay() {
+  const lockOverlay = document.getElementById('practitioner-lock-overlay');
+  if (lockOverlay) {
+    lockOverlay.style.display = 'flex';
+    document.documentElement.classList.add('locked-practitioner');
+    const pinInput = document.getElementById('practitioner-pin-input');
+    if (pinInput) {
+      pinInput.value = '';
+      setTimeout(() => pinInput.focus(), 80);
+    }
+  }
+}
+
+function hidePractitionerLockOverlay() {
+  const lockOverlay = document.getElementById('practitioner-lock-overlay');
+  if (lockOverlay) {
+    lockOverlay.style.display = 'none';
+    document.documentElement.classList.remove('locked-practitioner');
+  }
+}
+
+function setupPractitionerLock() {
+  const form = document.getElementById('practitioner-lock-form');
+  const pinInput = document.getElementById('practitioner-pin-input');
+  const errorMsg = document.getElementById('lock-error-msg');
+  const rememberCheckbox = document.getElementById('remember-practitioner-device');
+  const togglePinBtn = document.getElementById('btn-toggle-pin-visibility');
+
+  if (togglePinBtn && pinInput) {
+    togglePinBtn.onclick = () => {
+      if (pinInput.type === 'password') {
+        pinInput.type = 'text';
+      } else {
+        pinInput.type = 'password';
+      }
+    };
+  }
+
+  if (form && pinInput) {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const enteredPin = pinInput.value.trim();
+      const correctPin = getPractitionerPin();
+
+      if (enteredPin === correctPin) {
+        if (errorMsg) errorMsg.style.display = 'none';
+        if (rememberCheckbox && rememberCheckbox.checked) {
+          localStorage.setItem('ekikare_practitioner_unlocked', 'true');
+        } else {
+          sessionStorage.setItem('ekikare_practitioner_unlocked', 'true');
+        }
+        hidePractitionerLockOverlay();
+        showToast('Espace Praticien déverrouillé avec succès !');
+        
+        await checkAndInjectMockData();
+        handleRouting();
+        if (navigator.onLine) {
+          syncData();
+        }
+      } else {
+        if (errorMsg) {
+          errorMsg.style.display = 'block';
+        }
+        pinInput.value = '';
+        pinInput.focus();
+      }
+    };
+  }
+
+  // Configuration dans les Paramètres
+  const savePinBtn = document.getElementById('btn-save-pin');
+  if (savePinBtn) {
+    savePinBtn.onclick = () => {
+      const currentPinInput = document.getElementById('settings-current-pin');
+      const newPinInput = document.getElementById('settings-new-pin');
+      const confirmPinInput = document.getElementById('settings-confirm-pin');
+
+      const currentPin = currentPinInput ? currentPinInput.value.trim() : '';
+      const newPin = newPinInput ? newPinInput.value.trim() : '';
+      const confirmPin = confirmPinInput ? confirmPinInput.value.trim() : '';
+
+      const actualPin = getPractitionerPin();
+      if (currentPin !== actualPin) {
+        showToast('Code PIN actuel incorrect.', 'error');
+        return;
+      }
+      if (newPin.length < 4 || newPin.length > 8) {
+        showToast('Le nouveau code PIN doit comporter entre 4 et 8 chiffres.', 'error');
+        return;
+      }
+      if (newPin !== confirmPin) {
+        showToast('Les nouveaux codes PIN ne correspondent pas.', 'error');
+        return;
+      }
+
+      localStorage.setItem('ekikare_practitioner_pin', newPin);
+      showToast('Nouveau code PIN praticien enregistré !');
+      if (currentPinInput) currentPinInput.value = '';
+      if (newPinInput) newPinInput.value = '';
+      if (confirmPinInput) confirmPinInput.value = '';
+    };
+  }
+
+  const lockSessionBtn = document.getElementById('btn-lock-session-now');
+  if (lockSessionBtn) {
+    lockSessionBtn.onclick = () => {
+      localStorage.removeItem('ekikare_practitioner_unlocked');
+      sessionStorage.removeItem('ekikare_practitioner_unlocked');
+      showToast('Espace praticien verrouillé.');
+      handleRouting();
+    };
+  }
 }
 
 // --- ROUTAGE & NAVIGATION ---
@@ -208,12 +335,9 @@ function handleRouting() {
   
   checkPortalContext();
   
-  if (hash.endsWith('/print')) {
-    document.body.classList.add('is-printing');
-  } else {
-    document.body.classList.remove('is-printing');
-  }
-  
+  // Retirer l'état d'initialisation (Anti-Flicker)
+  document.documentElement.classList.remove('app-initializing');
+
   let viewId = `view-${hash}`;
   let routeBase = hash;
   let routeParam = null;
@@ -231,12 +355,12 @@ function handleRouting() {
     }
   }
 
+  // 1. ROUTAGE ESPACE PORTAIL CLIENT (Accessible sans code PIN praticien)
   if (currentPortalClientId) {
-    // If in portal mode, check if the route is allowed
+    hidePractitionerLockOverlay();
     const allowedBases = ['portal', 'animals'];
     let isAllowed = allowedBases.includes(routeBase);
     
-    // Check if session print view
     if (routeBase === 'sessions' && hash.endsWith('/print')) {
       isAllowed = true;
     }
@@ -245,6 +369,22 @@ function handleRouting() {
       window.location.hash = `portal/${currentPortalClientId}`;
       return;
     }
+  } 
+  // 2. ROUTAGE ESPACE PRATICIEN (Protégé par code PIN)
+  else {
+    if (!isPractitionerUnlocked()) {
+      showPractitionerLockOverlay();
+      document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+      return;
+    } else {
+      hidePractitionerLockOverlay();
+    }
+  }
+
+  if (hash.endsWith('/print')) {
+    document.body.classList.add('is-printing');
+  } else {
+    document.body.classList.remove('is-printing');
   }
 
   if (routeBase === 'animals' && routeParam) {
@@ -6310,6 +6450,10 @@ async function syncData() {
   if (isSyncing) return;
   if (!navigator.onLine) {
     updateSyncStatusUI('offline');
+    return;
+  }
+  if (!isPractitionerUnlocked() && !currentPortalClientId) {
+    // Bloquer la synchronisation globale tant que l'espace praticien est verrouillé
     return;
   }
 
