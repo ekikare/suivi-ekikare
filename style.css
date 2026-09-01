@@ -2391,9 +2391,12 @@ select, select option {
 html.portal-mode .sidebar,
 html.portal-mode .app-sidebar,
 html.portal-mode #sidebar-nav,
+html.portal-mode #practitioner-lock-overlay,
 body.portal-mode .sidebar,
 body.portal-mode .app-sidebar,
-body.portal-mode #sidebar-nav {
+body.portal-mode #sidebar-nav,
+body.portal-mode #practitioner-lock-overlay,
+body.is-client-portal #practitioner-lock-overlay {
   display: none !important;
 }
 

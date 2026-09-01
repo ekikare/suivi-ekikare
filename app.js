@@ -320,8 +320,49 @@ async function checkPortalContext() {
   const routeBase = parts[0];
   const routeParam = parts[1];
 
+  const isPortalRoute = routeBase === 'portal' || (window.location.hash && window.location.hash.includes('portal'));
+
   if (routeBase === 'portal' && routeParam) {
-    const client = await getClientByToken(routeParam);
+    let client = await getClientByToken(routeParam);
+    
+    // Si non trouvé en local et en ligne, tenter de récupérer le client depuis Supabase
+    if (!client && navigator.onLine) {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        try {
+          const tokenStr = String(routeParam).trim();
+          const { data } = await supabase.from('clients')
+            .select('*')
+            .or(`uuid.eq.${tokenStr},portal_token.eq.${tokenStr},id.eq.${tokenStr}`)
+            .maybeSingle();
+
+          if (data) {
+            client = mapSupabaseToLocal('clients', data);
+            await updateLocal('clients', client);
+
+            const { data: animalsData } = await supabase.from('animals')
+              .select('*')
+              .eq('client_id', String(data.id));
+            if (animalsData) {
+              for (const an of animalsData) {
+                await updateLocal('animals', mapSupabaseToLocal('animals', an));
+              }
+            }
+            const { data: sessionsData } = await supabase.from('sessions')
+              .select('*')
+              .eq('client_id', String(data.id));
+            if (sessionsData) {
+              for (const s of sessionsData) {
+                await updateLocal('sessions', mapSupabaseToLocal('sessions', s));
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Erreur récupération portail client Supabase:", err);
+        }
+      }
+    }
+
     if (client) {
       currentPortalClientId = client.id;
       currentPortalClientToken = client.uuid || client.portal_token || String(client.id);
@@ -329,7 +370,7 @@ async function checkPortalContext() {
       sessionStorage.setItem('portalClientToken', currentPortalClientToken);
     } else {
       currentPortalClientId = null;
-      currentPortalClientToken = null;
+      currentPortalClientToken = routeParam;
       sessionStorage.removeItem('portalClientId');
       sessionStorage.removeItem('portalClientToken');
     }
@@ -341,7 +382,7 @@ async function checkPortalContext() {
     currentPortalClientToken = null;
   }
 
-  if (currentPortalClientId) {
+  if (isPortalRoute || currentPortalClientId) {
     document.body.classList.add('is-client-portal');
     document.documentElement.classList.add('portal-mode');
     document.body.classList.add('portal-mode');
@@ -379,19 +420,26 @@ async function handleRouting() {
     }
   }
 
-  // 1. ROUTAGE ESPACE PORTAIL CLIENT (Accessible sans code PIN praticien)
-  if (currentPortalClientId) {
-    hidePractitionerLockOverlay();
-    const allowedBases = ['portal', 'animals'];
-    let isAllowed = allowedBases.includes(routeBase);
-    
-    if (routeBase === 'sessions' && hash.endsWith('/print')) {
-      isAllowed = true;
-    }
+  const isPortalRoute = routeBase === 'portal' || (window.location.hash && window.location.hash.includes('portal'));
 
-    if (!isAllowed) {
-      window.location.hash = `portal/${currentPortalClientToken || currentPortalClientId}`;
-      return;
+  // 1. ROUTAGE ESPACE PORTAIL CLIENT (Bypass TOTAL et inconditionnel du code PIN praticien)
+  if (isPortalRoute || currentPortalClientId) {
+    hidePractitionerLockOverlay();
+    
+    if (routeBase === 'portal') {
+      viewId = 'view-portal';
+    } else {
+      const allowedBases = ['portal', 'animals'];
+      let isAllowed = allowedBases.includes(routeBase);
+      
+      if (routeBase === 'sessions' && hash.endsWith('/print')) {
+        isAllowed = true;
+      }
+
+      if (!isAllowed) {
+        window.location.hash = `portal/${currentPortalClientToken || currentPortalClientId || ''}`;
+        return;
+      }
     }
   } 
   // 2. ROUTAGE ESPACE PRATICIEN (Protégé par code PIN)
@@ -6750,13 +6798,49 @@ async function checkAndInjectMockData() {
 
 // --- PORTAIL CLIENT ---
 async function renderPortalDetails(tokenOrId) {
+  hidePractitionerLockOverlay();
+
   let client = await getClientByToken(tokenOrId);
   if (!client && !isNaN(Number(tokenOrId))) {
     client = await getById('clients', Number(tokenOrId));
   }
+  
+  if (!client && navigator.onLine) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const tokenStr = String(tokenOrId).trim();
+        const { data } = await supabase.from('clients')
+          .select('*')
+          .or(`uuid.eq.${tokenStr},portal_token.eq.${tokenStr},id.eq.${tokenStr}`)
+          .maybeSingle();
+
+        if (data) {
+          client = mapSupabaseToLocal('clients', data);
+          await updateLocal('clients', client);
+
+          const { data: animalsData } = await supabase.from('animals')
+            .select('*')
+            .eq('client_id', String(data.id));
+          if (animalsData) {
+            for (const an of animalsData) {
+              await updateLocal('animals', mapSupabaseToLocal('animals', an));
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Erreur récupération client Supabase:", err);
+      }
+    }
+  }
+
   if (!client) {
-    showToast('Portail client inaccessible ou client inexistant.', 'error');
-    window.location.hash = 'dashboard';
+    const portalAnimalsContainer = document.getElementById('portal-client-animals');
+    if (portalAnimalsContainer) {
+      portalAnimalsContainer.innerHTML = '<p class="empty-state" style="padding: 40px; font-size: 1.1rem;">Espace client introuvable ou lien expiré.<br><span style="font-size: 0.9rem; color: var(--text-sub);">Veuillez contacter votre praticienne pour obtenir un lien valide.</span></p>';
+    }
+    const ownerTitle = document.getElementById('portal-owner-title');
+    if (ownerTitle) ownerTitle.textContent = "Espace Suivi eKiKare";
     return;
   }
 
