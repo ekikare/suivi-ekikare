@@ -20,7 +20,10 @@ import {
   clearTrackedDeletion,
   mapLocalToSupabase,
   mapSupabaseToLocal,
-  registerDatabaseChangeCallback
+  registerDatabaseChangeCallback,
+  generateUUID,
+  getClientByToken,
+  ensureClientsHaveUUID
 } from './db.js';
 
 // --- INITIALISATION SPEECH RECOGNITION ---
@@ -83,6 +86,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   populateSpecialtyDropdown();
   setupDateHeader();
   
+  // Migration automatique des UUIDs pour les clients existants
+  await ensureClientsHaveUUID();
+
   // Enregistrer le callback de synchronisation pour les écritures locales
   registerDatabaseChangeCallback(syncData);
   
@@ -132,7 +138,7 @@ function setupDateHeader() {
 }
 
 // --- UTILITAIRE URL PORTAIL CLIENT (COMPATIBLE GITHUB PAGES & LOCALHOST) ---
-function getClientPortalUrl(clientId) {
+function getClientPortalUrl(clientOrToken) {
   const origin = window.location.origin;
   let pathname = window.location.pathname || '/';
   if (pathname.endsWith('index.html')) {
@@ -141,7 +147,11 @@ function getClientPortalUrl(clientId) {
   if (!pathname.endsWith('/')) {
     pathname += '/';
   }
-  return `${origin}${pathname}#portal/${clientId}`;
+  let token = clientOrToken;
+  if (clientOrToken && typeof clientOrToken === 'object') {
+    token = clientOrToken.uuid || clientOrToken.portal_token || clientOrToken.id;
+  }
+  return `${origin}${pathname}#portal/${token}`;
 }
 
 // --- SÉCURITÉ & VERROUILLAGE PRATICIEN ---
@@ -300,21 +310,35 @@ function setupNavigation() {
 }
 
 let currentPortalClientId = null;
+let currentPortalClientToken = null;
 
-function checkPortalContext() {
+async function checkPortalContext() {
   const storedPortalId = sessionStorage.getItem('portalClientId');
+  const storedPortalToken = sessionStorage.getItem('portalClientToken');
   const hash = window.location.hash.substring(1) || 'dashboard';
   const parts = hash.split('/');
   const routeBase = parts[0];
   const routeParam = parts[1];
 
   if (routeBase === 'portal' && routeParam) {
-    currentPortalClientId = Number(routeParam);
-    sessionStorage.setItem('portalClientId', currentPortalClientId);
+    const client = await getClientByToken(routeParam);
+    if (client) {
+      currentPortalClientId = client.id;
+      currentPortalClientToken = client.uuid || client.portal_token || String(client.id);
+      sessionStorage.setItem('portalClientId', currentPortalClientId);
+      sessionStorage.setItem('portalClientToken', currentPortalClientToken);
+    } else {
+      currentPortalClientId = null;
+      currentPortalClientToken = null;
+      sessionStorage.removeItem('portalClientId');
+      sessionStorage.removeItem('portalClientToken');
+    }
   } else if (storedPortalId) {
-    currentPortalClientId = Number(storedPortalId);
+    currentPortalClientId = isNaN(Number(storedPortalId)) ? storedPortalId : Number(storedPortalId);
+    currentPortalClientToken = storedPortalToken || String(storedPortalId);
   } else {
     currentPortalClientId = null;
+    currentPortalClientToken = null;
   }
 
   if (currentPortalClientId) {
@@ -328,12 +352,12 @@ function checkPortalContext() {
   }
 }
 
-function handleRouting() {
+async function handleRouting() {
   const hash = window.location.hash.substring(1) || 'dashboard';
   previousRoute = currentRoute;
   currentRoute = hash;
   
-  checkPortalContext();
+  await checkPortalContext();
   
   // Retirer l'état d'initialisation (Anti-Flicker)
   document.documentElement.classList.remove('app-initializing');
@@ -366,7 +390,7 @@ function handleRouting() {
     }
 
     if (!isAllowed) {
-      window.location.hash = `portal/${currentPortalClientId}`;
+      window.location.hash = `portal/${currentPortalClientToken || currentPortalClientId}`;
       return;
     }
   } 
@@ -427,10 +451,12 @@ function handleRouting() {
 async function loadViewData(view, param) {
   await updateReminderBadge();
 
+  const portalRoute = `portal/${currentPortalClientToken || currentPortalClientId}`;
+
   switch (view) {
     case 'dashboard':
       if (currentPortalClientId) {
-        window.location.hash = `portal/${currentPortalClientId}`;
+        window.location.hash = portalRoute;
         return;
       }
       await renderDashboard();
@@ -439,13 +465,13 @@ async function loadViewData(view, param) {
       if (param) {
         currentClientId = Number(param);
         if (currentPortalClientId && currentClientId !== currentPortalClientId) {
-          window.location.hash = `portal/${currentPortalClientId}`;
+          window.location.hash = portalRoute;
           return;
         }
         await renderClientDetails(currentClientId);
       } else {
         if (currentPortalClientId) {
-          window.location.hash = `portal/${currentPortalClientId}`;
+          window.location.hash = portalRoute;
           return;
         }
         await renderClientsList();
@@ -458,14 +484,14 @@ async function loadViewData(view, param) {
           const animal = await getById('animals', currentAnimalId);
           if (!animal || animal.client_id !== currentPortalClientId) {
             showToast("Accès non autorisé.", "error");
-            window.location.hash = `portal/${currentPortalClientId}`;
+            window.location.hash = portalRoute;
             return;
           }
         }
         await renderAnimalDetails(currentAnimalId);
       } else {
         if (currentPortalClientId) {
-          window.location.hash = `portal/${currentPortalClientId}`;
+          window.location.hash = portalRoute;
           return;
         }
         await renderAnimalsList();
@@ -473,7 +499,7 @@ async function loadViewData(view, param) {
       break;
     case 'tournee':
       if (currentPortalClientId) {
-        window.location.hash = `portal/${currentPortalClientId}`;
+        window.location.hash = portalRoute;
         return;
       }
       await renderTournee();
@@ -484,25 +510,25 @@ async function loadViewData(view, param) {
         const session = await getById('sessions', currentSessionId);
         if (!session) {
           showToast("Séance introuvable.", "error");
-          window.location.hash = currentPortalClientId ? `portal/${currentPortalClientId}` : 'dashboard';
+          window.location.hash = currentPortalClientId ? portalRoute : 'dashboard';
           return;
         }
         if (currentPortalClientId) {
           const animal = await getById('animals', session.animal_id);
           if (!animal || animal.client_id !== currentPortalClientId) {
             showToast("Accès non autorisé.", "error");
-            window.location.hash = `portal/${currentPortalClientId}`;
+            window.location.hash = portalRoute;
             return;
           }
           if (!window.location.hash.endsWith('/print')) {
-            window.location.hash = `portal/${currentPortalClientId}`;
+            window.location.hash = portalRoute;
             return;
           }
         }
         await renderSessionDetails(currentSessionId);
       } else {
         if (currentPortalClientId) {
-          window.location.hash = `portal/${currentPortalClientId}`;
+          window.location.hash = portalRoute;
           return;
         }
         await renderSessionsList();
@@ -510,36 +536,35 @@ async function loadViewData(view, param) {
       break;
     case 'professionals':
       if (currentPortalClientId) {
-        window.location.hash = `portal/${currentPortalClientId}`;
+        window.location.hash = portalRoute;
         return;
       }
       await renderProfessionalsList();
       break;
     case 'reminders':
       if (currentPortalClientId) {
-        window.location.hash = `portal/${currentPortalClientId}`;
+        window.location.hash = portalRoute;
         return;
       }
       await renderRemindersList();
       break;
     case 'settings':
       if (currentPortalClientId) {
-        window.location.hash = `portal/${currentPortalClientId}`;
+        window.location.hash = portalRoute;
         return;
       }
       await renderSettingsData();
       break;
     case 'session-editor':
       if (currentPortalClientId) {
-        window.location.hash = `portal/${currentPortalClientId}`;
+        window.location.hash = portalRoute;
         return;
       }
       await prepareSessionEditor(param);
       break;
     case 'portal':
       if (param) {
-        currentPortalClientId = Number(param);
-        await renderPortalDetails(currentPortalClientId);
+        await renderPortalDetails(param);
       } else {
         window.location.hash = 'dashboard';
       }
@@ -1086,9 +1111,9 @@ async function renderClientDetails(clientId) {
 
   // Configurer le clic boutons d'actions
   document.getElementById('btn-copy-client-portal-link').onclick = () => {
-    const portalUrl = getClientPortalUrl(client.id);
+    const portalUrl = getClientPortalUrl(client);
     navigator.clipboard.writeText(portalUrl).then(() => {
-      showToast('Lien Espace Client copié dans le presse-papier !');
+      showToast('Lien Espace Client sécurisé copié dans le presse-papier !');
     }).catch(err => {
       console.error('Erreur copie lien:', err);
       showToast('Impossible de copier le lien.', 'error');
@@ -1296,7 +1321,7 @@ async function renderAnimalDetails(animalId) {
     if (currentPortalClientId) {
       contextualBtn.style.display = 'inline-flex';
       contextualText.textContent = 'Retour à mon espace';
-      contextualBtn.onclick = () => { window.location.hash = `portal/${currentPortalClientId}`; };
+      contextualBtn.onclick = () => { window.location.hash = `portal/${currentPortalClientToken || currentPortalClientId}`; };
     } else if (animalDetailsProvenance) {
       contextualBtn.style.display = 'inline-flex';
       
@@ -1651,10 +1676,11 @@ async function renderAnimalDetails(animalId) {
   }
 
   // Boutons d'actions
-  document.getElementById('btn-copy-animal-portal-link').onclick = () => {
-    const portalUrl = getClientPortalUrl(animal.client_id);
+  document.getElementById('btn-copy-animal-portal-link').onclick = async () => {
+    const client = await getById('clients', animal.client_id);
+    const portalUrl = getClientPortalUrl(client || animal.client_id);
     navigator.clipboard.writeText(portalUrl).then(() => {
-      showToast('Lien Espace Client copié dans le presse-papier !');
+      showToast('Lien Espace Client sécurisé copié dans le presse-papier !');
     }).catch(err => {
       console.error('Erreur copie lien:', err);
       showToast('Impossible de copier le lien.', 'error');
@@ -5158,9 +5184,16 @@ function openClientDialog(client = null) {
 
     if (idInput.value) {
       clientData.id = Number(idInput.value);
+      if (client) {
+        clientData.uuid = client.uuid || client.portal_token || generateUUID();
+        clientData.portal_token = clientData.uuid;
+      }
       await update('clients', clientData);
       showToast('Client modifié.');
     } else {
+      const token = generateUUID();
+      clientData.uuid = token;
+      clientData.portal_token = token;
       await add('clients', clientData);
       showToast('Client créé.');
     }
@@ -6716,13 +6749,21 @@ async function checkAndInjectMockData() {
 }
 
 // --- PORTAIL CLIENT ---
-async function renderPortalDetails(clientId) {
-  const client = await getById('clients', clientId);
+async function renderPortalDetails(tokenOrId) {
+  let client = await getClientByToken(tokenOrId);
+  if (!client && !isNaN(Number(tokenOrId))) {
+    client = await getById('clients', Number(tokenOrId));
+  }
   if (!client) {
     showToast('Portail client inaccessible ou client inexistant.', 'error');
     window.location.hash = 'dashboard';
     return;
   }
+
+  currentPortalClientId = client.id;
+  currentPortalClientToken = client.uuid || client.portal_token || String(client.id);
+  sessionStorage.setItem('portalClientId', currentPortalClientId);
+  sessionStorage.setItem('portalClientToken', currentPortalClientToken);
 
   // Mettre à jour l'en-tête et les infos de contact
   document.getElementById('portal-owner-title').textContent = `Espace Suivi de ${client.prenom} ${client.nom.toUpperCase()}`;
@@ -6738,11 +6779,11 @@ async function renderPortalDetails(clientId) {
 
   // Configurer le bouton d'ajout d'un animal
   document.getElementById('btn-portal-add-animal').onclick = () => {
-    openAnimalDialog(null, clientId);
+    openAnimalDialog(null, client.id);
   };
 
   // Récupérer et afficher les animaux associés à ce client
-  const animals = await getByIndex('animals', 'client_id', clientId);
+  const animals = await getByIndex('animals', 'client_id', client.id);
   const portalAnimalsContainer = document.getElementById('portal-client-animals');
   portalAnimalsContainer.innerHTML = '';
 

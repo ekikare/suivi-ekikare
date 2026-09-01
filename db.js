@@ -58,7 +58,9 @@ export function mapLocalToSupabase(storeName, item) {
         email: item.email || '',
         address: item.adresse || item.address || '',
         main_stable: item.ecurie || item.main_stable || item.mainStable || '',
-        notes: item.notes || ''
+        notes: item.notes || '',
+        uuid: item.uuid || item.portal_token || null,
+        portal_token: item.portal_token || item.uuid || null
       };
       break;
     case 'animals':
@@ -159,7 +161,9 @@ export function mapSupabaseToLocal(storeName, item) {
         email: item.email || '',
         adresse: item.address || '',
         ecurie: item.main_stable || '',
-        notes: item.notes || ''
+        notes: item.notes || '',
+        uuid: item.uuid || item.portal_token || null,
+        portal_token: item.portal_token || item.uuid || null
       };
     case 'animals':
       return {
@@ -444,6 +448,13 @@ export async function addLocal(storeName, item) {
  * @returns {Promise<number>} L'identifiant généré
  */
 export async function add(storeName, item) {
+  if (storeName === 'clients') {
+    if (!item.portal_token && !item.uuid) {
+      const token = generateUUID();
+      item.portal_token = token;
+      item.uuid = token;
+    }
+  }
   if (SYNCED_STORES.includes(storeName)) {
     item.last_modified = Date.now();
     item.synced = 0;
@@ -669,4 +680,51 @@ export async function importAllData(importData) {
       }
     }
   });
+}
+
+/**
+ * Génère un identifiant universel sécurisé UUID v4.
+ */
+export function generateUUID() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+/**
+ * Récupère un client via son token aléatoire UUID ou son identifiant numérique de repli.
+ */
+export async function getClientByToken(token) {
+  if (!token) return null;
+  const clients = await getAll('clients');
+  const tokenStr = String(token).trim().toLowerCase();
+  let found = clients.find(c => (c.portal_token && String(c.portal_token).toLowerCase() === tokenStr) || 
+                                (c.uuid && String(c.uuid).toLowerCase() === tokenStr));
+  if (!found) {
+    found = clients.find(c => String(c.id).toLowerCase() === tokenStr);
+  }
+  return found || null;
+}
+
+/**
+ * Assure la migration et présence d'un token UUID sécurisé pour tous les clients existants.
+ */
+export async function ensureClientsHaveUUID() {
+  const clients = await getAll('clients');
+  let hasChanges = false;
+  for (const client of clients) {
+    if (!client.portal_token || !client.uuid) {
+      const token = client.portal_token || client.uuid || generateUUID();
+      client.portal_token = token;
+      client.uuid = token;
+      await updateLocal('clients', client);
+      hasChanges = true;
+    }
+  }
+  return hasChanges;
 }
