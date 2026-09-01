@@ -128,6 +128,19 @@ function setupDateHeader() {
   }
 }
 
+// --- UTILITAIRE URL PORTAIL CLIENT (COMPATIBLE GITHUB PAGES & LOCALHOST) ---
+function getClientPortalUrl(clientId) {
+  const origin = window.location.origin;
+  let pathname = window.location.pathname || '/';
+  if (pathname.endsWith('index.html')) {
+    pathname = pathname.slice(0, -'index.html'.length);
+  }
+  if (!pathname.endsWith('/')) {
+    pathname += '/';
+  }
+  return `${origin}${pathname}#portal/${clientId}`;
+}
+
 // --- ROUTAGE & NAVIGATION ---
 function setupNavigation() {
   document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
@@ -933,7 +946,7 @@ async function renderClientDetails(clientId) {
 
   // Configurer le clic boutons d'actions
   document.getElementById('btn-copy-client-portal-link').onclick = () => {
-    const portalUrl = `${window.location.origin}/#portal/${client.id}`;
+    const portalUrl = getClientPortalUrl(client.id);
     navigator.clipboard.writeText(portalUrl).then(() => {
       showToast('Lien Espace Client copié dans le presse-papier !');
     }).catch(err => {
@@ -1499,7 +1512,7 @@ async function renderAnimalDetails(animalId) {
 
   // Boutons d'actions
   document.getElementById('btn-copy-animal-portal-link').onclick = () => {
-    const portalUrl = `${window.location.origin}/#portal/${animal.client_id}`;
+    const portalUrl = getClientPortalUrl(animal.client_id);
     navigator.clipboard.writeText(portalUrl).then(() => {
       showToast('Lien Espace Client copié dans le presse-papier !');
     }).catch(err => {
