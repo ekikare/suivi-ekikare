@@ -1600,9 +1600,17 @@ async function renderAnimalDetails(animalId) {
       
       if (s.isExternal) {
         item.className = 'timeline-item timeline-item-external';
-        item.style.cursor = 'pointer';
+        item.style.cursor = s.fileData ? 'pointer' : 'default';
         
-        let crBtnHtml = `<button type="button" class="btn btn-secondary btn-small btn-view-cr" style="margin-top:10px; display:inline-flex; align-items:center; gap:5px;">📄 Voir le CR</button>`;
+        // N'afficher le bouton "Voir le CR" QUE SI un document joint existe
+        let crBtnHtml = '';
+        if (s.fileData) {
+          crBtnHtml = `
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+              <button type="button" class="btn btn-secondary btn-small btn-view-cr" style="display:inline-flex; align-items:center; gap:5px;">📄 Voir le CR</button>
+            </div>
+          `;
+        }
         
         item.innerHTML = `
           <div class="timeline-header">
@@ -1610,38 +1618,35 @@ async function renderAnimalDetails(animalId) {
             <span class="badge-external">Intervention externe</span>
           </div>
           <div class="timeline-objective"><strong>${s.profession} - <em>${s.practitionerName || 'Praticien tiers'}</em></strong></div>
-          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible;">
+          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; white-space:pre-wrap; word-break:break-word; line-height:1.5;">
             ${s.motif ? `<strong>Motif :</strong> ${s.motif}<br>` : ''}
-            <strong>Résumé / Prescriptions :</strong> ${s.summary || '-'}
+            <strong>Résumé / Prescriptions :</strong>
+            <div class="timeline-summary-text" style="white-space:pre-wrap; word-break:break-word; margin-top:2px;">${s.summary || '-'}</div>
           </div>
-          <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
-            ${crBtnHtml}
-          </div>
+          ${crBtnHtml}
           <div class="timeline-actions-ext" style="display:flex; gap:10px; margin-top:12px;">
             <button type="button" class="btn btn-secondary btn-small btn-edit-ext-session">Modifier</button>
             <button type="button" class="btn btn-danger btn-small btn-delete-ext-session">Supprimer</button>
           </div>
         `;
         
-        const openCrHandler = () => {
-          if (s.fileData) {
+        if (s.fileData) {
+          const openDocHandler = () => {
             openDocumentViewerModal(s.fileData, s.fileType, s.fileName, {
               subtitle: `Séance du ${formatDate(s.date_seance)} • ${s.profession}`,
               text: `Compte-rendu ${s.profession} pour ${animal.nom} (${formatDate(s.date_seance)})`
             });
-          } else {
-            openPortalSessionModal(s, animal);
-          }
-        };
+          };
 
-        item.addEventListener('click', () => {
-          openCrHandler();
-        });
+          item.addEventListener('click', () => {
+            openDocHandler();
+          });
 
-        item.querySelector('.btn-view-cr')?.addEventListener('click', (e) => {
-          e.stopPropagation();
-          openCrHandler();
-        });
+          item.querySelector('.btn-view-cr')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openDocHandler();
+          });
+        }
 
         item.querySelector('.btn-edit-ext-session')?.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -7154,10 +7159,74 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
         Génération PDF...
       `;
 
+      let tempWrapper = null;
       try {
         if (typeof html2pdf === 'undefined') {
           throw new Error("Bibliothèque html2pdf non disponible");
         }
+
+        // Créer un conteneur d'export complètement isolé hors de la modale et de ses styles sombres
+        tempWrapper = document.createElement('div');
+        tempWrapper.id = 'pdf-export-isolated-wrapper';
+        tempWrapper.style.cssText = `
+          position: fixed !important;
+          top: 0 !important;
+          left: -9999px !important;
+          width: 800px !important;
+          background: #ffffff !important;
+          background-color: #ffffff !important;
+          color: #111827 !important;
+          z-index: -9999 !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          border: none !important;
+          box-shadow: none !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+        `;
+
+        const clonedSheet = sheetElement.cloneNode(true);
+        clonedSheet.id = 'pdf-cloned-sheet';
+        clonedSheet.style.cssText = `
+          display: block !important;
+          background: #ffffff !important;
+          background-color: #ffffff !important;
+          color: #111827 !important;
+          width: 800px !important;
+          max-width: 800px !important;
+          padding: 30px !important;
+          margin: 0 !important;
+          border: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          box-sizing: border-box !important;
+        `;
+
+        // Appliquer explicitement les styles sur tous les enfants du clone
+        clonedSheet.querySelectorAll('*').forEach(el => {
+          if (el.classList.contains('print-app-title') || el.classList.contains('print-section-title') || el.tagName === 'H3') {
+            el.style.setProperty('color', '#0d9488', 'important');
+          } else if (el.classList.contains('print-branding')) {
+            el.style.setProperty('color', '#6d28d9', 'important');
+            el.style.setProperty('background', '#f8fafc', 'important');
+            el.style.setProperty('background-color', '#f8fafc', 'important');
+            el.style.setProperty('border', '1px solid #e2e8f0', 'important');
+          } else if (el.classList.contains('print-text-block')) {
+            el.style.setProperty('background', '#f8fafc', 'important');
+            el.style.setProperty('background-color', '#f8fafc', 'important');
+            el.style.setProperty('color', '#111827', 'important');
+            el.style.setProperty('border', '1px solid #e2e8f0', 'important');
+            el.style.setProperty('white-space', 'pre-wrap', 'important');
+          } else if (el.tagName === 'HR' || el.classList.contains('divider')) {
+            el.style.setProperty('border-color', '#cbd5e1', 'important');
+            el.style.setProperty('border-top', '1px solid #cbd5e1', 'important');
+          } else {
+            el.style.setProperty('color', '#111827', 'important');
+          }
+        });
+
+        tempWrapper.appendChild(clonedSheet);
+        document.body.appendChild(tempWrapper);
 
         const opt = {
           margin: [8, 8, 8, 8],
@@ -7169,64 +7238,21 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
             logging: false,
             letterRendering: true,
             scrollY: 0,
-            backgroundColor: '#ffffff',
-            onclone: (clonedDoc) => {
-              // Strip dark classes from cloned document
-              if (clonedDoc.documentElement) {
-                clonedDoc.documentElement.classList.remove('dark', 'dark-theme', 'portal-mode', 'app-initializing');
-                clonedDoc.documentElement.style.background = '#ffffff';
-              }
-              if (clonedDoc.body) {
-                clonedDoc.body.classList.remove('dark', 'dark-theme', 'portal-mode', 'is-client-portal');
-                clonedDoc.body.style.setProperty('background', '#ffffff', 'important');
-                clonedDoc.body.style.setProperty('background-color', '#ffffff', 'important');
-                clonedDoc.body.style.setProperty('color', '#111827', 'important');
-              }
-
-              const clonedSheet = clonedDoc.getElementById('portal-cr-sheet');
-              if (clonedSheet) {
-                clonedSheet.style.setProperty('background', '#ffffff', 'important');
-                clonedSheet.style.setProperty('background-color', '#ffffff', 'important');
-                clonedSheet.style.setProperty('color', '#111827', 'important');
-                clonedSheet.style.setProperty('box-shadow', 'none', 'important');
-                clonedSheet.style.setProperty('border', 'none', 'important');
-                clonedSheet.style.setProperty('border-radius', '0', 'important');
-                clonedSheet.style.setProperty('margin', '0', 'important');
-                clonedSheet.style.setProperty('padding', '24px', 'important');
-                clonedSheet.style.setProperty('width', '100%', 'important');
-                clonedSheet.style.setProperty('max-width', '800px', 'important');
-
-                clonedSheet.querySelectorAll('*').forEach(el => {
-                  if (el.classList.contains('print-app-title') || el.classList.contains('print-section-title') || el.tagName === 'H3') {
-                    el.style.setProperty('color', '#0d9488', 'important');
-                  } else if (el.classList.contains('print-branding')) {
-                    el.style.setProperty('color', '#6d28d9', 'important');
-                    el.style.setProperty('background', '#f8fafc', 'important');
-                    el.style.setProperty('border', '1px solid #e2e8f0', 'important');
-                  } else if (el.classList.contains('print-text-block')) {
-                    el.style.setProperty('background', '#f8fafc', 'important');
-                    el.style.setProperty('background-color', '#f8fafc', 'important');
-                    el.style.setProperty('color', '#111827', 'important');
-                    el.style.setProperty('border', '1px solid #e2e8f0', 'important');
-                  } else if (el.tagName === 'HR' || el.classList.contains('divider')) {
-                    el.style.setProperty('border-color', '#cbd5e1', 'important');
-                    el.style.setProperty('border-top', '1px solid #cbd5e1', 'important');
-                  } else {
-                    el.style.setProperty('color', '#111827', 'important');
-                  }
-                });
-              }
-            }
+            scrollX: 0,
+            backgroundColor: '#ffffff'
           },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
 
-        await html2pdf().set(opt).from(sheetElement).save();
+        await html2pdf().set(opt).from(clonedSheet).save();
         showToast(`Compte-rendu téléchargé : ${filename}`);
       } catch (err) {
         console.error('Erreur export PDF:', err);
         showToast("Erreur lors de la génération du PDF.", "error");
       } finally {
+        if (tempWrapper && tempWrapper.parentNode) {
+          tempWrapper.parentNode.removeChild(tempWrapper);
+        }
         downloadBtn.disabled = originalDisabled;
         downloadBtn.innerHTML = originalHtml;
       }

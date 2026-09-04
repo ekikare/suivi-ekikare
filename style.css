@@ -996,6 +996,21 @@ body {
   background-color: #3b82f6 !important; /* Blue indicator for external */
 }
 
+.timeline-item-external .timeline-preview {
+  display: block;
+  -webkit-line-clamp: unset;
+  max-height: none;
+  overflow: visible;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  line-height: 1.5 !important;
+}
+
+.timeline-item-external .timeline-summary-text {
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
+
 /* PROFESSIONALS LIST IN ANIMAL DETAIL */
 .prof-list {
   display: flex;
