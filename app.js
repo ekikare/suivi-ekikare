@@ -7431,33 +7431,25 @@ async function exportAnimalDossierPDF(animal, options) {
     // Créer le conteneur DOM pour la capture A4
     const printContainer = document.createElement('div');
     printContainer.id = 'dossier-pdf-render-target';
-    printContainer.className = 'dossier-pdf-sheet';
-    printContainer.style.position = 'fixed';
-    printContainer.style.left = '0';
-    printContainer.style.top = '0';
-    printContainer.style.width = '794px';
-    printContainer.style.zIndex = '99999';
-    printContainer.style.backgroundColor = '#ffffff';
-    printContainer.style.visibility = 'visible';
-    printContainer.style.opacity = '1';
-    printContainer.style.pointerEvents = 'none';
+    printContainer.className = 'print-container official-a4-sheet cr-document';
+    printContainer.style.cssText = "position: absolute; left: 0; top: 0; width: 800px; z-index: -100; background: #ffffff; color: #1e293b; padding: 30px 40px; box-sizing: border-box; font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;";
 
     let html = `
       <!-- EN-TETE OFFICIEL -->
-      <div class="dossier-pdf-header">
-        <div class="dossier-pdf-title-block">
-          <h1>
-            <span style="color:#D96B27;">eKiKare</span> • Fiche de Liaison & Dossier de Santé
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 2px solid #e2e8f0; page-break-inside: avoid; break-inside: avoid;">
+        <div>
+          <h1 style="font-size: 1.4rem; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">
+            <span style="color: #D96B27;">eKiKare</span> • Fiche de Liaison & Dossier de Santé
           </h1>
-          <p>Dossier de suivi bien-être et de liaison interprofessionnelle</p>
-          <div class="dossier-pdf-animal-badge">
+          <p style="font-size: 0.85rem; color: #64748b; margin: 0;">Dossier de suivi bien-être et de liaison interprofessionnelle</p>
+          <div style="display: inline-flex; align-items: center; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #D96B27; padding: 8px 14px; border-radius: 6px; margin-top: 12px; font-size: 0.95rem; font-weight: 600; color: #0f172a;">
             <span>🐾 <strong>${animal.nom}</strong> (${animal.espece}${animal.race ? ' - ' + animal.race : ''})</span>
-            <span style="color:#94a3b8; font-weight:normal;">• Édité le ${new Date().toLocaleDateString('fr-FR')}</span>
+            <span style="color: #94a3b8; font-weight: normal;">• Édité le ${new Date().toLocaleDateString('fr-FR')}</span>
           </div>
         </div>
-        <div class="dossier-pdf-logo-box">
-          <img src="assets/logo-ekikare.png" alt="eKiKare Logo" class="dossier-pdf-logo-img">
-          <span class="dossier-pdf-branding-tag">Techniques manuelles et énergétiques</span>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+          <img src="assets/logo-ekikare.png" alt="eKiKare" style="max-height: 48px; width: auto; object-fit: contain;">
+          <span style="font-size: 0.76rem; color: #64748b; font-weight: 500; letter-spacing: 0.3px;">Techniques manuelles et énergétiques</span>
         </div>
       </div>
     `;
@@ -7465,84 +7457,36 @@ async function exportAnimalDossierPDF(animal, options) {
     // SECTION 1: FICHE D'IDENTITE
     if (options.includeIdentity) {
       html += `
-        <div class="dossier-pdf-section">
-          <div class="dossier-pdf-section-title">
-            <span class="section-tag">1.</span> Signalement & Fiche d'Identité
+        <div style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
+          <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1.5px solid #e2e8f0;">
+            <span style="color: #D96B27;">1.</span> Signalement & Fiche d'Identité
           </div>
-          <div class="dossier-pdf-grid-2">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
             
             <!-- Colonne Animal -->
-            <div class="dossier-pdf-card">
-              <h4>Signalement & Mode de vie</h4>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Nom :</span>
-                <span class="dossier-pdf-value">${animal.nom}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Espèce / Race :</span>
-                <span class="dossier-pdf-value">${animal.espece} • ${animal.race || 'Non précisée'}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Robe / Sexe :</span>
-                <span class="dossier-pdf-value">${animal.robe || '-'} • ${animal.sexe || 'Non précisé'}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Âge / Naissance :</span>
-                <span class="dossier-pdf-value">${birthDisplay}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">SIRE / Puce :</span>
-                <span class="dossier-pdf-value">${idNumber}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Mode de vie :</span>
-                <span class="dossier-pdf-value">${combinedHousing}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Alimentation :</span>
-                <span class="dossier-pdf-value">${animal.nutrition_details || '-'}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Travail / Objectif :</span>
-                <span class="dossier-pdf-value">${animal.work_objective || animal.lifestyle_details || '-'}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Problématiques :</span>
-                <span class="dossier-pdf-value">${animal.main_problems || '-'}</span>
-              </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; color: #1e293b;">
+              <h4 style="font-size: 0.88rem; font-weight: 700; color: #334155; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px;">Signalement & Mode de vie</h4>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Nom :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.nom}</span></div>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Espèce / Race :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.espece} • ${animal.race || 'Non précisée'}</span></div>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Robe / Sexe :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.robe || '-'} • ${animal.sexe || 'Non précisé'}</span></div>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Âge / Naissance :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${birthDisplay}</span></div>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">SIRE / Puce :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${idNumber}</span></div>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Mode de vie :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${combinedHousing}</span></div>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Alimentation :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.nutrition_details || '-'}</span></div>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Travail / Objectif :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.work_objective || animal.lifestyle_details || '-'}</span></div>
+              <div style="display: flex; margin-bottom: 0; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Problématiques :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.main_problems || '-'}</span></div>
             </div>
 
             <!-- Colonne Propriétaire & Lieu -->
-            <div class="dossier-pdf-card">
-              <h4>Propriétaire & Hébergement</h4>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Propriétaire :</span>
-                <span class="dossier-pdf-value">${ownerName}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Téléphone :</span>
-                <span class="dossier-pdf-value">${client?.telephone || '-'}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">E-mail :</span>
-                <span class="dossier-pdf-value">${client?.email || '-'}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Adresse :</span>
-                <span class="dossier-pdf-value">${client?.adresse || '-'}</span>
-              </div>
-              <div class="dossier-pdf-row" style="margin-top: 10px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">
-                <span class="dossier-pdf-label">Pension / Lieu :</span>
-                <span class="dossier-pdf-value">${stableName}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Adresse pension :</span>
-                <span class="dossier-pdf-value">${fullAddress}</span>
-              </div>
-              <div class="dossier-pdf-row">
-                <span class="dossier-pdf-label">Suivi nutrition :</span>
-                <span class="dossier-pdf-value">${animal.nutritionist ? 'Oui' : 'Non'}</span>
-              </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; color: #1e293b;">
+              <h4 style="font-size: 0.88rem; font-weight: 700; color: #334155; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px;">Propriétaire & Hébergement</h4>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Propriétaire :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${ownerName}</span></div>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Téléphone :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${client?.telephone || '-'}</span></div>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">E-mail :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${client?.email || '-'}</span></div>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Adresse :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${client?.adresse || '-'}</span></div>
+              <div style="display: flex; margin-bottom: 6px; margin-top: 10px; border-top: 1px dashed #cbd5e1; padding-top: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Pension / Lieu :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${stableName}</span></div>
+              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Adresse pension :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${fullAddress}</span></div>
+              <div style="display: flex; margin-bottom: 0; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Suivi nutrition :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.nutritionist ? 'Oui' : 'Non'}</span></div>
             </div>
 
           </div>
@@ -7568,28 +7512,28 @@ async function exportAnimalDossierPDF(animal, options) {
       });
 
       html += `
-        <div class="dossier-pdf-section">
-          <div class="dossier-pdf-section-title">
-            <span class="section-tag">2.</span> Historique Médical & Pathologies
+        <div style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
+          <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1.5px solid #e2e8f0;">
+            <span style="color: #D96B27;">2.</span> Historique Médical & Pathologies
           </div>
       `;
 
       if (medEvents.length > 0) {
         html += `
-          <table class="dossier-pdf-med-table">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 6px;">
             <thead>
-              <tr>
-                <th style="width: 140px;">Période</th>
-                <th>Événement / Pathologie / Antécédent</th>
+              <tr style="background: #f1f5f9; color: #475569; font-weight: 600; text-align: left;">
+                <th style="padding: 8px 12px; border: 1px solid #e2e8f0; width: 140px;">Période</th>
+                <th style="padding: 8px 12px; border: 1px solid #e2e8f0;">Événement / Pathologie / Antécédent</th>
               </tr>
             </thead>
             <tbody>
         `;
         medEvents.forEach(ev => {
           html += `
-            <tr>
-              <td class="dossier-pdf-med-date">${ev.year}${ev.month ? ' - ' + ev.month : ''}</td>
-              <td>${ev.event}</td>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 8px 12px; border: 1px solid #e2e8f0; font-weight: 700; color: #D96B27; white-space: nowrap;">${ev.year}${ev.month ? ' - ' + ev.month : ''}</td>
+              <td style="padding: 8px 12px; border: 1px solid #e2e8f0; color: #1e293b;">${ev.event}</td>
             </tr>
           `;
         });
@@ -7599,13 +7543,13 @@ async function exportAnimalDossierPDF(animal, options) {
         `;
       } else if (animal.antecedents) {
         html += `
-          <div class="dossier-pdf-card">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem;">
             <p style="margin: 0; white-space: pre-line; color: #1e293b;">${animal.antecedents}</p>
           </div>
         `;
       } else {
         html += `
-          <div class="dossier-pdf-card" style="text-align: center; color: #64748b; font-style: italic;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; text-align: center; color: #64748b; font-style: italic;">
             Aucun antécédent médical ou pathologie particulier consigné.
           </div>
         `;
@@ -7617,15 +7561,15 @@ async function exportAnimalDossierPDF(animal, options) {
     // SECTION 3: HISTORIQUE DES SEANCES DE SOINS / BIEN-ETRE
     if (options.includeSessions) {
       html += `
-        <div class="dossier-pdf-section">
-          <div class="dossier-pdf-section-title">
-            <span class="section-tag">3.</span> Historique & Synthèse des Séances (${periodLabel})
+        <div style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
+          <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1.5px solid #e2e8f0;">
+            <span style="color: #D96B27;">3.</span> Historique & Synthèse des Séances (${periodLabel})
           </div>
       `;
 
       if (filteredSessions.length === 0) {
         html += `
-          <div class="dossier-pdf-card" style="text-align: center; color: #64748b; font-style: italic;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; text-align: center; color: #64748b; font-style: italic;">
             Aucune séance enregistrée sur la période sélectionnée (${periodLabel}).
           </div>
         `;
@@ -7654,14 +7598,14 @@ async function exportAnimalDossierPDF(animal, options) {
           const cleanSummaryHtml = interpretMarkdownToHtml(rawSummary);
 
           html += `
-            <div class="dossier-pdf-session-item">
-              <div class="dossier-pdf-session-header">
-                <span class="dossier-pdf-session-title">${cardTitle}</span>
-                <span class="dossier-pdf-session-date">${formatDate(s.date_seance)}</span>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; page-break-inside: avoid; break-inside: avoid;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
+                <span style="font-weight: 700; color: #0f172a; font-size: 0.88rem;">${cardTitle}</span>
+                <span style="font-size: 0.8rem; font-weight: 600; color: #D96B27;">${formatDate(s.date_seance)}</span>
               </div>
-              ${s.motif ? `<div class="dossier-pdf-session-motif"><strong>Motif :</strong> ${s.motif}</div>` : ''}
-              <div class="dossier-pdf-session-resume">
-                <strong>Résumé :</strong> <span>${cleanSummaryHtml}</span>
+              ${s.motif ? `<div style="font-size: 0.82rem; color: #475569; margin-bottom: 4px; line-height: 1.35;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+              <div style="font-size: 0.82rem; color: #334155; line-height: 1.4; margin: 0; word-break: break-word;">
+                <strong style="color: #0f172a;">Résumé :</strong> <span>${cleanSummaryHtml}</span>
               </div>
             </div>
           `;
@@ -7673,11 +7617,11 @@ async function exportAnimalDossierPDF(animal, options) {
 
     // PIED DE PAGE ET DECHARGE LEGALE
     html += `
-      <div class="dossier-pdf-footer">
-        <p class="dossier-pdf-disclaimer">
+      <div style="margin-top: 30px; border-top: 1px solid #cbd5e1; padding-top: 14px; page-break-inside: avoid; break-inside: avoid;">
+        <p style="font-size: 0.76rem; font-style: italic; line-height: 1.4; color: #64748b; text-align: justify; margin: 0 0 10px 0;">
           « Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatif et dans le cadre d’un partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif. »
         </p>
-        <p class="dossier-pdf-meta">
+        <p style="font-size: 0.74rem; color: #94a3b8; text-align: center; margin: 0;">
           Fiche de liaison générée via l'application Suivi eKiKare le ${new Date().toLocaleDateString('fr-FR')} • Page générée automatiquement
         </p>
       </div>
@@ -7685,6 +7629,9 @@ async function exportAnimalDossierPDF(animal, options) {
 
     printContainer.innerHTML = html;
     document.body.appendChild(printContainer);
+
+    console.log("PDF Export HTML generated. Length:", printContainer.innerHTML.length);
+    console.log("PDF Export HTML content:\n", printContainer.innerHTML);
 
     // Attendre le préchargement complet des images et la stabilisation du layout
     const images = Array.from(printContainer.querySelectorAll('img'));
@@ -7712,20 +7659,19 @@ async function exportAnimalDossierPDF(animal, options) {
         backgroundColor: '#ffffff',
         scrollX: 0,
         scrollY: 0,
-        windowWidth: 1200,
         onclone: (clonedDoc) => {
-          const target = clonedDoc.querySelector('#dossier-pdf-render-target');
+          const target = clonedDoc.querySelector('#dossier-pdf-render-target') || clonedDoc.querySelector('.dossier-pdf-sheet') || clonedDoc.querySelector('.cr-document');
           if (target) {
             target.style.position = 'static';
-            target.style.left = '0';
-            target.style.top = '0';
+            target.style.margin = '0 auto';
+            target.style.zIndex = '1';
             target.style.display = 'block';
             target.style.visibility = 'visible';
             target.style.opacity = '1';
-            target.style.margin = '0 auto';
             target.style.width = '794px';
             target.style.maxWidth = '794px';
             target.style.boxSizing = 'border-box';
+            target.style.backgroundColor = '#ffffff';
           }
         }
       },
