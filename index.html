@@ -407,7 +407,7 @@
           <div class="button-group">
             <button class="btn btn-secondary" id="btn-copy-animal-portal-link">🔗 Lien Espace Client</button>
             <button class="btn btn-secondary" id="btn-edit-animal-detail">Modifier</button>
-            <button class="btn btn-secondary" id="btn-add-external-session-for-animal">+ Séance externe (Autre praticien)</button>
+            <button class="btn btn-secondary" id="btn-add-external-session-for-animal">+ Ajouter une séance</button>
             <button class="btn btn-primary" id="btn-new-session-for-animal">Nouvelle séance</button>
           </div>
         </div>
@@ -1970,7 +1970,7 @@
 
   <dialog class="app-dialog glass-card" id="dialog-external-session" style="max-width: 600px; width: 90%;">
     <div class="dialog-header">
-      <h2 id="dialog-external-session-title">Nouvelle séance externe (Autre praticien)</h2>
+      <h2 id="dialog-external-session-title">Ajouter une séance</h2>
       <button class="btn-close-dialog">&times;</button>
     </div>
     <form id="dialog-external-session-form" style="padding: 15px; display: flex; flex-direction: column; gap: 15px;">
@@ -2037,6 +2037,43 @@
         <button type="submit" class="btn btn-primary">Enregistrer</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Modal Visualisation Document / Compte-Rendu Joint -->
+  <dialog class="app-dialog glass-card" id="dialog-document-viewer" style="max-width: 900px; width: 95%; max-height: 94vh; padding: 20px; overflow-y: auto;">
+    <div class="dialog-header" style="position: sticky; top: -20px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); z-index: 20; border-bottom: 1px solid var(--glass-border); padding: 12px 0; margin: -20px -20px 15px -20px; padding-left: 20px; padding-right: 20px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 1.4rem;" id="doc-viewer-icon">📎</span>
+        <div>
+          <h2 id="doc-viewer-title" style="margin: 0; font-size: 1.15rem; color: #fff;">Document joint</h2>
+          <p id="doc-viewer-subtitle" style="margin: 2px 0 0 0; font-size: 0.8rem; color: var(--text-sub);">-</p>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <button type="button" class="btn btn-secondary btn-small" id="btn-share-doc-viewer" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="18" cy="5" r="3"></circle>
+            <circle cx="6" cy="12" r="3"></circle>
+            <circle cx="18" cy="19" r="3"></circle>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+          </svg>
+          Partager
+        </button>
+        <button type="button" class="btn btn-primary btn-small" id="btn-download-doc-viewer" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          Télécharger
+        </button>
+        <button class="btn-close-dialog" type="button" aria-label="Fermer" style="margin-left: 6px;">&times;</button>
+      </div>
+    </div>
+    <div id="doc-viewer-body" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 10px;">
+      <!-- Rendu dynamique -->
+    </div>
   </dialog>
 
   <!-- Modal Compte-Rendu de Séance (Miroir Officiel A4 Feuille Imprimable) -->

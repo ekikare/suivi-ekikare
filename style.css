@@ -2325,7 +2325,8 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 /* ==========================================================================
    OFFICIAL A4 PRINT SHEET IN MODAL
    ========================================================================== */
-#dialog-portal-session-cr {
+#dialog-portal-session-cr,
+#dialog-document-viewer {
   background: rgba(15, 23, 42, 0.88) !important;
   backdrop-filter: blur(16px);
   border: 1px solid var(--glass-border);
@@ -2336,7 +2337,8 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 #dialog-portal-session-cr .official-a4-sheet {
   display: block !important;
   background: #ffffff !important;
-  color: #1e293b !important;
+  background-color: #ffffff !important;
+  color: #111827 !important;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
   border-radius: 8px !important;
   padding: 40px !important;
@@ -2546,14 +2548,12 @@ body.is-client-portal .practitioner-only,
 body.is-client-portal #btn-copy-animal-portal-link,
 body.is-client-portal #btn-add-animal-to-client,
 body.is-client-portal #btn-new-session-for-animal,
-body.is-client-portal #btn-add-external-session-for-animal,
 body.is-client-portal #btn-back-to-animals,
 body.is-client-portal #btn-back-to-clients,
 body.is-client-portal .sidebar-brand,
 body.is-client-portal #btn-toggle-cr-detaille,
 body.is-client-portal #btn-complete-followup-q,
 body.is-client-portal .practitioner-box-area,
-body.is-client-portal .timeline-actions-ext,
 body.is-client-portal #view-animals-details .detail-left-column .detail-card:nth-child(3), /* Partners */
 body.is-client-portal #view-animals-details .detail-right-column .detail-card:nth-child(2) /* Reminders */ {
   display: none !important;

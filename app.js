@@ -1600,31 +1600,22 @@ async function renderAnimalDetails(animalId) {
       
       if (s.isExternal) {
         item.className = 'timeline-item timeline-item-external';
-        item.style.cursor = currentPortalClientId ? 'pointer' : 'default';
+        item.style.cursor = 'pointer';
         
-        let fileBtnHtml = '';
-        if (s.fileData) {
-          fileBtnHtml = `<button type="button" class="btn btn-secondary btn-small btn-view-ext-file" style="margin-top:10px; display:inline-flex; align-items:center; gap:5px;">📎 Voir le document joint</button>`;
-        }
-
-        let modalBtnHtml = '';
-        if (currentPortalClientId) {
-          modalBtnHtml = `<button type="button" class="btn btn-secondary btn-small btn-open-ext-cr" style="margin-top:10px; display:inline-flex; align-items:center; gap:5px;">📄 Voir le compte-rendu</button>`;
-        }
+        let crBtnHtml = `<button type="button" class="btn btn-secondary btn-small btn-view-cr" style="margin-top:10px; display:inline-flex; align-items:center; gap:5px;">📄 Voir le CR</button>`;
         
         item.innerHTML = `
           <div class="timeline-header">
             <span class="timeline-date">${formatDate(s.date_seance)}</span>
             <span class="badge-external">Intervention externe</span>
           </div>
-          <div class="timeline-objective"><strong>${s.profession} - <em>${s.practitionerName || 'Praticien inconnu'}</em></strong></div>
+          <div class="timeline-objective"><strong>${s.profession} - <em>${s.practitionerName || 'Praticien tiers'}</em></strong></div>
           <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible;">
             ${s.motif ? `<strong>Motif :</strong> ${s.motif}<br>` : ''}
             <strong>Résumé / Prescriptions :</strong> ${s.summary || '-'}
           </div>
           <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
-            ${modalBtnHtml}
-            ${fileBtnHtml}
+            ${crBtnHtml}
           </div>
           <div class="timeline-actions-ext" style="display:flex; gap:10px; margin-top:12px;">
             <button type="button" class="btn btn-secondary btn-small btn-edit-ext-session">Modifier</button>
@@ -1632,20 +1623,25 @@ async function renderAnimalDetails(animalId) {
           </div>
         `;
         
-        item.querySelector('.btn-view-ext-file')?.addEventListener('click', (e) => {
-          e.stopPropagation();
-          openAttachedFile(s.fileData, s.fileType, s.fileName);
+        const openCrHandler = () => {
+          if (s.fileData) {
+            openDocumentViewerModal(s.fileData, s.fileType, s.fileName, {
+              subtitle: `Séance du ${formatDate(s.date_seance)} • ${s.profession}`,
+              text: `Compte-rendu ${s.profession} pour ${animal.nom} (${formatDate(s.date_seance)})`
+            });
+          } else {
+            openPortalSessionModal(s, animal);
+          }
+        };
+
+        item.addEventListener('click', () => {
+          openCrHandler();
         });
 
-        if (currentPortalClientId) {
-          item.addEventListener('click', () => {
-            openPortalSessionModal(s, animal);
-          });
-          item.querySelector('.btn-open-ext-cr')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openPortalSessionModal(s, animal);
-          });
-        }
+        item.querySelector('.btn-view-cr')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openCrHandler();
+        });
 
         item.querySelector('.btn-edit-ext-session')?.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -1654,9 +1650,9 @@ async function renderAnimalDetails(animalId) {
 
         item.querySelector('.btn-delete-ext-session')?.addEventListener('click', async (e) => {
           e.stopPropagation();
-          if (confirm("Êtes-vous sûr de vouloir supprimer cette séance externe ?")) {
+          if (confirm("Êtes-vous sûr de vouloir supprimer cette séance ?")) {
             await remove('sessions', s.id);
-            showToast("Séance externe supprimée.");
+            showToast("Séance supprimée.");
             await renderAnimalDetails(animalId);
           }
         });
@@ -5034,8 +5030,14 @@ let extSessionFileData = null;
 let extSessionFileName = null;
 let extSessionFileType = null;
 
-// VIEW EXTERNAL SESSION ATTACHED FILE
-function openAttachedFile(fileData, fileType, fileName) {
+// MODALE VISUALISATION DOCUMENT / COMPTE-RENDU JOINT
+function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
+  const dialog = document.getElementById('dialog-document-viewer');
+  if (!dialog || !fileData) {
+    showToast("Aucun document joint à afficher.", "error");
+    return;
+  }
+
   try {
     const base64Content = fileData.includes(',') ? fileData.split(',')[1] : fileData;
     const mime = fileType || (fileData.includes(',') ? fileData.split(',')[0].split(':')[1].split(';')[0] : 'application/octet-stream');
@@ -5048,20 +5050,137 @@ function openAttachedFile(fileData, fileType, fileName) {
     const byteArray = new Uint8Array(byteNumbers);
     const blob = new Blob([byteArray], { type: mime });
     const blobUrl = URL.createObjectURL(blob);
-    
-    const newWindow = window.open(blobUrl, '_blank');
-    if (!newWindow) {
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = fileName || 'document';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+
+    const titleEl = document.getElementById('doc-viewer-title');
+    const subtitleEl = document.getElementById('doc-viewer-subtitle');
+    const iconEl = document.getElementById('doc-viewer-icon');
+    const bodyEl = document.getElementById('doc-viewer-body');
+    const downloadBtn = document.getElementById('btn-download-doc-viewer');
+    const shareBtn = document.getElementById('btn-share-doc-viewer');
+
+    const cleanFilename = fileName || (mime.includes('pdf') ? 'compte_rendu.pdf' : 'document.jpg');
+    if (titleEl) titleEl.textContent = cleanFilename;
+    if (subtitleEl) {
+      subtitleEl.textContent = extraInfo.subtitle || `${mime} • ${(blob.size / 1024).toFixed(1)} Ko`;
     }
+
+    const isImage = mime.startsWith('image/');
+    const isPdf = mime === 'application/pdf' || mime.includes('pdf') || cleanFilename.toLowerCase().endsWith('.pdf');
+
+    if (iconEl) {
+      iconEl.textContent = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
+    }
+
+    if (isImage) {
+      bodyEl.innerHTML = `
+        <div style="width: 100%; display: flex; justify-content: center; align-items: center; max-height: 75vh; overflow: auto; padding: 10px;">
+          <img src="${blobUrl}" alt="${cleanFilename}" style="max-width: 100%; max-height: 75vh; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+        </div>
+      `;
+    } else if (isPdf) {
+      bodyEl.innerHTML = `
+        <div style="width: 100%; height: 75vh; position: relative;">
+          <iframe src="${blobUrl}" style="width: 100%; height: 100%; border: none; border-radius: 8px; background: #fff;" title="${cleanFilename}"></iframe>
+        </div>
+      `;
+    } else {
+      bodyEl.innerHTML = `
+        <div style="text-align: center; padding: 40px 20px;">
+          <div style="font-size: 3rem; margin-bottom: 12px;">📁</div>
+          <h3 style="color: #fff; margin-bottom: 8px;">${cleanFilename}</h3>
+          <p style="color: var(--text-sub); margin-bottom: 20px;">Type de fichier : ${mime}</p>
+          <a href="${blobUrl}" download="${cleanFilename}" class="btn btn-primary">Télécharger le document</a>
+        </div>
+      `;
+    }
+
+    // Télécharger
+    if (downloadBtn) {
+      downloadBtn.onclick = () => {
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = cleanFilename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        showToast(`Document téléchargé : ${cleanFilename}`);
+      };
+    }
+
+    // Partager
+    if (shareBtn) {
+      shareBtn.onclick = async () => {
+        try {
+          const file = new File([blob], cleanFilename, { type: mime });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: cleanFilename,
+              text: extraInfo.text || `Document ${cleanFilename}`
+            });
+            showToast("Document partagé avec succès !");
+            return;
+          }
+        } catch (e) {
+          if (e.name !== 'AbortError') console.warn('Share file error:', e);
+        }
+        
+        // Fallback share text/url
+        const shareData = {
+          title: cleanFilename,
+          text: extraInfo.text || `Document joint : ${cleanFilename}`,
+          url: window.location.href
+        };
+        if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+          try {
+            await navigator.share(shareData);
+            showToast("Lien partagé avec succès !");
+            return;
+          } catch (e) {
+            if (e.name !== 'AbortError') console.warn('Share error:', e);
+          }
+        }
+
+        // Fallback clipboard
+        try {
+          await navigator.clipboard.writeText(`${cleanFilename} - ${window.location.href}`);
+          showToast("Lien copié dans le presse-papier !");
+        } catch (e) {
+          showToast("Partage non supporté sur cet appareil.", "error");
+        }
+      };
+    }
+
+    // Fermeture
+    const closeBtns = dialog.querySelectorAll('.btn-close-dialog');
+    closeBtns.forEach(btn => {
+      btn.onclick = () => {
+        dialog.close();
+      };
+    });
+
+    dialog.onclick = (e) => {
+      const rect = dialog.getBoundingClientRect();
+      if (
+        e.clientX < rect.left ||
+        e.clientX > rect.right ||
+        e.clientY < rect.top ||
+        e.clientY > rect.bottom
+      ) {
+        dialog.close();
+      }
+    };
+
+    dialog.showModal();
   } catch (err) {
-    console.error("Erreur lors de l'ouverture du fichier", err);
-    showToast("Impossible d'ouvrir le fichier joint.", "error");
+    console.error("Erreur lors de l'ouverture du document", err);
+    showToast("Impossible d'ouvrir le document joint.", "error");
   }
+}
+
+// VIEW EXTERNAL SESSION ATTACHED FILE
+function openAttachedFile(fileData, fileType, fileName, extraInfo = {}) {
+  openDocumentViewerModal(fileData, fileType, fileName, extraInfo);
 }
 
 // SETUP STATIC LISTENERS FOR EXTERNAL SESSION DIALOG
@@ -5126,8 +5245,8 @@ function openExternalSessionDialog(session = null, animalId = null) {
 
   // Title
   document.getElementById('dialog-external-session-title').textContent = session 
-    ? 'Modifier la séance externe' 
-    : 'Nouvelle séance externe (Autre praticien)';
+    ? 'Modifier la séance' 
+    : 'Ajouter une séance';
     
   // IDs
   document.getElementById('dialog-external-session-id').value = session ? session.id : '';
@@ -5232,10 +5351,10 @@ function openExternalSessionDialog(session = null, animalId = null) {
     if (id) {
       sessionObj.id = Number(id);
       await update('sessions', sessionObj);
-      showToast("Séance externe modifiée avec succès.");
+      showToast("Séance modifiée avec succès.");
     } else {
       await add('sessions', sessionObj);
-      showToast("Séance externe ajoutée avec succès.");
+      showToast("Séance ajoutée avec succès.");
     }
     
     dialog.close();
@@ -6994,7 +7113,10 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
         </button>
       `;
       attachContent.querySelector('.btn-view-modal-ext-file').onclick = () => {
-        openAttachedFile(session.fileData, session.fileType, session.fileName);
+        openDocumentViewerModal(session.fileData, session.fileType, session.fileName, {
+          subtitle: `Séance du ${formatDate(session.date_seance)} • ${session.profession || 'Externe'}`,
+          text: `Document joint séance pour ${animal.nom}`
+        });
       };
       attachSection.style.display = 'block';
     } else {
@@ -7038,7 +7160,7 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
         }
 
         const opt = {
-          margin: [10, 10, 10, 10],
+          margin: [8, 8, 8, 8],
           filename: filename,
           image: { type: 'jpeg', quality: 0.98 },
           html2canvas: {
@@ -7046,7 +7168,55 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
             useCORS: true,
             logging: false,
             letterRendering: true,
-            scrollY: 0
+            scrollY: 0,
+            backgroundColor: '#ffffff',
+            onclone: (clonedDoc) => {
+              // Strip dark classes from cloned document
+              if (clonedDoc.documentElement) {
+                clonedDoc.documentElement.classList.remove('dark', 'dark-theme', 'portal-mode', 'app-initializing');
+                clonedDoc.documentElement.style.background = '#ffffff';
+              }
+              if (clonedDoc.body) {
+                clonedDoc.body.classList.remove('dark', 'dark-theme', 'portal-mode', 'is-client-portal');
+                clonedDoc.body.style.setProperty('background', '#ffffff', 'important');
+                clonedDoc.body.style.setProperty('background-color', '#ffffff', 'important');
+                clonedDoc.body.style.setProperty('color', '#111827', 'important');
+              }
+
+              const clonedSheet = clonedDoc.getElementById('portal-cr-sheet');
+              if (clonedSheet) {
+                clonedSheet.style.setProperty('background', '#ffffff', 'important');
+                clonedSheet.style.setProperty('background-color', '#ffffff', 'important');
+                clonedSheet.style.setProperty('color', '#111827', 'important');
+                clonedSheet.style.setProperty('box-shadow', 'none', 'important');
+                clonedSheet.style.setProperty('border', 'none', 'important');
+                clonedSheet.style.setProperty('border-radius', '0', 'important');
+                clonedSheet.style.setProperty('margin', '0', 'important');
+                clonedSheet.style.setProperty('padding', '24px', 'important');
+                clonedSheet.style.setProperty('width', '100%', 'important');
+                clonedSheet.style.setProperty('max-width', '800px', 'important');
+
+                clonedSheet.querySelectorAll('*').forEach(el => {
+                  if (el.classList.contains('print-app-title') || el.classList.contains('print-section-title') || el.tagName === 'H3') {
+                    el.style.setProperty('color', '#0d9488', 'important');
+                  } else if (el.classList.contains('print-branding')) {
+                    el.style.setProperty('color', '#6d28d9', 'important');
+                    el.style.setProperty('background', '#f8fafc', 'important');
+                    el.style.setProperty('border', '1px solid #e2e8f0', 'important');
+                  } else if (el.classList.contains('print-text-block')) {
+                    el.style.setProperty('background', '#f8fafc', 'important');
+                    el.style.setProperty('background-color', '#f8fafc', 'important');
+                    el.style.setProperty('color', '#111827', 'important');
+                    el.style.setProperty('border', '1px solid #e2e8f0', 'important');
+                  } else if (el.tagName === 'HR' || el.classList.contains('divider')) {
+                    el.style.setProperty('border-color', '#cbd5e1', 'important');
+                    el.style.setProperty('border-top', '1px solid #cbd5e1', 'important');
+                  } else {
+                    el.style.setProperty('color', '#111827', 'important');
+                  }
+                });
+              }
+            }
           },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
