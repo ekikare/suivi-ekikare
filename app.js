@@ -7426,8 +7426,6 @@ async function openAnimalDossierPreviewModal(animal, options) {
     let combinedHousing = hType;
     if (sType) combinedHousing += ` • ${sType}`;
 
-    const idNumber = animal.sire || animal.numero_sire || animal.puce || animal.transpondeur || animal.identification || 'Non renseigné';
-
     const logoSrc = 'assets/logo-ekikare.png';
 
     let html = `
@@ -7469,7 +7467,6 @@ async function openAnimalDossierPreviewModal(animal, options) {
                     <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Espèce / Race :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.espece} • ${animal.race || 'Non précisée'}</td></tr>
                     <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Robe / Sexe :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.robe || '-'} • ${animal.sexe || 'Non précisé'}</td></tr>
                     <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Âge / Naissance :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${birthDisplay}</td></tr>
-                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">SIRE / Puce :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${idNumber}</td></tr>
                     <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Mode de vie :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${combinedHousing}</td></tr>
                     <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Alimentation :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.nutrition_details || '-'}</td></tr>
                     <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Travail / Objectif :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.work_objective || animal.lifestyle_details || '-'}</td></tr>
@@ -7635,10 +7632,100 @@ async function openAnimalDossierPreviewModal(animal, options) {
 
     sheetContainer.innerHTML = html;
 
-    // Configuration du bouton d'impression
-    const printBtn = document.getElementById('btn-print-animal-dossier');
-    if (printBtn) {
-      printBtn.onclick = () => {
+    // Configuration du bouton Télécharger le PDF (direct)
+    const downloadBtn = document.getElementById('btn-download-animal-dossier');
+    if (downloadBtn) {
+      downloadBtn.onclick = async () => {
+        const originalHtml = downloadBtn.innerHTML;
+        const originalDisabled = downloadBtn.disabled;
+        downloadBtn.disabled = true;
+        downloadBtn.innerHTML = `
+          <div class="sync-icon-spin" style="width: 14px; height: 14px; border-width: 2px; display: inline-block;"></div>
+          <span>Génération PDF...</span>
+        `;
+
+        const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
+        const filename = `Fiche_Liaison_${cleanAnimalName}.pdf`;
+
+        try {
+          if (typeof html2pdf === 'undefined') {
+            throw new Error("Bibliothèque html2pdf non disponible");
+          }
+
+          const opt = {
+            margin: [10, 10, 10, 10],
+            filename: filename,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: {
+              scale: 2,
+              useCORS: true,
+              logging: false,
+              backgroundColor: '#ffffff',
+              scrollX: 0,
+              scrollY: 0,
+              onclone: (clonedDoc) => {
+                const target = clonedDoc.querySelector('#animal-dossier-preview-sheet') || clonedDoc.querySelector('.official-a4-sheet');
+                if (target) {
+                  target.style.margin = '0 auto';
+                  target.style.transform = 'none';
+                  target.style.position = 'static';
+                  target.style.width = '794px';
+                  target.style.maxWidth = '794px';
+                  target.style.boxSizing = 'border-box';
+                  target.style.backgroundColor = '#ffffff';
+                }
+              }
+            },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+          };
+
+          await html2pdf().set(opt).from(sheetContainer).save();
+          showToast(`Fiche de liaison téléchargée : ${filename}`);
+        } catch (err) {
+          console.error("Erreur téléchargement PDF fiche liaison:", err);
+          showToast("Erreur lors de la génération du PDF.", "error");
+        } finally {
+          downloadBtn.disabled = originalDisabled;
+          downloadBtn.innerHTML = originalHtml;
+        }
+      };
+    }
+
+    // Configuration du bouton Partager
+    const shareBtn = document.getElementById('btn-share-animal-dossier');
+    if (shareBtn) {
+      shareBtn.onclick = async () => {
+        const shareData = {
+          title: `Fiche de Liaison & Dossier de Santé - ${animal?.nom || 'Animal'}`,
+          text: `Consultez la fiche de liaison et le dossier de santé eKiKare de ${animal?.nom || 'l\'animal'} (${animal?.espece || ''})`,
+          url: window.location.href
+        };
+
+        if (navigator.share && navigator.canShare && navigator.canShare(shareData) && !window.matchMedia('(min-width: 1024px)').matches) {
+          try {
+            await navigator.share(shareData);
+            showToast('Fiche de liaison partagée avec succès !');
+            return;
+          } catch (err) {
+            if (err.name !== 'AbortError') {
+              console.warn('Erreur partage:', err);
+            }
+          }
+        }
+
+        // Fallback copie presse-papier
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try {
+            await navigator.clipboard.writeText(window.location.href);
+            showToast('Lien de la fiche copié dans le presse-papier !');
+            return;
+          } catch (clipErr) {
+            console.warn('Erreur copie presse-papier:', clipErr);
+          }
+        }
+
+        // Second fallback : impression
         document.body.classList.add('printing-animal-dossier');
         window.print();
         setTimeout(() => {
