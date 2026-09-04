@@ -2037,41 +2037,101 @@
     </form>
   </dialog>
 
-  <!-- Modal Compte-Rendu de Séance (Portail Client & Consultation Pop-up) -->
-  <dialog class="app-dialog glass-card" id="dialog-portal-session-cr" style="max-width: 800px; width: 92%; max-height: 90vh; overflow-y: auto;">
-    <div class="dialog-header" style="position: sticky; top: 0; background: var(--bg-card, #1e293b); z-index: 10; border-bottom: 1px solid var(--glass-border); padding-bottom: 12px; margin-bottom: 16px;">
-      <div>
-        <h2 id="portal-cr-dialog-title" style="margin: 0; font-size: 1.3rem;">Compte-Rendu de Séance</h2>
-        <p id="portal-cr-dialog-subtitle" style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--text-sub);">-</p>
+  <!-- Modal Compte-Rendu de Séance (Miroir Officiel A4 Feuille Imprimable) -->
+  <dialog class="app-dialog glass-card" id="dialog-portal-session-cr" style="max-width: 880px; width: 95%; max-height: 92vh; padding: 20px; overflow-y: auto;">
+    <div class="dialog-header" style="position: sticky; top: -20px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); z-index: 20; border-bottom: 1px solid var(--glass-border); padding: 12px 0; margin: -20px -20px 20px -20px; padding-left: 20px; padding-right: 20px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 1.4rem;">📄</span>
+        <div>
+          <h2 id="portal-cr-dialog-title" style="margin: 0; font-size: 1.15rem; color: #fff;">Compte-Rendu Officiel</h2>
+          <p id="portal-cr-dialog-subtitle" style="margin: 2px 0 0 0; font-size: 0.8rem; color: var(--text-sub);">-</p>
+        </div>
       </div>
-      <button class="btn-close-dialog" type="button" aria-label="Fermer">&times;</button>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <button type="button" class="btn btn-secondary btn-small" id="btn-share-portal-cr" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="18" cy="5" r="3"></circle>
+            <circle cx="6" cy="12" r="3"></circle>
+            <circle cx="18" cy="19" r="3"></circle>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+          </svg>
+          Partager
+        </button>
+        <button type="button" class="btn btn-primary btn-small" id="btn-print-portal-cr" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+          </svg>
+          Télécharger / Imprimer
+        </button>
+        <button class="btn-close-dialog" type="button" aria-label="Fermer" style="margin-left: 6px;">&times;</button>
+      </div>
     </div>
 
-    <!-- Actions Bar (Imprimer / Télécharger / Partager) -->
-    <div class="portal-cr-modal-actions" style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; justify-content: flex-end;">
-      <button type="button" class="btn btn-secondary" id="btn-share-portal-cr" style="display: inline-flex; align-items: center; gap: 6px;">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="18" cy="5" r="3"></circle>
-          <circle cx="6" cy="12" r="3"></circle>
-          <circle cx="18" cy="19" r="3"></circle>
-          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
-          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
-        </svg>
-        Partager
-      </button>
-      <button type="button" class="btn btn-primary" id="btn-print-portal-cr" style="display: inline-flex; align-items: center; gap: 6px;">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 6 2 18 2 18 9"></polyline>
-          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-          <rect x="6" y="14" width="12" height="8"></rect>
-        </svg>
-        Télécharger / Imprimer
-      </button>
-    </div>
+    <!-- Feuille A4 Officielle Imprimable (Fond Blanc Miroir) -->
+    <div class="print-container official-a4-sheet" id="portal-cr-sheet">
+      <div class="print-header">
+        <div>
+          <h2 class="print-app-title">Compte-Rendu de Séance - eKiKare</h2>
+          <p class="print-date" id="portal-cr-session-date">Séance du : -</p>
+        </div>
+        <div class="print-branding">Techniques manuelles et énergétiques</div>
+      </div>
+      <hr class="divider">
+      
+      <div class="print-grid-2">
+        <div>
+          <h3>Propriétaire (Client)</h3>
+          <p><strong id="portal-cr-client-name">-</strong></p>
+          <p id="portal-cr-client-contact">-</p>
+        </div>
+        <div>
+          <h3>Animal</h3>
+          <p>Nom : <strong id="portal-cr-animal-name">-</strong></p>
+          <p id="portal-cr-animal-identity">-</p>
+          <p id="portal-cr-animal-details">-</p>
+          <p id="portal-cr-animal-living">-</p>
+        </div>
+      </div>
 
-    <!-- Contenu du CR imprimable -->
-    <div class="portal-cr-printable" id="portal-cr-content">
-      <!-- Rempli dynamiquement en JS -->
+      <hr class="divider">
+
+      <div class="print-section">
+        <h3 class="print-section-title">Motif de consultation</h3>
+        <p class="print-text-block" id="portal-cr-session-objective">-</p>
+      </div>
+
+      <div class="print-section" id="portal-cr-section-resume">
+        <h3 class="print-section-title">Résumé de la séance</h3>
+        <div class="print-text-block" id="portal-cr-session-resume-content">-</div>
+      </div>
+
+      <div class="print-section" id="portal-cr-section-canvas" style="display: none;">
+        <h3 class="print-section-title">Schéma d'annotations</h3>
+        <div class="print-canvas-preview">
+          <img id="portal-cr-session-canvas-img" src="" alt="Schéma d'annotations de la séance">
+        </div>
+      </div>
+
+      <!-- Précisions générales de la séance (si renseignées) -->
+      <div class="print-section" id="portal-cr-section-precisions" style="display: none; margin-top: 20px;">
+        <h3 class="print-section-title">Précisions générales de la séance</h3>
+        <div class="print-text-block" id="portal-cr-session-precisions-content">-</div>
+      </div>
+
+      <!-- Document joint pour séances externes (si présent) -->
+      <div class="print-section" id="portal-cr-section-attachment" style="display: none; margin-top: 20px;">
+        <h3 class="print-section-title">Document joint</h3>
+        <div id="portal-cr-session-attachment-content" style="margin-top: 8px;"></div>
+      </div>
+
+      <!-- Bas de page officiel avec Mentions Légales & Avertissement Vétérinaire -->
+      <div class="print-footer" style="margin-top: 30px; border-top: 1px solid #cbd5e1; padding-top: 15px;">
+        <p style="font-size: 0.8rem; font-style: italic; line-height: 1.4; color: #475569; text-align: justify; margin: 0 0 10px 0;">« Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire ou éducatif. »</p>
+        <p style="margin-top: 10px; font-size: 0.75rem; color: #64748b; text-align: center;">Généré via l'application Suivi eKiKare le <span id="portal-cr-generation-date">-</span></p>
+      </div>
     </div>
   </dialog>
 

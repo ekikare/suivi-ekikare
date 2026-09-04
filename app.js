@@ -6889,6 +6889,9 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
     return;
   }
 
+  // Récupérer les données du propriétaire
+  const client = await getById('clients', session.client_id || animal.client_id);
+
   const dialog = document.getElementById('dialog-portal-session-cr');
   if (!dialog) return;
 
@@ -6897,118 +6900,112 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
     subtitleEl.textContent = `Séance du ${formatDate(session.date_seance)} • ${animal.nom} (${animal.espece})`;
   }
 
-  const contentEl = document.getElementById('portal-cr-content');
-  if (!contentEl) return;
+  // 1. En-tête date
+  const dateEl = document.getElementById('portal-cr-session-date');
+  if (dateEl) dateEl.textContent = `Séance du : ${formatDate(session.date_seance)}`;
 
-  // Extraction des protocoles
-  const protos = session.protocoles_realises || {};
-  const activeProtocols = [];
-  if (protos.shiatsu && protos.shiatsu.checked) activeProtocols.push('Shiatsu');
-  if (protos.manuelles && protos.manuelles.checked) activeProtocols.push('Techniques manuelles');
-  if (protos.tensegrite && protos.tensegrite.checked) activeProtocols.push('Tenségrité');
-  if (protos.cranio && protos.cranio.checked) activeProtocols.push('Cranio-Sacrée');
-  if (protos.kinesiologie && protos.kinesiologie.checked) activeProtocols.push('Kinésiologie');
-  if (protos.aura && protos.aura.checked) activeProtocols.push('Aura');
-
-  const protocolsBadgesHtml = activeProtocols.length > 0 
-    ? `<div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;">
-        ${activeProtocols.map(p => `<span style="display: inline-block; background: rgba(99, 102, 241, 0.15); color: var(--color-primary, #6366f1); border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.78rem; font-weight: 600; padding: 3px 8px; border-radius: 9999px;">${p}</span>`).join('')}
-       </div>`
-    : '';
-
-  // Intervenant
-  let practitionerDisplay = 'eKiKare - Soins équins et canins';
-  if (session.isExternal) {
-    practitionerDisplay = `${session.profession || 'Intervention externe'} - ${session.practitionerName || 'Praticien tiers'}`;
+  // 2. Bloc Propriétaire (Client)
+  const clientNameEl = document.getElementById('portal-cr-client-name');
+  if (clientNameEl) {
+    clientNameEl.textContent = client ? `${client.prenom} ${client.nom.toUpperCase()}` : 'Propriétaire';
+  }
+  const clientContactEl = document.getElementById('portal-cr-client-contact');
+  if (clientContactEl) {
+    if (client) {
+      clientContactEl.innerHTML = `Tél : ${client.telephone || '-'} &bull; E-mail : ${client.email || '-'}`;
+    } else {
+      clientContactEl.textContent = '-';
+    }
   }
 
-  // Résumé / Observations
-  const resumeText = session.resume_client_genere || session.summary || 'Aucun résumé disponible pour cette séance.';
-  const resumeHtml = interpretMarkdownToHtml(resumeText);
+  // 3. Bloc Animal
+  const animalNameEl = document.getElementById('portal-cr-animal-name');
+  if (animalNameEl) animalNameEl.textContent = animal.nom;
 
-  // Précisions
-  let precisionsHtml = '';
-  if (session.precisions && session.precisions.trim()) {
-    precisionsHtml = `
-      <div class="portal-cr-section" style="margin-top: 20px; padding: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
-        <h4 style="margin: 0 0 8px 0; font-size: 0.95rem; color: var(--color-secondary, #38bdf8); font-weight: 600;">Précisions & Conseils</h4>
-        <div style="font-size: 0.92rem; line-height: 1.6; color: var(--text-main, #f8fafc);">${interpretMarkdownToHtml(session.precisions)}</div>
-      </div>
-    `;
+  const animalIdentityEl = document.getElementById('portal-cr-animal-identity');
+  if (animalIdentityEl) {
+    const breedText = animal.race || 'Race inconnue';
+    const robeText = animal.robe ? ` (${animal.robe})` : '';
+    animalIdentityEl.textContent = `${animal.espece} • ${breedText}${robeText}`;
   }
 
-  // Schéma corporel annoté
-  let canvasHtml = '';
-  if (session.canvas_annotation_image_blob) {
-    canvasHtml = `
-      <div class="portal-cr-section" style="margin-top: 20px; padding: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
-        <h4 style="margin: 0 0 12px 0; font-size: 0.95rem; color: var(--color-secondary, #38bdf8); font-weight: 600;">Schéma anatomique & annotations</h4>
-        <div style="text-align: center; background: rgba(0, 0, 0, 0.2); border-radius: 8px; padding: 10px;">
-          <img src="${session.canvas_annotation_image_blob}" alt="Schéma d'annotations de la séance" style="max-width: 100%; max-height: 400px; height: auto; border-radius: 6px;">
-        </div>
-      </div>
-    `;
+  const animalDetailsEl = document.getElementById('portal-cr-animal-details');
+  if (animalDetailsEl) {
+    const sexText = animal.sexe || 'Non précisé';
+    const ageText = calculateAge(animal.date_naissance_ou_age, animal.date_naissance_ou_age);
+    animalDetailsEl.textContent = `Sexe : ${sexText} • Âge : ${ageText}`;
   }
 
-  // Document joint (séance externe)
-  let attachmentHtml = '';
-  if (session.fileData) {
-    attachmentHtml = `
-      <div class="portal-cr-section" style="margin-top: 20px; padding: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
-        <h4 style="margin: 0 0 10px 0; font-size: 0.95rem; color: var(--color-secondary, #38bdf8); font-weight: 600;">Document joint</h4>
+  const animalLivingEl = document.getElementById('portal-cr-animal-living');
+  if (animalLivingEl) {
+    const stableName = animal.stable_name || animal.lieu_de_vie || '-';
+    animalLivingEl.textContent = `Lieu de vie : ${stableName}`;
+  }
+
+  // 4. Motif de consultation
+  const motifEl = document.getElementById('portal-cr-session-objective');
+  if (motifEl) {
+    if (session.isExternal) {
+      motifEl.innerHTML = `<strong>${session.profession || 'Intervention externe'} - <em>${session.practitionerName || 'Praticien tiers'}</em></strong><br>${session.motif || 'Séance de suivi'}`;
+    } else {
+      motifEl.textContent = session.motif || 'Séance de suivi';
+    }
+  }
+
+  // 5. Résumé de la séance
+  const resumeContentEl = document.getElementById('portal-cr-session-resume-content');
+  const rawResume = session.resume_client_genere || session.summary || '';
+  if (resumeContentEl) {
+    resumeContentEl.innerHTML = rawResume ? interpretMarkdownToHtml(rawResume) : '<em>Aucun résumé rédigé pour cette séance.</em>';
+  }
+
+  // 6. Schéma d'annotations
+  const canvasSection = document.getElementById('portal-cr-section-canvas');
+  const canvasImg = document.getElementById('portal-cr-session-canvas-img');
+  if (canvasSection && canvasImg) {
+    if (session.canvas_annotation_image_blob) {
+      canvasImg.src = session.canvas_annotation_image_blob;
+      canvasSection.style.display = 'block';
+    } else {
+      canvasSection.style.display = 'none';
+    }
+  }
+
+  // 7. Précisions générales
+  const precisionsSection = document.getElementById('portal-cr-section-precisions');
+  const precisionsContentEl = document.getElementById('portal-cr-session-precisions-content');
+  if (precisionsSection && precisionsContentEl) {
+    if (session.precisions && session.precisions.trim()) {
+      precisionsContentEl.innerHTML = interpretMarkdownToHtml(session.precisions);
+      precisionsSection.style.display = 'block';
+    } else {
+      precisionsSection.style.display = 'none';
+    }
+  }
+
+  // 8. Document joint (séances externes)
+  const attachSection = document.getElementById('portal-cr-section-attachment');
+  const attachContent = document.getElementById('portal-cr-session-attachment-content');
+  if (attachSection && attachContent) {
+    if (session.fileData) {
+      attachContent.innerHTML = `
         <button type="button" class="btn btn-secondary btn-small btn-view-modal-ext-file" style="display: inline-flex; align-items: center; gap: 6px;">
-          📎 Consulter le document (${session.fileName || 'Fichier'})
+          📎 Consulter le document joint (${session.fileName || 'Fichier'})
         </button>
-      </div>
-    `;
+      `;
+      attachContent.querySelector('.btn-view-modal-ext-file').onclick = () => {
+        openAttachedFile(session.fileData, session.fileType, session.fileName);
+      };
+      attachSection.style.display = 'block';
+    } else {
+      attachSection.style.display = 'none';
+    }
   }
 
-  contentEl.innerHTML = `
-    <div class="portal-cr-card glass-card" style="padding: 24px; border-radius: 14px;">
-      <!-- Entête de la fiche de séance -->
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 1px solid var(--glass-border); padding-bottom: 16px; margin-bottom: 20px; flex-wrap: wrap;">
-        <div>
-          <span style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-primary, #6366f1); font-weight: 700;">Compte-Rendu Officiel</span>
-          <h3 style="margin: 4px 0 0 0; font-size: 1.2rem; color: #fff;">Séance du ${formatDate(session.date_seance)}</h3>
-          <p style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--text-sub, #94a3b8);">Praticien : <strong>${practitionerDisplay}</strong></p>
-        </div>
-        <div style="text-align: right;">
-          <span style="display: inline-block; background: rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; color: var(--text-main, #f8fafc);">
-            ${animal.nom} &bull; ${animal.espece}
-          </span>
-          ${session.n_seance_annee ? `<div style="font-size: 0.8rem; color: var(--text-sub); margin-top: 4px;">Séance n°${session.n_seance_annee} de l'année</div>` : ''}
-        </div>
-      </div>
-
-      <!-- Motif de consultation -->
-      <div class="portal-cr-section" style="margin-bottom: 18px;">
-        <h4 style="margin: 0 0 6px 0; font-size: 0.95rem; color: var(--color-secondary, #38bdf8); font-weight: 600;">Motif de la consultation</h4>
-        <div style="font-size: 0.95rem; color: var(--text-main, #f8fafc); font-weight: 500;">
-          ${session.motif || 'Séance de suivi'}
-        </div>
-        ${protocolsBadgesHtml}
-      </div>
-
-      <!-- Résumé & Soins réalisés -->
-      <div class="portal-cr-section" style="margin-bottom: 18px; padding: 18px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
-        <h4 style="margin: 0 0 10px 0; font-size: 0.95rem; color: var(--color-secondary, #38bdf8); font-weight: 600;">Observations & Bilan des soins</h4>
-        <div style="font-size: 0.93rem; line-height: 1.7; color: var(--text-main, #f8fafc);">
-          ${resumeHtml}
-        </div>
-      </div>
-
-      ${precisionsHtml}
-      ${canvasHtml}
-      ${attachmentHtml}
-    </div>
-  `;
-
-  // Listener pour fichier joint
-  const extFileBtn = contentEl.querySelector('.btn-view-modal-ext-file');
-  if (extFileBtn) {
-    extFileBtn.onclick = () => {
-      openAttachedFile(session.fileData, session.fileType, session.fileName);
-    };
+  // 9. Date de génération
+  const genDateEl = document.getElementById('portal-cr-generation-date');
+  if (genDateEl) {
+    genDateEl.textContent = new Date().toLocaleDateString('fr-FR');
   }
 
   // Listener pour le bouton Imprimer / Télécharger
@@ -7029,7 +7026,7 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
     shareBtn.onclick = async () => {
       const shareData = {
         title: `Compte-Rendu de séance - ${animal.nom}`,
-        text: `Compte-rendu de séance eKiKare pour ${animal.nom} (séance du ${formatDate(session.date_seance)}) :\nMotif : ${session.motif || '-'}\n\n${resumeText}`,
+        text: `Compte-rendu de séance eKiKare pour ${animal.nom} (séance du ${formatDate(session.date_seance)}) :\nMotif : ${session.motif || '-'}\n\n${rawResume}`,
         url: window.location.href
       };
 

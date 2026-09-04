@@ -2291,7 +2291,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   body.printing-portal-cr .sidebar,
   body.printing-portal-cr .app-header,
   body.printing-portal-cr .view-section,
-  body.printing-portal-cr .portal-cr-modal-actions,
+  body.printing-portal-cr .dialog-header,
   body.printing-portal-cr .btn-close-dialog,
   body.printing-portal-cr #toast-container,
   body.printing-portal-cr #practitioner-lock-overlay {
@@ -2313,36 +2313,95 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
     margin: 0 !important;
   }
 
-  body.printing-portal-cr #dialog-portal-session-cr .dialog-header {
-    background: transparent !important;
-    border-bottom: 2px solid #0d9488 !important;
-    color: black !important;
-    padding-bottom: 8px !important;
-  }
-
-  body.printing-portal-cr #dialog-portal-session-cr .dialog-header h2 {
-    color: #0d9488 !important;
-  }
-
-  body.printing-portal-cr #dialog-portal-session-cr .dialog-header p {
-    color: #475569 !important;
-  }
-
-  body.printing-portal-cr #dialog-portal-session-cr .portal-cr-card {
-    background: white !important;
-    color: black !important;
-    border: 1px solid #e2e8f0 !important;
+  body.printing-portal-cr #dialog-portal-session-cr .official-a4-sheet {
     box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
   }
+}
 
-  body.printing-portal-cr #dialog-portal-session-cr .portal-cr-card * {
-    color: black !important;
-    border-color: #cbd5e1 !important;
+/* ==========================================================================
+   OFFICIAL A4 PRINT SHEET IN MODAL
+   ========================================================================== */
+#dialog-portal-session-cr {
+  background: rgba(15, 23, 42, 0.88) !important;
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  border-radius: 16px;
+}
+
+#dialog-portal-session-cr .official-a4-sheet {
+  display: block !important;
+  background: #ffffff !important;
+  color: #1e293b !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
+  border-radius: 8px !important;
+  padding: 40px !important;
+  max-width: 800px;
+  margin: 0 auto !important;
+  box-sizing: border-box;
+}
+
+#dialog-portal-session-cr .official-a4-sheet h2,
+#dialog-portal-session-cr .official-a4-sheet h3,
+#dialog-portal-session-cr .official-a4-sheet h4,
+#dialog-portal-session-cr .official-a4-sheet p,
+#dialog-portal-session-cr .official-a4-sheet span,
+#dialog-portal-session-cr .official-a4-sheet strong,
+#dialog-portal-session-cr .official-a4-sheet div,
+#dialog-portal-session-cr .official-a4-sheet th,
+#dialog-portal-session-cr .official-a4-sheet td {
+  color: #1e293b;
+}
+
+#dialog-portal-session-cr .official-a4-sheet .print-app-title {
+  color: #0d9488 !important;
+}
+
+#dialog-portal-session-cr .official-a4-sheet .print-branding {
+  color: #6d28d9 !important;
+  border: 1px solid #e2e8f0 !important;
+  background: #f8fafc !important;
+}
+
+#dialog-portal-session-cr .official-a4-sheet .divider {
+  border-top: 1px solid #cbd5e1 !important;
+}
+
+#dialog-portal-session-cr .official-a4-sheet .print-grid-2 h3,
+#dialog-portal-session-cr .official-a4-sheet .print-section-title {
+  color: #0d9488 !important;
+  border-left: 4px solid #0d9488 !important;
+  padding-left: 10px;
+}
+
+#dialog-portal-session-cr .official-a4-sheet .print-text-block {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #1e293b !important;
+  white-space: normal;
+}
+
+#dialog-portal-session-cr .official-a4-sheet .print-canvas-preview img {
+  border: 1px solid #e2e8f0 !important;
+  background-color: white !important;
+}
+
+@media (max-width: 640px) {
+  #dialog-portal-session-cr .official-a4-sheet {
+    padding: 20px !important;
   }
-
-  body.printing-portal-cr #dialog-portal-session-cr .portal-cr-section {
-    background: #f8fafc !important;
-    border-color: #e2e8f0 !important;
+  #dialog-portal-session-cr .official-a4-sheet .print-grid-2 {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+  #dialog-portal-session-cr .official-a4-sheet .print-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
   }
 }
 
