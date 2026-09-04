@@ -7433,9 +7433,14 @@ async function exportAnimalDossierPDF(animal, options) {
     printContainer.id = 'dossier-pdf-render-target';
     printContainer.className = 'dossier-pdf-sheet';
     printContainer.style.position = 'fixed';
-    printContainer.style.left = '-9999px';
+    printContainer.style.left = '0';
     printContainer.style.top = '0';
-    printContainer.style.zIndex = '-1000';
+    printContainer.style.width = '794px';
+    printContainer.style.zIndex = '99999';
+    printContainer.style.backgroundColor = '#ffffff';
+    printContainer.style.visibility = 'visible';
+    printContainer.style.opacity = '1';
+    printContainer.style.pointerEvents = 'none';
 
     let html = `
       <!-- EN-TETE OFFICIEL -->
@@ -7681,6 +7686,17 @@ async function exportAnimalDossierPDF(animal, options) {
     printContainer.innerHTML = html;
     document.body.appendChild(printContainer);
 
+    // Attendre le préchargement complet des images et la stabilisation du layout
+    const images = Array.from(printContainer.querySelectorAll('img'));
+    await Promise.all(images.map(img => {
+      if (img.complete) return Promise.resolve();
+      return new Promise(res => {
+        img.onload = res;
+        img.onerror = res;
+      });
+    }));
+    await new Promise(res => setTimeout(res, 250));
+
     const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
     const todayIso = new Date().toISOString().split('T')[0];
     const filename = `Dossier_Liaison_eKiKare_${cleanAnimalName}_${todayIso}.pdf`;
@@ -7696,13 +7712,16 @@ async function exportAnimalDossierPDF(animal, options) {
         backgroundColor: '#ffffff',
         scrollX: 0,
         scrollY: 0,
+        windowWidth: 1200,
         onclone: (clonedDoc) => {
           const target = clonedDoc.querySelector('#dossier-pdf-render-target');
           if (target) {
             target.style.position = 'static';
-            target.style.left = 'auto';
-            target.style.top = 'auto';
+            target.style.left = '0';
+            target.style.top = '0';
             target.style.display = 'block';
+            target.style.visibility = 'visible';
+            target.style.opacity = '1';
             target.style.margin = '0 auto';
             target.style.width = '794px';
             target.style.maxWidth = '794px';
