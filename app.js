@@ -1148,8 +1148,12 @@ async function renderClientDetails(clientId) {
     listContainer.innerHTML = '<p class="empty-state">Aucun animal enregistré pour ce client.</p>';
   } else {
     for (const an of animals) {
-      const card = document.createElement('div');
+      const card = document.createElement('a');
       card.className = 'animal-mini-card';
+      const targetHash = currentPortalClientId 
+        ? `portal/${currentPortalClientToken || currentPortalClientId}/animals/${an.id}`
+        : `animals/${an.id}`;
+      card.href = `#${targetHash}`;
       
       const avatarText = an.nom.substring(0,2).toUpperCase();
       const ageDisplay = calculateAge(an.date_naissance_ou_age, an.date_naissance_ou_age);
@@ -1167,10 +1171,6 @@ async function renderClientDetails(clientId) {
         </div>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       `;
-
-      card.addEventListener('click', () => {
-        window.location.hash = `animals/${an.id}`;
-      });
 
       listContainer.appendChild(card);
     }
@@ -6910,8 +6910,10 @@ async function renderPortalDetails(tokenOrId) {
     portalAnimalsContainer.innerHTML = '<p class="empty-state">Aucun animal enregistré sur votre compte.</p>';
   } else {
     for (const an of animals) {
-      const card = document.createElement('div');
+      const portalToken = currentPortalClientToken || client.uuid || client.id;
+      const card = document.createElement('a');
       card.className = 'animal-mini-card';
+      card.href = `#portal/${portalToken}/animals/${an.id}`;
       
       const avatarText = an.nom.substring(0, 2).toUpperCase();
       const ageDisplay = calculateAge(an.date_naissance_ou_age, an.date_naissance_ou_age);
@@ -6928,11 +6930,6 @@ async function renderPortalDetails(tokenOrId) {
         </div>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       `;
-
-      card.onclick = () => {
-        const portalToken = currentPortalClientToken || client.uuid || client.id;
-        window.location.hash = `portal/${portalToken}/animals/${an.id}`;
-      };
 
       portalAnimalsContainer.appendChild(card);
     }

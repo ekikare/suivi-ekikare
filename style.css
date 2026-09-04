@@ -858,6 +858,8 @@ body {
   border-radius: var(--border-radius-md);
   cursor: pointer;
   transition: all var(--transition-speed);
+  text-decoration: none;
+  color: inherit;
 }
 
 .animal-mini-card:hover {
