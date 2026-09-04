@@ -371,15 +371,24 @@ async function handleRouting() {
   let viewId = `view-${hash}`;
   let routeBase = hash;
   let routeParam = null;
+  let subRoute = null;
+  let subParam = null;
 
   if (hash.includes('/')) {
     const parts = hash.split('/');
     routeBase = parts[0];
     routeParam = parts[1];
+    subRoute = parts[2] || null;
+    subParam = parts[3] || null;
+
     if (routeBase === 'session-editor') {
       viewId = 'view-session-editor';
     } else if (routeBase === 'portal') {
-      viewId = 'view-portal';
+      if (subRoute === 'animals' && subParam) {
+        viewId = 'view-animals-details';
+      } else {
+        viewId = 'view-portal';
+      }
     } else {
       viewId = `view-${routeBase}-details`;
     }
@@ -392,9 +401,13 @@ async function handleRouting() {
     hidePractitionerLockOverlay();
     
     if (routeBase === 'portal') {
-      viewId = 'view-portal';
+      if (subRoute === 'animals' && subParam) {
+        viewId = 'view-animals-details';
+      } else {
+        viewId = 'view-portal';
+      }
     } else {
-      const allowedBases = ['portal', 'animals'];
+      const allowedBases = ['portal'];
       let isAllowed = allowedBases.includes(routeBase);
       
       if (routeBase === 'sessions' && hash.endsWith('/print')) {
@@ -457,11 +470,11 @@ async function handleRouting() {
   stopDictationUI();
 
   // Déclencher le chargement des données spécifiques à la vue
-  loadViewData(routeBase, routeParam);
+  loadViewData(routeBase, routeParam, subRoute, subParam);
 }
 
 // --- CHARGEMENT DES DONNÉES PAR VUE ---
-async function loadViewData(view, param) {
+async function loadViewData(view, param, subRoute = null, subParam = null) {
   await updateReminderBadge();
 
   const portalRoute = `portal/${currentPortalClientToken || currentPortalClientId}`;
@@ -495,7 +508,10 @@ async function loadViewData(view, param) {
         currentAnimalId = Number(param);
         if (currentPortalClientId) {
           const animal = await getById('animals', currentAnimalId);
-          if (!animal || animal.client_id !== currentPortalClientId) {
+          if (animal && animal.client_id === currentPortalClientId) {
+            window.location.hash = `portal/${currentPortalClientToken || currentPortalClientId}/animals/${animal.id}`;
+            return;
+          } else {
             showToast("Accès non autorisé.", "error");
             window.location.hash = portalRoute;
             return;
@@ -577,7 +593,45 @@ async function loadViewData(view, param) {
       break;
     case 'portal':
       if (param) {
-        await renderPortalDetails(param);
+        if (subRoute === 'animals' && subParam) {
+          // Charger le client via son :clientUuid depuis Supabase
+          const client = await fetchClientPortalData(param);
+          if (!client) {
+            showToast("Espace client introuvable.", "error");
+            window.location.hash = 'dashboard';
+            return;
+          }
+
+          const animalId = Number(subParam);
+          let animal = await getById('animals', animalId);
+          
+          if (!animal && navigator.onLine) {
+            const supabase = getSupabaseClient();
+            if (supabase) {
+              try {
+                const { data } = await supabase.from('animals').select('*').eq('id', animalId).maybeSingle();
+                if (data) {
+                  animal = mapSupabaseToLocal('animals', data);
+                  await updateLocal('animals', animal);
+                }
+              } catch (e) {
+                console.warn("Erreur chargement animal distant:", e);
+              }
+            }
+          }
+
+          // Vérifier strictement qu'il appartient bien à ce client
+          if (!animal || String(animal.client_id) !== String(client.id)) {
+            showToast("Accès refusé : cet animal n'appartient pas à votre espace.", "error");
+            window.location.hash = `portal/${client.uuid || client.id}`;
+            return;
+          }
+
+          currentAnimalId = animal.id;
+          await renderAnimalDetails(animal.id);
+        } else {
+          await renderPortalDetails(param);
+        }
       } else {
         window.location.hash = 'dashboard';
       }
@@ -1372,7 +1426,7 @@ async function renderAnimalDetails(animalId) {
 
   document.getElementById('detail-animal-name').textContent = animal.nom;
   document.getElementById('detail-animal-owner').innerHTML = client 
-    ? `<a href="#clients/${client.id}" style="color:var(--color-primary); font-weight:600; text-decoration:none;">${ownerName}</a>`
+    ? (currentPortalClientId ? ownerName : `<a href="#clients/${client.id}" style="color:var(--color-primary); font-weight:600; text-decoration:none;">${ownerName}</a>`)
     : ownerName;
 
   document.getElementById('detail-animal-identity').textContent = `${animal.espece} • ${animal.race || 'Race inconnue'} ${animal.robe ? '('+animal.robe+')' : ''}`;
@@ -5777,7 +5831,7 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
     dialog.close();
 
     // Recharger les vues appropriées
-    if (window.location.hash.startsWith('#animals/')) {
+    if (window.location.hash.startsWith('#animals/') || window.location.hash.includes('/animals/')) {
       await renderAnimalDetails(currentAnimalId || animalData.id);
     } else if (currentPortalClientId) {
       await renderPortalDetails(currentPortalClientToken || currentPortalClientId);
@@ -6876,7 +6930,8 @@ async function renderPortalDetails(tokenOrId) {
       `;
 
       card.onclick = () => {
-        window.location.hash = `animals/${an.id}`;
+        const portalToken = currentPortalClientToken || client.uuid || client.id;
+        window.location.hash = `portal/${portalToken}/animals/${an.id}`;
       };
 
       portalAnimalsContainer.appendChild(card);
