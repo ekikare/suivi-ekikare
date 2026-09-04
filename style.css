@@ -3205,8 +3205,8 @@ body.is-client-portal #dialog-client #client-form-firstname {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 12px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
   page-break-inside: avoid;
   break-inside: avoid;
 }
@@ -3215,37 +3215,36 @@ body.is-client-portal #dialog-client #client-form-firstname {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   border-bottom: 1px solid #e2e8f0;
-  padding-bottom: 5px;
+  padding-bottom: 4px;
 }
 
 .dossier-pdf-session-title {
   font-weight: 700;
   color: #0f172a;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
 }
 
 .dossier-pdf-session-date {
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: #D96B27;
 }
 
 .dossier-pdf-session-motif {
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   color: #475569;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
+  line-height: 1.35;
 }
 
 .dossier-pdf-session-resume {
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   color: #334155;
-  line-height: 1.45;
-  background: #ffffff;
-  padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px solid #e2e8f0;
+  line-height: 1.4;
+  margin: 0;
+  word-break: break-word;
 }
 
 .dossier-pdf-med-table {

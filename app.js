@@ -7630,7 +7630,7 @@ async function exportAnimalDossierPDF(animal, options) {
           let rawSummary = '';
 
           if (s.isExternal) {
-            cardTitle = `${s.profession || 'Intervention externe'}${s.practitionerName ? ' — ' + s.practitionerName : ''}`;
+            cardTitle = `${s.profession || 'Intervention'}${s.practitionerName ? ' - ' + s.practitionerName : ''}`;
             rawSummary = s.summary || '-';
           } else {
             const protos = s.protocoles_realises || {};
@@ -7642,7 +7642,7 @@ async function exportAnimalDossierPDF(animal, options) {
             if (protos.kinesiologie && protos.kinesiologie.checked) activeProtocols.push('Kinésiologie');
             if (protos.aura && protos.aura.checked) activeProtocols.push('Aura');
 
-            cardTitle = activeProtocols.length > 0 ? activeProtocols.join(' + ') : 'Séance eKiKare';
+            cardTitle = activeProtocols.length > 0 ? activeProtocols.join(' + ') : (s.motif || `Séance du ${formatDate(s.date_seance)}`);
             rawSummary = s.resume_client_genere || 'Aucun résumé client rédigé.';
           }
 
@@ -7652,18 +7652,12 @@ async function exportAnimalDossierPDF(animal, options) {
             <div class="dossier-pdf-session-item">
               <div class="dossier-pdf-session-header">
                 <span class="dossier-pdf-session-title">${cardTitle}</span>
-                <span class="dossier-pdf-session-date">Séance du ${formatDate(s.date_seance)}</span>
+                <span class="dossier-pdf-session-date">${formatDate(s.date_seance)}</span>
               </div>
               ${s.motif ? `<div class="dossier-pdf-session-motif"><strong>Motif :</strong> ${s.motif}</div>` : ''}
               <div class="dossier-pdf-session-resume">
-                <strong style="color: #0f172a; display: inline-block; margin-bottom: 3px;">Résumé :</strong><br>
-                ${cleanSummaryHtml}
+                <strong>Résumé :</strong> <span>${cleanSummaryHtml}</span>
               </div>
-              ${s.precisions && s.precisions.trim() ? `
-                <div style="font-size: 0.8rem; font-style: italic; color: #475569; margin-top: 6px; padding-left: 6px; border-left: 2px solid #cbd5e1;">
-                  <strong>Précisions :</strong> ${interpretMarkdownToHtml(s.precisions)}
-                </div>
-              ` : ''}
             </div>
           `;
         });
