@@ -2375,11 +2375,11 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   background: #ffffff !important;
   background-color: #ffffff !important;
   color: #111827 !important;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
+  box-shadow: none !important;
   border-radius: 8px !important;
   padding: 30px 40px !important;
-  width: 794px !important;
-  max-width: 794px !important;
+  width: 100% !important;
+  max-width: 800px !important;
   margin: 0 auto !important;
   box-sizing: border-box !important;
 }
@@ -2391,6 +2391,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 .print-grid-2 {
   page-break-inside: avoid !important;
   break-inside: avoid !important;
+  display: block;
 }
 
 #dialog-portal-session-cr .official-a4-sheet h2,
