@@ -24,6 +24,7 @@ import {
   generateUUID,
   getClientByToken,
   ensureClientsHaveUUID,
+  reconcileClientUUIDsFromSupabase,
   fetchClientPortalData
 } from './db.js';
 
@@ -1123,11 +1124,13 @@ async function renderClientDetails(clientId) {
 
   // Configurer le clic boutons d'actions
   document.getElementById('btn-copy-client-portal-link').onclick = async () => {
-    if (!client.uuid) {
-      client.uuid = generateUUID();
-      await update('clients', client);
+    let freshClient = await getById('clients', clientId);
+    if (!freshClient) freshClient = client;
+    if (!freshClient.uuid) {
+      freshClient.uuid = generateUUID();
+      await update('clients', freshClient);
     }
-    const portalUrl = getClientPortalUrl(client.uuid);
+    const portalUrl = getClientPortalUrl(freshClient.uuid);
     navigator.clipboard.writeText(portalUrl).then(() => {
       showToast('Lien Espace Client sécurisé copié dans le presse-papier !');
     }).catch(err => {
@@ -1693,16 +1696,18 @@ async function renderAnimalDetails(animalId) {
 
   // Boutons d'actions
   document.getElementById('btn-copy-animal-portal-link').onclick = async () => {
-    const client = await getById('clients', animal.client_id);
-    if (!client) {
+    let freshAnimal = await getById('animals', animalId);
+    if (!freshAnimal) freshAnimal = animal;
+    let freshClient = await getById('clients', freshAnimal.client_id);
+    if (!freshClient) {
       showToast('Client associé introuvable.', 'error');
       return;
     }
-    if (!client.uuid) {
-      client.uuid = generateUUID();
-      await update('clients', client);
+    if (!freshClient.uuid) {
+      freshClient.uuid = generateUUID();
+      await update('clients', freshClient);
     }
-    const portalUrl = getClientPortalUrl(client.uuid);
+    const portalUrl = getClientPortalUrl(freshClient.uuid);
     navigator.clipboard.writeText(portalUrl).then(() => {
       showToast('Lien Espace Client sécurisé copié dans le presse-papier !');
     }).catch(err => {
@@ -6523,6 +6528,9 @@ async function syncData() {
   updateSyncStatusUI('syncing');
 
   try {
+    // 0. RECONCILE CLIENT UUIDS WITH SUPABASE
+    await reconcileClientUUIDsFromSupabase();
+
     // 1. PUSH PENDING DELETIONS
     const deletions = await getTrackedDeletions();
     for (const del of deletions) {

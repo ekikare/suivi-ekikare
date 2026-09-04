@@ -757,9 +757,105 @@ export async function getClientByUuid(token) {
 export const getClientByToken = getClientByUuid;
 
 /**
+ * Synchronise et réconcilie de façon descendante les UUIDs des clients depuis Supabase vers IndexedDB.
+ */
+export async function reconcileClientUUIDsFromSupabase() {
+  if (!navigator.onLine) return false;
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+
+  try {
+    // 1. Récupérer l'ensemble des clients distants depuis Supabase
+    const { data: remoteClients, error } = await supabase
+      .from('clients')
+      .select('id, uuid, email, phone, first_name, last_name');
+
+    if (error || !remoteClients || remoteClients.length === 0) {
+      return false;
+    }
+
+    const localClients = await getAll('clients');
+    let hasChanges = false;
+
+    for (const remote of remoteClients) {
+      if (!remote.uuid) continue;
+      
+      const remoteIdStr = String(remote.id);
+      const remoteEmail = (remote.email || '').trim().toLowerCase();
+      const remotePhoneClean = (remote.phone || '').replace(/\D/g, '');
+      const remoteFirst = (remote.first_name || '').trim().toLowerCase();
+      const remoteLast = (remote.last_name || '').trim().toLowerCase();
+
+      // Correspondance prioritaire : ID distant
+      let matchedLocal = localClients.find(c => String(c.id) === remoteIdStr);
+
+      // Correspondance secondaire : email
+      if (!matchedLocal && remoteEmail) {
+        matchedLocal = localClients.find(c => c.email && c.email.trim().toLowerCase() === remoteEmail);
+      }
+
+      // Correspondance secondaire : téléphone
+      if (!matchedLocal && remotePhoneClean && remotePhoneClean.length >= 6) {
+        matchedLocal = localClients.find(c => c.telephone && c.telephone.replace(/\D/g, '') === remotePhoneClean);
+      }
+
+      // Correspondance tertiaire : nom & prénom
+      if (!matchedLocal && remoteFirst && remoteLast) {
+        matchedLocal = localClients.find(c => 
+          c.nom && c.prenom && 
+          c.nom.trim().toLowerCase() === remoteLast && 
+          c.prenom.trim().toLowerCase() === remoteFirst
+        );
+      }
+
+      if (matchedLocal) {
+        let changed = false;
+        
+        // 3. Mettre à jour l'enregistrement local si l'UUID est manquant ou différent de celui de Supabase
+        if (matchedLocal.uuid !== remote.uuid) {
+          matchedLocal.uuid = remote.uuid;
+          changed = true;
+        }
+
+        // 4. Nettoyer définitivement toute chaîne résiduelle [portal_token:...] qui subsisterait dans le champ notes local
+        if (matchedLocal.notes && matchedLocal.notes.includes('[portal_token:')) {
+          matchedLocal.notes = matchedLocal.notes.replace(/\[portal_token:[^\]]+\]/g, '').trim();
+          changed = true;
+        }
+        if (matchedLocal.portal_token) {
+          delete matchedLocal.portal_token;
+          changed = true;
+        }
+
+        if (changed) {
+          matchedLocal.synced = 1;
+          await updateLocal('clients', matchedLocal);
+          hasChanges = true;
+        }
+      }
+    }
+
+    return hasChanges;
+  } catch (err) {
+    console.error("Erreur lors de la réconciliation des UUIDs clients:", err);
+    return false;
+  }
+}
+
+/**
  * Assure la migration et présence d'un token UUID sécurisé pour tous les clients existants et nettoie les notes.
  */
 export async function ensureClientsHaveUUID() {
+  // 1. D'abord tenter la réconciliation descendante depuis Supabase
+  if (navigator.onLine) {
+    try {
+      await reconcileClientUUIDsFromSupabase();
+    } catch (e) {
+      console.warn("Réconciliation Supabase au démarrage non effectuée:", e);
+    }
+  }
+
+  // 2. Nettoyer et s'assurer que tous les clients locaux restants possèdent un UUID valide
   const clients = await getAll('clients');
   let hasChanges = false;
   for (const client of clients) {
