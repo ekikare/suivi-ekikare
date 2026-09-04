@@ -7463,7 +7463,7 @@ async function exportAnimalDossierPDF(animal, options) {
     printContainer = document.createElement('div');
     printContainer.id = 'dossier-pdf-render-target';
     printContainer.className = 'print-container official-a4-sheet cr-document';
-    printContainer.style.cssText = "position: fixed; top: 0; left: 0; width: 800px; z-index: -9999; background: #ffffff; color: #1e293b; padding: 30px 40px; box-sizing: border-box; font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;";
+    printContainer.style.cssText = "position: absolute; left: 0; top: 0; width: 794px; min-height: 1123px; z-index: -9999; background: #ffffff; opacity: 1; visibility: visible; color: #1e293b; padding: 30px 40px; box-sizing: border-box; font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;";
 
     const logoSrc = getEkikareLogoDataUrl();
 
@@ -7696,7 +7696,9 @@ async function exportAnimalDossierPDF(animal, options) {
         };
       });
     }));
-    await new Promise(res => setTimeout(res, 150));
+
+    // Délai explicite de sécurité pour garantir que le DOM et l'image base64 sont complètement peints
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
     const todayIso = new Date().toISOString().split('T')[0];
@@ -7725,6 +7727,7 @@ async function exportAnimalDossierPDF(animal, options) {
             target.style.opacity = '1';
             target.style.width = '794px';
             target.style.maxWidth = '794px';
+            target.style.minHeight = '1123px';
             target.style.boxSizing = 'border-box';
             target.style.backgroundColor = '#ffffff';
           }
@@ -7737,11 +7740,14 @@ async function exportAnimalDossierPDF(animal, options) {
     await html2pdf().set(opt).from(printContainer).save();
     showToast(`Dossier de liaison téléchargé : ${filename}`);
 
+    // Délai supplémentaire post-sauvegarde avant tout nettoyage
+    await new Promise(resolve => setTimeout(resolve, 300));
+
   } catch (err) {
     console.error("Erreur lors de l'export du dossier animal:", err);
     showToast("Erreur lors de la génération du PDF du dossier.", "error");
   } finally {
-    // Nettoyer l'élément temporaire UNIQUEMENT après la fin du save
+    // Nettoyer l'élément temporaire UNIQUEMENT après la fin réelle de la sauvegarde
     if (printContainer && printContainer.parentNode) {
       printContainer.parentNode.removeChild(printContainer);
     }
