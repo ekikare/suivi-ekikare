@@ -294,11 +294,19 @@
       <!-- 2E. PORTAL CLIENT VIEW -->
       <section id="view-portal" class="view-section">
         <div class="portal-container">
+          <!-- Top bar with eKiKare official logo -->
+          <div class="portal-brand-bar">
+            <img src="assets/logo-ekikare.png" alt="eKiKare - Bien-être intégratif équin">
+            <span class="portal-brand-tag">Espace de Suivi Client</span>
+          </div>
+
           <div class="portal-header-card glass-card" style="margin-bottom: 25px; padding: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
             <div style="display: flex; align-items: center; gap: 15px;">
-              <span style="font-size: 2rem;">🐾</span>
+              <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(217, 107, 39, 0.12); border: 2px solid #D96B27; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; flex-shrink: 0;">
+                🐾
+              </div>
               <div>
-                <h1 style="margin: 0; font-size: 1.5rem; color: var(--color-secondary);" id="portal-owner-title">Espace Suivi de -</h1>
+                <h1 style="margin: 0; font-size: 1.5rem; color: #D96B27;" id="portal-owner-title">Espace Suivi de -</h1>
                 <p style="margin: 4px 0 0 0; font-size: 0.9rem; color: var(--color-primary); font-weight: bold;">Bienvenue sur votre portail sécurisé eKiKare</p>
               </div>
             </div>
@@ -390,6 +398,11 @@
 
       <!-- 3B. ANIMAL DETAILS VIEW -->
       <section id="view-animals-details" class="view-section">
+        <div class="portal-brand-bar portal-only" style="display: none;">
+          <img src="assets/logo-ekikare.png" alt="eKiKare - Bien-être intégratif équin">
+          <span class="portal-brand-tag">Espace de Suivi Client</span>
+        </div>
+
         <div class="section-header-actions">
           <div>
             <div class="back-buttons-row" style="display: flex; gap: 15px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
@@ -418,12 +431,12 @@
             <div class="glass-card detail-card">
               <!-- Profil Header avec Photo -->
               <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--glass-border); padding-bottom: 15px;">
-                <div id="detail-animal-photo-container" style="width: 80px; height: 80px; border-radius: 50%; overflow: hidden; border: 2px solid var(--color-primary); background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <div id="detail-animal-photo-container" style="width: 80px; height: 80px; border-radius: 50%; overflow: hidden; border: 2px solid #D96B27; background: rgba(217, 107, 39, 0.1); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                   <img id="detail-animal-photo" src="" alt="Photo Animal" style="width: 100%; height: 100%; object-fit: cover; display: none;">
                   <span id="detail-animal-photo-placeholder" style="font-size: 2.2rem;">🐾</span>
                 </div>
                 <div>
-                  <h3 id="detail-card-animal-name" style="margin: 0; font-size: 1.25rem; color: var(--color-secondary);">Fiche d'identité</h3>
+                  <h3 id="detail-card-animal-name" style="margin: 0; font-size: 1.25rem; color: #D96B27;">Fiche d'identité</h3>
                   <p style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--color-primary); font-weight: 600;" id="detail-animal-tracking-mode-display" class="practitioner-only">-</p>
                 </div>
               </div>
@@ -1286,10 +1299,13 @@
         <div class="glass-card print-container cr-document" id="session-print-area">
           <div class="print-header">
             <div>
-              <h2 class="print-app-title">Compte-Rendu de Séance - eKiKare</h2>
+              <h2 class="print-app-title">Compte-Rendu de Séance</h2>
               <p class="print-date" id="print-session-date">Séance du : -</p>
             </div>
-            <div class="print-branding">Techniques manuelles et énergétiques</div>
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+              <img src="assets/logo-ekikare.png" alt="eKiKare" class="print-logo">
+              <div class="print-branding">Bien-être intégratif équin</div>
+            </div>
           </div>
           <hr class="divider">
           
@@ -2113,10 +2129,13 @@
     <div class="print-container official-a4-sheet cr-document" id="portal-cr-sheet">
       <div class="print-header">
         <div>
-          <h2 class="print-app-title">Compte-Rendu de Séance - eKiKare</h2>
+          <h2 class="print-app-title">Compte-Rendu de Séance</h2>
           <p class="print-date" id="portal-cr-session-date">Séance du : -</p>
         </div>
-        <div class="print-branding">Techniques manuelles et énergétiques</div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+          <img src="assets/logo-ekikare.png" alt="eKiKare" class="print-logo">
+          <div class="print-branding">Bien-être intégratif équin</div>
+        </div>
       </div>
       <hr class="divider">
       

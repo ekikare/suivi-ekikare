@@ -7265,7 +7265,7 @@ async function renderPortalDetails(tokenOrId) {
   if (portalAnimalsContainer) {
     portalAnimalsContainer.innerHTML = `
       <div class="portal-loading-card glass-card" style="text-align: center; padding: 48px 24px; margin: 16px 0; border-radius: 16px;">
-        <div class="sync-icon-spin" style="width: 32px; height: 32px; border-width: 3px; color: var(--color-primary, #6366f1); margin: 0 auto 16px;"></div>
+        <div class="sync-icon-spin" style="width: 32px; height: 32px; border-width: 3px; color: var(--color-primary, #10b981); margin: 0 auto 16px;"></div>
         <h3 style="font-size: 1.15rem; font-weight: 600; color: #fff; margin-bottom: 6px;">Récupération de votre dossier...</h3>
         <p style="font-size: 0.88rem; color: var(--text-sub, #94a3b8); max-width: 380px; margin: 0 auto;">Connexion sécurisée en cours avec la base de données eKiKare.</p>
       </div>

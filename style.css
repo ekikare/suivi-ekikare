@@ -16,8 +16,9 @@
   --color-primary: #10b981; /* Emerald Green */
   --color-primary-rgb: 16, 185, 129;
   --color-primary-hover: #059669;
-  --color-secondary: #8b5cf6; /* Lavender / Violet */
-  --color-secondary-hover: #7c3aed;
+  --color-secondary: #D96B27; /* Terracotta */
+  --color-secondary-rgb: 217, 107, 39;
+  --color-secondary-hover: #c25e20;
   
   /* Status Colors */
   --color-success: #10b981;
@@ -64,7 +65,7 @@ body {
   overflow-x: hidden;
   background-image: 
     radial-gradient(at 10% 10%, rgba(16, 185, 129, 0.07) 0px, transparent 50%),
-    radial-gradient(at 90% 10%, rgba(139, 92, 246, 0.07) 0px, transparent 50%),
+    radial-gradient(at 90% 10%, rgba(217, 107, 39, 0.07) 0px, transparent 50%),
     radial-gradient(at 50% 90%, rgba(16, 185, 129, 0.03) 0px, transparent 50%);
   background-attachment: fixed;
 }
@@ -1552,7 +1553,7 @@ body {
 
 /* Visibilité haute lisibilité pour la hiérarchie Cranio-Sacrée */
 .cranio-hierarchy .cranio-box-title {
-  color: #a78bfa !important; /* Soft violet color for contrast */
+  color: var(--color-secondary) !important;
 }
 
 .cranio-hierarchy .cranio-sub-box-title {
@@ -2340,8 +2341,15 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
     color: #0d9488 !important;
   }
   
+  .print-logo {
+    height: 48px !important;
+    max-height: 48px !important;
+    width: auto !important;
+    object-fit: contain !important;
+  }
+  
   .print-branding {
-    color: #6d28d9 !important;
+    color: #D96B27 !important;
     border-color: #e2e8f0 !important;
   }
   
@@ -2495,6 +2503,15 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   width: 100% !important;
 }
 
+.cr-document .print-logo,
+#portal-cr-sheet .print-logo,
+.official-a4-sheet .print-logo {
+  height: 48px !important;
+  max-height: 48px !important;
+  width: auto !important;
+  object-fit: contain !important;
+}
+
 #dialog-portal-session-cr .official-a4-sheet .print-app-title,
 .cr-document .print-app-title,
 #portal-cr-sheet .print-app-title {
@@ -2511,11 +2528,38 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 #dialog-portal-session-cr .official-a4-sheet .print-branding,
 .cr-document .print-branding,
 #portal-cr-sheet .print-branding {
-  color: #6d28d9 !important;
-  border: 1px solid #e2e8f0 !important;
-  background: #f8fafc !important;
+  color: #D96B27 !important;
+  border: 1px solid #fbd5b5 !important;
+  background: #fff7ed !important;
   white-space: nowrap;
   font-weight: 600 !important;
+  font-size: 0.8rem !important;
+  padding: 2px 8px !important;
+  border-radius: 4px !important;
+}
+
+/* PORTAL BRAND BAR */
+.portal-brand-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.portal-brand-bar img {
+  height: 40px;
+  max-height: 40px;
+  width: auto;
+  object-fit: contain;
+}
+
+.portal-brand-bar .portal-brand-tag {
+  font-size: 0.85rem;
+  color: #96A5BA;
+  font-weight: 500;
+  letter-spacing: 0.5px;
 }
 
 #dialog-portal-session-cr .official-a4-sheet .divider,
