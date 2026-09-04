@@ -2297,12 +2297,40 @@
       <button type="button" class="btn btn-secondary btn-cancel-dialog">Annuler</button>
       <button type="button" class="btn btn-primary" id="btn-confirm-export-dossier" style="background: linear-gradient(135deg, #D96B27, #f59e0b); border: none; display: inline-flex; align-items: center; gap: 8px;">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
         </svg>
-        <span>Télécharger le PDF</span>
+        <span>Visualiser la Fiche A4</span>
       </button>
+    </div>
+  </dialog>
+
+  <!-- MODALE PREVISUALISATION ET IMPRESSION A4 FICHE DE LIAISON -->
+  <dialog class="app-dialog glass-card" id="dialog-preview-animal-dossier" style="max-width: 880px; width: 95%; max-height: 92vh; padding: 20px; overflow-y: auto;">
+    <div class="dialog-header" style="position: sticky; top: -20px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); z-index: 20; border-bottom: 1px solid var(--glass-border); padding: 12px 0; margin: -20px -20px 20px -20px; padding-left: 20px; padding-right: 20px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 1.4rem;">📋</span>
+        <div>
+          <h2 id="preview-dossier-dialog-title" style="margin: 0; font-size: 1.15rem; color: #fff;">Fiche de Liaison & Dossier de Santé</h2>
+          <p id="preview-dossier-dialog-subtitle" style="margin: 2px 0 0 0; font-size: 0.8rem; color: var(--text-sub);">-</p>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <button type="button" class="btn btn-primary btn-small" id="btn-print-animal-dossier" style="background: linear-gradient(135deg, #D96B27, #f59e0b); border: none; display: inline-flex; align-items: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+          </svg>
+          <span>Imprimer / Enregistrer en PDF</span>
+        </button>
+        <button type="button" class="btn btn-secondary btn-small btn-close-dialog">Fermer</button>
+      </div>
+    </div>
+
+    <!-- Feuille A4 Officielle Imprimable (Fond Blanc Miroir) -->
+    <div class="print-container official-a4-sheet cr-document" id="animal-dossier-preview-sheet" style="background: #ffffff; color: #1e293b; padding: 30px 40px; border-radius: 8px;">
+      <!-- Contenu injecté dynamiquement -->
     </div>
   </dialog>
 
@@ -2353,6 +2381,6 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.4.2"></script>
+  <script type="module" src="app.js?v=1.4.3"></script>
 </body>
 </html>

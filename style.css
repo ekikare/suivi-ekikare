@@ -2413,12 +2413,47 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
     margin: 0 !important;
     max-width: 100% !important;
   }
+
+  /* Impression depuis la modale Fiche de liaison */
+  body.printing-animal-dossier .sidebar,
+  body.printing-animal-dossier .app-header,
+  body.printing-animal-dossier .view-section,
+  body.printing-animal-dossier .dialog-header,
+  body.printing-animal-dossier .btn-close-dialog,
+  body.printing-animal-dossier #toast-container,
+  body.printing-animal-dossier #practitioner-lock-overlay {
+    display: none !important;
+  }
+
+  body.printing-animal-dossier #dialog-preview-animal-dossier {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.printing-animal-dossier #dialog-preview-animal-dossier .official-a4-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
 }
 
 /* ==========================================================================
    OFFICIAL A4 PRINT SHEET IN MODAL
    ========================================================================== */
 #dialog-portal-session-cr,
+#dialog-preview-animal-dossier,
 #dialog-document-viewer {
   background: rgba(15, 23, 42, 0.88) !important;
   backdrop-filter: blur(16px);
