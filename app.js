@@ -1602,33 +1602,24 @@ async function renderAnimalDetails(animalId) {
         item.className = 'timeline-item timeline-item-external';
         item.style.cursor = s.fileData ? 'pointer' : 'default';
         
-        // N'afficher le bouton "Voir le CR" QUE SI un document joint existe
-        let crBtnHtml = '';
-        if (s.fileData) {
-          crBtnHtml = `
-            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
-              <button type="button" class="btn btn-secondary btn-small btn-view-cr" style="display:inline-flex; align-items:center; gap:5px; padding: 3px 8px; font-size: 0.78rem;">📄 Voir le CR</button>
-            </div>
-          `;
-        }
-        
         const cleanSummary = (s.summary || '-').trim();
+        const crBtnHtml = s.fileData ? `<button type="button" class="btn btn-secondary btn-small btn-view-cr" style="display:inline-flex; align-items:center; gap:4px; padding: 2px 8px; font-size: 0.78rem;">📄 Voir le CR</button>` : '';
         
         item.innerHTML = `
-          <div class="timeline-header" style="margin-bottom: 2px;">
-            <span class="timeline-date">${formatDate(s.date_seance)}</span>
-            <span class="badge-external">Intervention externe</span>
+          <div class="timeline-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+            <div style="font-size:0.86rem; font-weight:700; color:var(--text-main);">
+              ${s.profession || 'Intervention'}${s.practitionerName ? ` - <em style="font-weight:normal; font-style:italic; color:var(--text-sub);">${s.practitionerName}</em>` : ''}
+            </div>
+            <span class="badge-external" style="font-size:0.72rem; padding: 2px 8px; margin:0;">${formatDate(s.date_seance)}</span>
           </div>
-          <div class="timeline-objective" style="margin-bottom: 2px; font-size: 0.86rem;"><strong>${s.profession} - <em>${s.practitionerName || 'Praticien tiers'}</em></strong></div>
-          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; margin:0; line-height:1.35; font-size:0.82rem;">
-            ${s.motif ? `<div style="margin-bottom: 1px;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
-            <div><strong>Résumé / Prescriptions :</strong></div>
-            <div class="timeline-summary-text" style="white-space:pre-wrap; word-break:break-word; margin:0; line-height:1.35;">${cleanSummary}</div>
+          ${s.motif ? `<div style="font-size:0.82rem; margin-bottom:2px; line-height:1.35; color:var(--text-main);"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+          <div style="font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:var(--text-main);">
+            <strong>Résumé / Prescriptions :</strong> <span style="white-space:pre-wrap;">${cleanSummary}</span>
           </div>
-          ${crBtnHtml}
-          <div class="timeline-actions-ext" style="display:flex; gap:6px; margin-top:4px;">
+          <div class="timeline-actions-ext" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px;">
             <button type="button" class="btn btn-secondary btn-small btn-edit-ext-session" style="padding: 2px 8px; font-size: 0.78rem;">Modifier</button>
             <button type="button" class="btn btn-danger btn-small btn-delete-ext-session" style="padding: 2px 8px; font-size: 0.78rem;">Supprimer</button>
+            ${crBtnHtml}
           </div>
         `;
         
@@ -7161,10 +7152,24 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
         Génération PDF...
       `;
 
+      const prevWidth = sheetElement.style.width;
+      const prevMaxWidth = sheetElement.style.maxWidth;
+      const prevMargin = sheetElement.style.margin;
+
       try {
         if (typeof html2pdf === 'undefined') {
           throw new Error("Bibliothèque html2pdf non disponible");
         }
+
+        // Forcer une largeur fixe de 800px et l'alignement pour empêcher tout écrasement responsive
+        sheetElement.style.width = '800px';
+        sheetElement.style.maxWidth = '800px';
+        sheetElement.style.margin = '0 auto';
+
+        // Forcer explicitement tous les textes en noir profond contrasté sur l'élément imprimé
+        sheetElement.querySelectorAll('*').forEach(el => {
+          el.style.setProperty('color', '#111827', 'important');
+        });
 
         const opt = {
           margin: [10, 10, 10, 10], // marges propres en mm
@@ -7175,7 +7180,8 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
             useCORS: true,
             scrollX: 0,
             scrollY: 0,
-            backgroundColor: '#ffffff'
+            backgroundColor: '#ffffff',
+            windowWidth: 800
           },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
@@ -7187,6 +7193,9 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
         console.error('Erreur export PDF:', err);
         showToast("Erreur lors de la génération du PDF.", "error");
       } finally {
+        sheetElement.style.width = prevWidth;
+        sheetElement.style.maxWidth = prevMaxWidth;
+        sheetElement.style.margin = prevMargin;
         downloadBtn.disabled = originalDisabled;
         downloadBtn.innerHTML = originalHtml;
       }

@@ -990,8 +990,8 @@ body {
 
 .timeline-item-external {
   border-left: 3px solid #3b82f6 !important;
-  padding: 10px 14px !important;
-  margin-bottom: 10px !important;
+  padding: 8px 12px !important;
+  margin-bottom: 8px !important;
 }
 
 .timeline-item-external::before {
@@ -999,12 +999,15 @@ body {
 }
 
 .timeline-item-external .timeline-header {
-  margin-bottom: 3px !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  margin-bottom: 2px !important;
 }
 
 .timeline-item-external .timeline-objective {
-  font-size: 0.88rem !important;
-  margin-bottom: 3px !important;
+  font-size: 0.86rem !important;
+  margin-bottom: 2px !important;
 }
 
 .timeline-item-external .timeline-preview {
@@ -1016,13 +1019,15 @@ body {
   word-break: break-word !important;
   line-height: 1.35 !important;
   font-size: 0.82rem !important;
+  margin: 0 !important;
 }
 
-.timeline-item-external .timeline-summary-text {
-  white-space: pre-wrap !important;
-  word-break: break-word !important;
-  margin: 1px 0 0 0 !important;
-  line-height: 1.35 !important;
+.timeline-item-external .timeline-actions-ext {
+  display: flex !important;
+  gap: 6px !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  margin-top: 6px !important;
 }
 
 .timeline-item-external .timeline-actions-ext {
@@ -2370,7 +2375,8 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 }
 
 #dialog-portal-session-cr .official-a4-sheet,
-.official-a4-sheet {
+.official-a4-sheet,
+.cr-document {
   display: block !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
@@ -2384,6 +2390,15 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   box-sizing: border-box !important;
 }
 
+.cr-document,
+.cr-document *,
+#portal-cr-sheet,
+#portal-cr-sheet *,
+.official-a4-sheet,
+.official-a4-sheet * {
+  color: #111827 !important;
+}
+
 .print-section,
 #portal-cr-section-canvas,
 .print-canvas-preview,
@@ -2394,49 +2409,72 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   display: block;
 }
 
-#dialog-portal-session-cr .official-a4-sheet h2,
-#dialog-portal-session-cr .official-a4-sheet h3,
-#dialog-portal-session-cr .official-a4-sheet h4,
-#dialog-portal-session-cr .official-a4-sheet p,
-#dialog-portal-session-cr .official-a4-sheet span,
-#dialog-portal-session-cr .official-a4-sheet strong,
-#dialog-portal-session-cr .official-a4-sheet div,
-#dialog-portal-session-cr .official-a4-sheet th,
-#dialog-portal-session-cr .official-a4-sheet td {
-  color: #111827;
+.cr-document .print-grid-2,
+#portal-cr-sheet .print-grid-2,
+.official-a4-sheet .print-grid-2 {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 20px !important;
+  width: 100% !important;
 }
 
-#dialog-portal-session-cr .official-a4-sheet .print-app-title {
-  color: #0d9488 !important;
+.cr-document .print-header,
+#portal-cr-sheet .print-header,
+.official-a4-sheet .print-header {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  width: 100% !important;
 }
 
-#dialog-portal-session-cr .official-a4-sheet .print-branding {
-  color: #6d28d9 !important;
-  border: 1px solid #e2e8f0 !important;
+#dialog-portal-session-cr .official-a4-sheet .print-app-title,
+.cr-document .print-app-title,
+#portal-cr-sheet .print-app-title {
+  color: #111827 !important;
+  font-weight: 700 !important;
+}
+
+#dialog-portal-session-cr .official-a4-sheet .print-branding,
+.cr-document .print-branding,
+#portal-cr-sheet .print-branding {
+  color: #111827 !important;
+  border: 1px solid #cbd5e1 !important;
   background: #f8fafc !important;
   white-space: nowrap;
 }
 
-#dialog-portal-session-cr .official-a4-sheet .divider {
+#dialog-portal-session-cr .official-a4-sheet .divider,
+.cr-document .divider,
+#portal-cr-sheet .divider {
   border-top: 1px solid #cbd5e1 !important;
 }
 
 #dialog-portal-session-cr .official-a4-sheet .print-grid-2 h3,
-#dialog-portal-session-cr .official-a4-sheet .print-section-title {
-  color: #0d9488 !important;
-  border-left: 4px solid #0d9488 !important;
+#dialog-portal-session-cr .official-a4-sheet .print-section-title,
+.cr-document .print-grid-2 h3,
+.cr-document .print-section-title,
+#portal-cr-sheet .print-grid-2 h3,
+#portal-cr-sheet .print-section-title {
+  color: #111827 !important;
+  border-left: 4px solid #111827 !important;
   padding-left: 10px;
+  font-weight: 700 !important;
 }
 
-#dialog-portal-session-cr .official-a4-sheet .print-text-block {
+#dialog-portal-session-cr .official-a4-sheet .print-text-block,
+.cr-document .print-text-block,
+#portal-cr-sheet .print-text-block {
   background: #f8fafc !important;
-  border: 1px solid #e2e8f0 !important;
+  border: 1px solid #cbd5e1 !important;
   color: #111827 !important;
   white-space: normal;
 }
 
-#dialog-portal-session-cr .official-a4-sheet .print-canvas-preview img {
-  border: 1px solid #e2e8f0 !important;
+#dialog-portal-session-cr .official-a4-sheet .print-canvas-preview img,
+.cr-document .print-canvas-preview img,
+#portal-cr-sheet .print-canvas-preview img {
+  border: 1px solid #cbd5e1 !important;
   background-color: white !important;
   max-width: 100%;
   max-height: 360px;
@@ -2444,18 +2482,9 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 }
 
 @media (max-width: 640px) {
-  #dialog-portal-session-cr .official-a4-sheet {
-    padding: 20px !important;
-    width: 100% !important;
-  }
-  #dialog-portal-session-cr .official-a4-sheet .print-grid-2 {
-    grid-template-columns: 1fr;
-    gap: 15px;
-  }
-  #dialog-portal-session-cr .official-a4-sheet .print-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
+  #dialog-portal-session-cr .official-a4-sheet,
+  .cr-document {
+    padding: 16px !important;
   }
 }
 
