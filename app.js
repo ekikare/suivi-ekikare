@@ -5647,7 +5647,7 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     
-    const ownerId = Number(ownerSelect.value);
+    const ownerId = Number(ownerSelect.value) || (animal && animal.client_id ? Number(animal.client_id) : (preselectedClientId ? Number(preselectedClientId) : (currentPortalClientId ? Number(currentPortalClientId) : null)));
     
     // Déterminer la date de naissance (avec calcul automatique si âge estimé est fourni)
     let birthdateStr = document.getElementById('animal-form-birthdate').value;
@@ -5705,6 +5705,7 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
     }
 
     const animalData = {
+      ...(animal || {}),
       client_id: ownerId,
       nom: document.getElementById('animal-form-name').value.trim(),
       espece: (() => {
@@ -5749,7 +5750,8 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       
       // Medical events & Photo
       medical_events: currentMedicalEvents,
-      photo_data_url: document.getElementById('animal-form-photo-data').value,
+      photo_data_url: document.getElementById('animal-form-photo-data').value || (animal ? animal.photo_data_url : ''),
+      photo_blob: document.getElementById('animal-form-photo-data').value || (animal ? animal.photo_blob : null),
       
       // Fallback fields for backwards compatibility
       lieu_de_vie: stableName || 'Non spécifié',
@@ -5771,11 +5773,11 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
 
     // Recharger les vues appropriées
     if (window.location.hash.startsWith('#animals/')) {
-      await renderAnimalDetails(currentAnimalId);
+      await renderAnimalDetails(currentAnimalId || animalData.id);
     } else if (currentPortalClientId) {
-      await renderPortalDetails(currentPortalClientId);
+      await renderPortalDetails(currentPortalClientToken || currentPortalClientId);
     } else if (window.location.hash.startsWith('#clients/')) {
-      await renderClientDetails(currentClientId);
+      await renderClientDetails(currentClientId || ownerId);
     } else {
       await renderAnimalsList();
     }

@@ -64,6 +64,27 @@ export function mapLocalToSupabase(storeName, item) {
       };
       break;
     case 'animals':
+      const customPayload = {
+        robe: item.robe || '',
+        lifestyle_details: item.lifestyle_details || item.custom_details || '',
+        stable_name: item.stable_name || item.lieu_de_vie || '',
+        stable_address: item.stable_address || '',
+        stable_zip: item.stable_zip || '',
+        stable_city: item.stable_city || '',
+        stable_distance: item.stable_distance !== undefined && item.stable_distance !== null ? Number(item.stable_distance) : (item.distance_km || 0),
+        stable_at_home: Boolean(item.stable_at_home),
+        housing_type: item.housing_type || item.housing_mode || '',
+        housing_type_other: item.housing_type_other || item.housing_mode_other || '',
+        social_type: item.social_type || item.social_life || '',
+        tracking_mode: item.tracking_mode || 'À la demande',
+        tracking_mode_other: item.tracking_mode_other || '',
+        nutritionist: Boolean(item.nutritionist),
+        nutrition_details: item.nutrition_details || item.diet || '',
+        work_objective: item.work_objective || item.work_goals || '',
+        main_problems: item.main_problems || item.issues || '',
+        medical_events: item.medical_events || [],
+        pros_associes_ids: item.pros_associes_ids || []
+      };
       specificFields = {
         client_id: String(item.client_id || item.clientId || ''),
         name: item.name || item.nom || '',
@@ -71,16 +92,16 @@ export function mapLocalToSupabase(storeName, item) {
         breed: item.breed || item.race || null,
         gender: item.gender || item.sexe || null,
         birth_date: item.birthDate || item.birth_date || item.date_naissance_ou_age || null,
-        photo: item.photo || item.photo_data_url || null,
+        photo: item.photo || item.photo_data_url || item.photo_blob || null,
         stable: item.stable || item.stable_name || item.lieu_de_vie || null,
-        housing_type: item.housingType || item.housing_type || null,
+        housing_type: item.housingType || item.housing_type || item.housing_mode || null,
         social_life: item.socialLife || item.social_life || item.social_type || null,
         work_goals: item.workGoals || item.work_goals || item.work_objective || null,
         diet: item.diet || item.nutrition_details || null,
         medical_history: item.medicalHistory || item.medical_history || item.antecedents || null,
         issues: item.issues || item.main_problems || null,
         notes: item.notes || null,
-        custom_details: item.customDetails || item.custom_details || item.lifestyle_details || null,
+        custom_details: JSON.stringify(customPayload),
         distance_km: item.distanceKm !== undefined && item.distanceKm !== null ? Number(item.distanceKm) : (item.distance_km !== undefined && item.distance_km !== null ? Number(item.distance_km) : (item.stable_distance !== undefined && item.stable_distance !== null ? Number(item.stable_distance) : null)),
         tracking_mode: item.trackingMode || item.tracking_mode || null
       };
@@ -167,30 +188,51 @@ export function mapSupabaseToLocal(storeName, item) {
         uuid: clientUuid
       };
     case 'animals':
+      let parsedCustom = {};
+      if (item.custom_details) {
+        try {
+          if (typeof item.custom_details === 'string' && item.custom_details.trim().startsWith('{')) {
+            parsedCustom = JSON.parse(item.custom_details);
+          } else if (typeof item.custom_details === 'object' && item.custom_details !== null) {
+            parsedCustom = item.custom_details;
+          }
+        } catch (e) {
+          parsedCustom = {};
+        }
+      }
       return {
         ...local,
         client_id: item.client_id ? Number(item.client_id) : null,
         nom: item.name || '',
         espece: item.species || 'Cheval',
         race: item.breed || '',
-        robe: item.robe || '',
+        robe: item.robe || parsedCustom.robe || '',
         sexe: item.gender || '',
         date_naissance_ou_age: item.birth_date || '',
         photo_blob: item.photo || null,
-        stable_name: item.stable || '',
-        stable_address: item.stable_address || '',
-        stable_zip: item.stable_zip || '',
-        stable_city: item.stable_city || '',
-        stable_distance: item.distance_km !== null ? Number(item.distance_km) : 0,
-        stable_at_home: Boolean(item.stable_at_home),
-        lieu_de_vie: item.stable || '',
-        housing_type: item.housing_type || '',
-        housing_type_other: item.housing_type_other || '',
-        social_type: item.social_life || '',
-        housing_mode: item.housing_type || '',
-        lifestyle_details: item.custom_details || '',
+        photo_data_url: item.photo || null,
+        stable_name: item.stable || parsedCustom.stable_name || '',
+        stable_address: parsedCustom.stable_address || item.stable_address || '',
+        stable_zip: parsedCustom.stable_zip || item.stable_zip || '',
+        stable_city: parsedCustom.stable_city || item.stable_city || '',
+        stable_distance: item.distance_km !== null && item.distance_km !== undefined ? Number(item.distance_km) : (parsedCustom.stable_distance !== undefined ? Number(parsedCustom.stable_distance) : 0),
+        stable_at_home: parsedCustom.stable_at_home !== undefined ? Boolean(parsedCustom.stable_at_home) : Boolean(item.stable_at_home),
+        lieu_de_vie: item.stable || parsedCustom.stable_name || '',
+        housing_type: item.housing_type || parsedCustom.housing_type || '',
+        housing_type_other: parsedCustom.housing_type_other || item.housing_type_other || '',
+        social_type: item.social_life || parsedCustom.social_type || '',
+        housing_mode: item.housing_type || parsedCustom.housing_type || '',
+        lifestyle_details: parsedCustom.lifestyle_details !== undefined ? parsedCustom.lifestyle_details : (item.custom_details || ''),
+        medical_events: parsedCustom.medical_events || [],
         antecedents: item.medical_history || '',
-        pros_associes_ids: item.pros_associes_ids || []
+        pros_associes_ids: parsedCustom.pros_associes_ids || item.pros_associes_ids || [],
+        tracking_mode: item.tracking_mode || parsedCustom.tracking_mode || 'À la demande',
+        tracking_mode_other: parsedCustom.tracking_mode_other || '',
+        nutritionist: Boolean(parsedCustom.nutritionist),
+        nutrition_details: item.diet || parsedCustom.nutrition_details || '',
+        work_objective: item.work_goals || parsedCustom.work_objective || '',
+        main_problems: item.issues || parsedCustom.main_problems || '',
+        notes: item.notes || ''
       };
     case 'sessions':
       return {
@@ -455,7 +497,9 @@ export async function add(storeName, item) {
     }
   }
   if (SYNCED_STORES.includes(storeName)) {
-    item.last_modified = Date.now();
+    const now = Date.now();
+    item.last_modified = now;
+    item.updated_at = new Date(now).toISOString();
     item.synced = 0;
   }
   
@@ -513,7 +557,9 @@ export async function updateLocal(storeName, item) {
  */
 export async function update(storeName, item) {
   if (SYNCED_STORES.includes(storeName)) {
-    item.last_modified = Date.now();
+    const now = Date.now();
+    item.last_modified = now;
+    item.updated_at = new Date(now).toISOString();
     item.synced = 0;
   }
   
