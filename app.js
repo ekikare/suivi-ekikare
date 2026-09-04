@@ -7152,56 +7152,45 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
         Génération PDF...
       `;
 
-      let printContainer = null;
       try {
         if (typeof html2pdf === 'undefined') {
           throw new Error("Bibliothèque html2pdf non disponible");
         }
 
-        // Cloner le conteneur du compte-rendu dans un conteneur temporaire isolé attaché au document.body
-        printContainer = sheetElement.cloneNode(true);
-        printContainer.id = 'pdf-isolated-print-container';
-        printContainer.style.position = 'fixed';
-        printContainer.style.left = '0';
-        printContainer.style.top = '0';
-        printContainer.style.margin = '0';
-        printContainer.style.transform = 'none';
-        printContainer.style.width = '794px'; // Largeur standard A4 (210mm à 96DPI)
-        printContainer.style.maxWidth = '794px';
-        printContainer.style.minWidth = '794px';
-        printContainer.style.zIndex = '-9999';
-        printContainer.style.backgroundColor = '#ffffff';
-        printContainer.style.padding = '20mm 15mm';
-        printContainer.style.boxSizing = 'border-box';
-        document.body.appendChild(printContainer);
-
         const opt = {
-          margin: 0,
+          margin: [10, 10, 10, 10],
           filename: filename,
           image: { type: 'jpeg', quality: 0.98 },
           html2canvas: {
             scale: 2,
             useCORS: true,
+            logging: false,
+            backgroundColor: '#ffffff',
             scrollX: 0,
             scrollY: 0,
-            x: 0,
-            y: 0,
-            windowWidth: 794,
-            backgroundColor: '#ffffff'
+            onclone: (clonedDoc) => {
+              // Réinitialiser les transforms/offsets sur le document cloné en mémoire par html2canvas
+              const target = clonedDoc.querySelector('#portal-cr-sheet') || clonedDoc.querySelector('.cr-document');
+              if (target) {
+                target.style.margin = '0 auto';
+                target.style.transform = 'none';
+                target.style.position = 'static';
+                target.style.width = '794px';
+                target.style.maxWidth = '794px';
+                target.style.boxSizing = 'border-box';
+              }
+            }
           },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
         };
 
-        await html2pdf().set(opt).from(printContainer).save();
+        await html2pdf().set(opt).from(sheetElement).save();
         showToast(`Compte-rendu téléchargé : ${filename}`);
       } catch (err) {
         console.error('Erreur export PDF:', err);
         showToast("Erreur lors de la génération du PDF.", "error");
       } finally {
-        if (printContainer && printContainer.parentNode) {
-          printContainer.remove();
-        }
         downloadBtn.disabled = originalDisabled;
         downloadBtn.innerHTML = originalHtml;
       }
