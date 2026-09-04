@@ -1600,11 +1600,16 @@ async function renderAnimalDetails(animalId) {
       
       if (s.isExternal) {
         item.className = 'timeline-item timeline-item-external';
-        item.style.cursor = 'default';
+        item.style.cursor = currentPortalClientId ? 'pointer' : 'default';
         
         let fileBtnHtml = '';
         if (s.fileData) {
           fileBtnHtml = `<button type="button" class="btn btn-secondary btn-small btn-view-ext-file" style="margin-top:10px; display:inline-flex; align-items:center; gap:5px;">📎 Voir le document joint</button>`;
+        }
+
+        let modalBtnHtml = '';
+        if (currentPortalClientId) {
+          modalBtnHtml = `<button type="button" class="btn btn-secondary btn-small btn-open-ext-cr" style="margin-top:10px; display:inline-flex; align-items:center; gap:5px;">📄 Voir le compte-rendu</button>`;
         }
         
         item.innerHTML = `
@@ -1617,7 +1622,10 @@ async function renderAnimalDetails(animalId) {
             ${s.motif ? `<strong>Motif :</strong> ${s.motif}<br>` : ''}
             <strong>Résumé / Prescriptions :</strong> ${s.summary || '-'}
           </div>
-          ${fileBtnHtml}
+          <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+            ${modalBtnHtml}
+            ${fileBtnHtml}
+          </div>
           <div class="timeline-actions-ext" style="display:flex; gap:10px; margin-top:12px;">
             <button type="button" class="btn btn-secondary btn-small btn-edit-ext-session">Modifier</button>
             <button type="button" class="btn btn-danger btn-small btn-delete-ext-session">Supprimer</button>
@@ -1629,12 +1637,22 @@ async function renderAnimalDetails(animalId) {
           openAttachedFile(s.fileData, s.fileType, s.fileName);
         });
 
-        item.querySelector('.btn-edit-ext-session').addEventListener('click', (e) => {
+        if (currentPortalClientId) {
+          item.addEventListener('click', () => {
+            openPortalSessionModal(s, animal);
+          });
+          item.querySelector('.btn-open-ext-cr')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openPortalSessionModal(s, animal);
+          });
+        }
+
+        item.querySelector('.btn-edit-ext-session')?.addEventListener('click', (e) => {
           e.stopPropagation();
           openExternalSessionDialog(s, animalId);
         });
 
-        item.querySelector('.btn-delete-ext-session').addEventListener('click', async (e) => {
+        item.querySelector('.btn-delete-ext-session')?.addEventListener('click', async (e) => {
           e.stopPropagation();
           if (confirm("Êtes-vous sûr de vouloir supprimer cette séance externe ?")) {
             await remove('sessions', s.id);
@@ -1645,6 +1663,7 @@ async function renderAnimalDetails(animalId) {
         
       } else {
         item.className = 'timeline-item';
+        item.style.cursor = 'pointer';
         
         const sumText = s.resume_client_genere || 'Aucun résumé client généré.';
         
@@ -1679,14 +1698,20 @@ async function renderAnimalDetails(animalId) {
         `;
 
         item.addEventListener('click', () => {
-          if (!currentPortalClientId) {
+          if (currentPortalClientId) {
+            openPortalSessionModal(s, animal);
+          } else {
             window.location.hash = `sessions/${s.id}`;
           }
         });
 
         item.querySelector('.btn-print-direct').addEventListener('click', (e) => {
           e.stopPropagation();
-          window.open(`#sessions/${s.id}/print`, '_blank');
+          if (currentPortalClientId) {
+            openPortalSessionModal(s, animal);
+          } else {
+            window.open(`#sessions/${s.id}/print`, '_blank');
+          }
         });
       }
       
@@ -6831,6 +6856,224 @@ async function checkAndInjectMockData() {
 
     showToast('Données de test injectées.');
   }
+}
+
+// --- MODALE COMPTE-RENDU DE SÉANCE PORTAIL ---
+async function openPortalSessionModal(sessionOrId, animal = null) {
+  let session = null;
+  if (typeof sessionOrId === 'object' && sessionOrId !== null) {
+    session = sessionOrId;
+  } else {
+    session = await getById('sessions', Number(sessionOrId));
+  }
+
+  if (!session) {
+    showToast('Compte-rendu introuvable.', 'error');
+    return;
+  }
+
+  // Si l'animal n'a pas été passé, le récupérer
+  if (!animal && session.animal_id) {
+    animal = await getById('animals', session.animal_id);
+  }
+
+  // Vérification de sécurité stricte : correspondance séance <-> animal
+  if (!animal || Number(session.animal_id) !== Number(animal.id)) {
+    showToast('Accès refusé à ce compte-rendu.', 'error');
+    return;
+  }
+
+  // Vérification de sécurité contextuelle (portail client)
+  if (currentPortalClientId && Number(animal.client_id) !== Number(currentPortalClientId)) {
+    showToast('Accès refusé : cet animal n\'appartient pas à votre espace.', 'error');
+    return;
+  }
+
+  const dialog = document.getElementById('dialog-portal-session-cr');
+  if (!dialog) return;
+
+  const subtitleEl = document.getElementById('portal-cr-dialog-subtitle');
+  if (subtitleEl) {
+    subtitleEl.textContent = `Séance du ${formatDate(session.date_seance)} • ${animal.nom} (${animal.espece})`;
+  }
+
+  const contentEl = document.getElementById('portal-cr-content');
+  if (!contentEl) return;
+
+  // Extraction des protocoles
+  const protos = session.protocoles_realises || {};
+  const activeProtocols = [];
+  if (protos.shiatsu && protos.shiatsu.checked) activeProtocols.push('Shiatsu');
+  if (protos.manuelles && protos.manuelles.checked) activeProtocols.push('Techniques manuelles');
+  if (protos.tensegrite && protos.tensegrite.checked) activeProtocols.push('Tenségrité');
+  if (protos.cranio && protos.cranio.checked) activeProtocols.push('Cranio-Sacrée');
+  if (protos.kinesiologie && protos.kinesiologie.checked) activeProtocols.push('Kinésiologie');
+  if (protos.aura && protos.aura.checked) activeProtocols.push('Aura');
+
+  const protocolsBadgesHtml = activeProtocols.length > 0 
+    ? `<div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;">
+        ${activeProtocols.map(p => `<span style="display: inline-block; background: rgba(99, 102, 241, 0.15); color: var(--color-primary, #6366f1); border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.78rem; font-weight: 600; padding: 3px 8px; border-radius: 9999px;">${p}</span>`).join('')}
+       </div>`
+    : '';
+
+  // Intervenant
+  let practitionerDisplay = 'eKiKare - Soins équins et canins';
+  if (session.isExternal) {
+    practitionerDisplay = `${session.profession || 'Intervention externe'} - ${session.practitionerName || 'Praticien tiers'}`;
+  }
+
+  // Résumé / Observations
+  const resumeText = session.resume_client_genere || session.summary || 'Aucun résumé disponible pour cette séance.';
+  const resumeHtml = interpretMarkdownToHtml(resumeText);
+
+  // Précisions
+  let precisionsHtml = '';
+  if (session.precisions && session.precisions.trim()) {
+    precisionsHtml = `
+      <div class="portal-cr-section" style="margin-top: 20px; padding: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+        <h4 style="margin: 0 0 8px 0; font-size: 0.95rem; color: var(--color-secondary, #38bdf8); font-weight: 600;">Précisions & Conseils</h4>
+        <div style="font-size: 0.92rem; line-height: 1.6; color: var(--text-main, #f8fafc);">${interpretMarkdownToHtml(session.precisions)}</div>
+      </div>
+    `;
+  }
+
+  // Schéma corporel annoté
+  let canvasHtml = '';
+  if (session.canvas_annotation_image_blob) {
+    canvasHtml = `
+      <div class="portal-cr-section" style="margin-top: 20px; padding: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+        <h4 style="margin: 0 0 12px 0; font-size: 0.95rem; color: var(--color-secondary, #38bdf8); font-weight: 600;">Schéma anatomique & annotations</h4>
+        <div style="text-align: center; background: rgba(0, 0, 0, 0.2); border-radius: 8px; padding: 10px;">
+          <img src="${session.canvas_annotation_image_blob}" alt="Schéma d'annotations de la séance" style="max-width: 100%; max-height: 400px; height: auto; border-radius: 6px;">
+        </div>
+      </div>
+    `;
+  }
+
+  // Document joint (séance externe)
+  let attachmentHtml = '';
+  if (session.fileData) {
+    attachmentHtml = `
+      <div class="portal-cr-section" style="margin-top: 20px; padding: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+        <h4 style="margin: 0 0 10px 0; font-size: 0.95rem; color: var(--color-secondary, #38bdf8); font-weight: 600;">Document joint</h4>
+        <button type="button" class="btn btn-secondary btn-small btn-view-modal-ext-file" style="display: inline-flex; align-items: center; gap: 6px;">
+          📎 Consulter le document (${session.fileName || 'Fichier'})
+        </button>
+      </div>
+    `;
+  }
+
+  contentEl.innerHTML = `
+    <div class="portal-cr-card glass-card" style="padding: 24px; border-radius: 14px;">
+      <!-- Entête de la fiche de séance -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 1px solid var(--glass-border); padding-bottom: 16px; margin-bottom: 20px; flex-wrap: wrap;">
+        <div>
+          <span style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-primary, #6366f1); font-weight: 700;">Compte-Rendu Officiel</span>
+          <h3 style="margin: 4px 0 0 0; font-size: 1.2rem; color: #fff;">Séance du ${formatDate(session.date_seance)}</h3>
+          <p style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--text-sub, #94a3b8);">Praticien : <strong>${practitionerDisplay}</strong></p>
+        </div>
+        <div style="text-align: right;">
+          <span style="display: inline-block; background: rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; color: var(--text-main, #f8fafc);">
+            ${animal.nom} &bull; ${animal.espece}
+          </span>
+          ${session.n_seance_annee ? `<div style="font-size: 0.8rem; color: var(--text-sub); margin-top: 4px;">Séance n°${session.n_seance_annee} de l'année</div>` : ''}
+        </div>
+      </div>
+
+      <!-- Motif de consultation -->
+      <div class="portal-cr-section" style="margin-bottom: 18px;">
+        <h4 style="margin: 0 0 6px 0; font-size: 0.95rem; color: var(--color-secondary, #38bdf8); font-weight: 600;">Motif de la consultation</h4>
+        <div style="font-size: 0.95rem; color: var(--text-main, #f8fafc); font-weight: 500;">
+          ${session.motif || 'Séance de suivi'}
+        </div>
+        ${protocolsBadgesHtml}
+      </div>
+
+      <!-- Résumé & Soins réalisés -->
+      <div class="portal-cr-section" style="margin-bottom: 18px; padding: 18px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+        <h4 style="margin: 0 0 10px 0; font-size: 0.95rem; color: var(--color-secondary, #38bdf8); font-weight: 600;">Observations & Bilan des soins</h4>
+        <div style="font-size: 0.93rem; line-height: 1.7; color: var(--text-main, #f8fafc);">
+          ${resumeHtml}
+        </div>
+      </div>
+
+      ${precisionsHtml}
+      ${canvasHtml}
+      ${attachmentHtml}
+    </div>
+  `;
+
+  // Listener pour fichier joint
+  const extFileBtn = contentEl.querySelector('.btn-view-modal-ext-file');
+  if (extFileBtn) {
+    extFileBtn.onclick = () => {
+      openAttachedFile(session.fileData, session.fileType, session.fileName);
+    };
+  }
+
+  // Listener pour le bouton Imprimer / Télécharger
+  const printBtn = document.getElementById('btn-print-portal-cr');
+  if (printBtn) {
+    printBtn.onclick = () => {
+      document.body.classList.add('printing-portal-cr');
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove('printing-portal-cr');
+      }, 500);
+    };
+  }
+
+  // Listener pour le bouton Partager
+  const shareBtn = document.getElementById('btn-share-portal-cr');
+  if (shareBtn) {
+    shareBtn.onclick = async () => {
+      const shareData = {
+        title: `Compte-Rendu de séance - ${animal.nom}`,
+        text: `Compte-rendu de séance eKiKare pour ${animal.nom} (séance du ${formatDate(session.date_seance)}) :\nMotif : ${session.motif || '-'}\n\n${resumeText}`,
+        url: window.location.href
+      };
+
+      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+        try {
+          await navigator.share(shareData);
+          showToast('Compte-rendu partagé avec succès !');
+        } catch (err) {
+          if (err.name !== 'AbortError') {
+            console.warn('Erreur partage:', err);
+          }
+        }
+      } else {
+        // Fallback: copier dans le presse-papier
+        try {
+          await navigator.clipboard.writeText(`${shareData.title}\n\n${shareData.text}\n\nLien: ${shareData.url}`);
+          showToast('Résumé du compte-rendu copié dans le presse-papier !');
+        } catch (e) {
+          showToast('Impossible de copier le résumé.', 'error');
+        }
+      }
+    };
+  }
+
+  // Fermeture du dialog
+  const closeBtns = dialog.querySelectorAll('.btn-close-dialog');
+  closeBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  // Fermeture au clic en dehors (backdrop)
+  dialog.onclick = (e) => {
+    const rect = dialog.getBoundingClientRect();
+    if (
+      e.clientX < rect.left ||
+      e.clientX > rect.right ||
+      e.clientY < rect.top ||
+      e.clientY > rect.bottom
+    ) {
+      dialog.close();
+    }
+  };
+
+  dialog.showModal();
 }
 
 // --- PORTAIL CLIENT ---

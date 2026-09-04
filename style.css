@@ -2222,20 +2222,28 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
     background-image: none !important;
   }
   
-  .sidebar, .app-header, .btn, .button-group, .app-dialog, #toast-container, .search-filter-row, .practitioner-box-area, #print-section-history {
+  body:not(.printing-portal-cr) .sidebar, 
+  body:not(.printing-portal-cr) .app-header, 
+  body:not(.printing-portal-cr) .btn, 
+  body:not(.printing-portal-cr) .button-group, 
+  body:not(.printing-portal-cr) .app-dialog, 
+  body:not(.printing-portal-cr) #toast-container, 
+  body:not(.printing-portal-cr) .search-filter-row, 
+  body:not(.printing-portal-cr) .practitioner-box-area, 
+  body:not(.printing-portal-cr) #print-section-history {
     display: none !important;
   }
   
-  .main-content {
+  body:not(.printing-portal-cr) .main-content {
     margin-left: 0 !important;
     padding: 0 !important;
   }
   
-  .view-section {
+  body:not(.printing-portal-cr) .view-section {
     display: none !important;
   }
   
-  #view-sessions-details.active {
+  body:not(.printing-portal-cr) #view-sessions-details.active {
     display: block !important;
   }
   
@@ -2277,6 +2285,64 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   
   .print-canvas-preview img {
     border-color: #cbd5e1 !important;
+  }
+
+  /* Impression depuis la modale CR du portail */
+  body.printing-portal-cr .sidebar,
+  body.printing-portal-cr .app-header,
+  body.printing-portal-cr .view-section,
+  body.printing-portal-cr .portal-cr-modal-actions,
+  body.printing-portal-cr .btn-close-dialog,
+  body.printing-portal-cr #toast-container,
+  body.printing-portal-cr #practitioner-lock-overlay {
+    display: none !important;
+  }
+
+  body.printing-portal-cr #dialog-portal-session-cr {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.printing-portal-cr #dialog-portal-session-cr .dialog-header {
+    background: transparent !important;
+    border-bottom: 2px solid #0d9488 !important;
+    color: black !important;
+    padding-bottom: 8px !important;
+  }
+
+  body.printing-portal-cr #dialog-portal-session-cr .dialog-header h2 {
+    color: #0d9488 !important;
+  }
+
+  body.printing-portal-cr #dialog-portal-session-cr .dialog-header p {
+    color: #475569 !important;
+  }
+
+  body.printing-portal-cr #dialog-portal-session-cr .portal-cr-card {
+    background: white !important;
+    color: black !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: none !important;
+  }
+
+  body.printing-portal-cr #dialog-portal-session-cr .portal-cr-card * {
+    color: black !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  body.printing-portal-cr #dialog-portal-session-cr .portal-cr-section {
+    background: #f8fafc !important;
+    border-color: #e2e8f0 !important;
   }
 }
 
@@ -2428,6 +2494,7 @@ body.is-client-portal .sidebar-brand,
 body.is-client-portal #btn-toggle-cr-detaille,
 body.is-client-portal #btn-complete-followup-q,
 body.is-client-portal .practitioner-box-area,
+body.is-client-portal .timeline-actions-ext,
 body.is-client-portal #view-animals-details .detail-left-column .detail-card:nth-child(3), /* Partners */
 body.is-client-portal #view-animals-details .detail-right-column .detail-card:nth-child(2) /* Reminders */ {
   display: none !important;
