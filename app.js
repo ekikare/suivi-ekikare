@@ -1606,27 +1606,27 @@ async function renderAnimalDetails(animalId) {
         let crBtnHtml = '';
         if (s.fileData) {
           crBtnHtml = `
-            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
-              <button type="button" class="btn btn-secondary btn-small btn-view-cr" style="display:inline-flex; align-items:center; gap:5px;">📄 Voir le CR</button>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+              <button type="button" class="btn btn-secondary btn-small btn-view-cr" style="display:inline-flex; align-items:center; gap:5px; padding: 4px 10px; font-size: 0.82rem;">📄 Voir le CR</button>
             </div>
           `;
         }
         
         item.innerHTML = `
-          <div class="timeline-header">
+          <div class="timeline-header" style="margin-bottom: 3px;">
             <span class="timeline-date">${formatDate(s.date_seance)}</span>
             <span class="badge-external">Intervention externe</span>
           </div>
-          <div class="timeline-objective"><strong>${s.profession} - <em>${s.practitionerName || 'Praticien tiers'}</em></strong></div>
-          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; white-space:pre-wrap; word-break:break-word; line-height:1.5;">
-            ${s.motif ? `<strong>Motif :</strong> ${s.motif}<br>` : ''}
-            <strong>Résumé / Prescriptions :</strong>
-            <div class="timeline-summary-text" style="white-space:pre-wrap; word-break:break-word; margin-top:2px;">${s.summary || '-'}</div>
+          <div class="timeline-objective" style="margin-bottom: 3px;"><strong>${s.profession} - <em>${s.practitionerName || 'Praticien tiers'}</em></strong></div>
+          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; white-space:pre-wrap; word-break:break-word; line-height:1.35; font-size:0.82rem;">
+            ${s.motif ? `<div style="margin-bottom: 2px;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+            <div><strong>Résumé / Prescriptions :</strong></div>
+            <div class="timeline-summary-text" style="white-space:pre-wrap; word-break:break-word; margin: 1px 0 0 0; line-height:1.35;">${s.summary || '-'}</div>
           </div>
           ${crBtnHtml}
-          <div class="timeline-actions-ext" style="display:flex; gap:10px; margin-top:12px;">
-            <button type="button" class="btn btn-secondary btn-small btn-edit-ext-session">Modifier</button>
-            <button type="button" class="btn btn-danger btn-small btn-delete-ext-session">Supprimer</button>
+          <div class="timeline-actions-ext" style="display:flex; gap:8px; margin-top:6px;">
+            <button type="button" class="btn btn-secondary btn-small btn-edit-ext-session" style="padding: 3px 10px; font-size: 0.8rem;">Modifier</button>
+            <button type="button" class="btn btn-danger btn-small btn-delete-ext-session" style="padding: 3px 10px; font-size: 0.8rem;">Supprimer</button>
           </div>
         `;
         
@@ -7172,7 +7172,7 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
           position: fixed !important;
           top: 0 !important;
           left: -9999px !important;
-          width: 800px !important;
+          width: 794px !important;
           background: #ffffff !important;
           background-color: #ffffff !important;
           color: #111827 !important;
@@ -7192,9 +7192,9 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
           background: #ffffff !important;
           background-color: #ffffff !important;
           color: #111827 !important;
-          width: 800px !important;
-          max-width: 800px !important;
-          padding: 30px !important;
+          width: 794px !important;
+          max-width: 794px !important;
+          padding: 30px 40px !important;
           margin: 0 !important;
           border: none !important;
           border-radius: 0 !important;
@@ -7211,6 +7211,7 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
             el.style.setProperty('background', '#f8fafc', 'important');
             el.style.setProperty('background-color', '#f8fafc', 'important');
             el.style.setProperty('border', '1px solid #e2e8f0', 'important');
+            el.style.setProperty('white-space', 'nowrap', 'important');
           } else if (el.classList.contains('print-text-block')) {
             el.style.setProperty('background', '#f8fafc', 'important');
             el.style.setProperty('background-color', '#f8fafc', 'important');
@@ -7223,13 +7224,18 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
           } else {
             el.style.setProperty('color', '#111827', 'important');
           }
+
+          if (el.classList.contains('print-section') || el.id === 'portal-cr-section-canvas' || el.classList.contains('print-canvas-preview') || el.classList.contains('print-footer') || el.classList.contains('print-grid-2')) {
+            el.style.setProperty('page-break-inside', 'avoid', 'important');
+            el.style.setProperty('break-inside', 'avoid', 'important');
+          }
         });
 
         tempWrapper.appendChild(clonedSheet);
         document.body.appendChild(tempWrapper);
 
         const opt = {
-          margin: [8, 8, 8, 8],
+          margin: [6, 6, 6, 6],
           filename: filename,
           image: { type: 'jpeg', quality: 0.98 },
           html2canvas: {
@@ -7239,9 +7245,11 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
             letterRendering: true,
             scrollY: 0,
             scrollX: 0,
-            backgroundColor: '#ffffff'
+            backgroundColor: '#ffffff',
+            windowWidth: 794
           },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak: { mode: ['avoid-all', 'css', 'legacy'], avoid: ['.print-section', '#portal-cr-section-canvas', '.print-canvas-preview', '.print-footer', '.print-grid-2'] }
         };
 
         await html2pdf().set(opt).from(clonedSheet).save();

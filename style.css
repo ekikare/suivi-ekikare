@@ -990,10 +990,21 @@ body {
 
 .timeline-item-external {
   border-left: 3px solid #3b82f6 !important;
+  padding: 10px 14px !important;
+  margin-bottom: 10px !important;
 }
 
 .timeline-item-external::before {
   background-color: #3b82f6 !important; /* Blue indicator for external */
+}
+
+.timeline-item-external .timeline-header {
+  margin-bottom: 3px !important;
+}
+
+.timeline-item-external .timeline-objective {
+  font-size: 0.88rem !important;
+  margin-bottom: 3px !important;
 }
 
 .timeline-item-external .timeline-preview {
@@ -1003,12 +1014,21 @@ body {
   overflow: visible;
   white-space: pre-wrap !important;
   word-break: break-word !important;
-  line-height: 1.5 !important;
+  line-height: 1.35 !important;
+  font-size: 0.82rem !important;
 }
 
 .timeline-item-external .timeline-summary-text {
   white-space: pre-wrap !important;
   word-break: break-word !important;
+  margin: 1px 0 0 0 !important;
+  line-height: 1.35 !important;
+}
+
+.timeline-item-external .timeline-actions-ext {
+  margin-top: 6px !important;
+  display: flex;
+  gap: 8px;
 }
 
 /* PROFESSIONALS LIST IN ANIMAL DETAIL */
@@ -2349,17 +2369,28 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   border-radius: 16px;
 }
 
-#dialog-portal-session-cr .official-a4-sheet {
+#dialog-portal-session-cr .official-a4-sheet,
+.official-a4-sheet {
   display: block !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
   color: #111827 !important;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.08) !important;
   border-radius: 8px !important;
-  padding: 40px !important;
-  max-width: 800px;
+  padding: 30px 40px !important;
+  width: 794px !important;
+  max-width: 794px !important;
   margin: 0 auto !important;
-  box-sizing: border-box;
+  box-sizing: border-box !important;
+}
+
+.print-section,
+#portal-cr-section-canvas,
+.print-canvas-preview,
+.print-footer,
+.print-grid-2 {
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
 }
 
 #dialog-portal-session-cr .official-a4-sheet h2,
@@ -2371,7 +2402,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 #dialog-portal-session-cr .official-a4-sheet div,
 #dialog-portal-session-cr .official-a4-sheet th,
 #dialog-portal-session-cr .official-a4-sheet td {
-  color: #1e293b;
+  color: #111827;
 }
 
 #dialog-portal-session-cr .official-a4-sheet .print-app-title {
@@ -2382,6 +2413,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   color: #6d28d9 !important;
   border: 1px solid #e2e8f0 !important;
   background: #f8fafc !important;
+  white-space: nowrap;
 }
 
 #dialog-portal-session-cr .official-a4-sheet .divider {
@@ -2398,18 +2430,22 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 #dialog-portal-session-cr .official-a4-sheet .print-text-block {
   background: #f8fafc !important;
   border: 1px solid #e2e8f0 !important;
-  color: #1e293b !important;
+  color: #111827 !important;
   white-space: normal;
 }
 
 #dialog-portal-session-cr .official-a4-sheet .print-canvas-preview img {
   border: 1px solid #e2e8f0 !important;
   background-color: white !important;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
 }
 
 @media (max-width: 640px) {
   #dialog-portal-session-cr .official-a4-sheet {
     padding: 20px !important;
+    width: 100% !important;
   }
   #dialog-portal-session-cr .official-a4-sheet .print-grid-2 {
     grid-template-columns: 1fr;
