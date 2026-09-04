@@ -2380,7 +2380,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   display: block !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
-  color: #111827 !important;
+  color: #1f2937 !important;
   box-shadow: none !important;
   border-radius: 8px !important;
   padding: 30px 40px !important;
@@ -2390,13 +2390,31 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   box-sizing: border-box !important;
 }
 
-.cr-document,
-.cr-document *,
-#portal-cr-sheet,
-#portal-cr-sheet *,
-.official-a4-sheet,
-.official-a4-sheet * {
-  color: #111827 !important;
+.cr-document p,
+.cr-document span,
+.cr-document div,
+.cr-document strong,
+.cr-document th,
+.cr-document td,
+.cr-document li,
+.cr-document label,
+#portal-cr-sheet p,
+#portal-cr-sheet span,
+#portal-cr-sheet div,
+#portal-cr-sheet strong,
+#portal-cr-sheet th,
+#portal-cr-sheet td,
+#portal-cr-sheet li,
+#portal-cr-sheet label,
+.official-a4-sheet p,
+.official-a4-sheet span,
+.official-a4-sheet div,
+.official-a4-sheet strong,
+.official-a4-sheet th,
+.official-a4-sheet td,
+.official-a4-sheet li,
+.official-a4-sheet label {
+  color: #1f2937 !important;
 }
 
 .print-section,
@@ -2412,10 +2430,18 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 .cr-document .print-grid-2,
 #portal-cr-sheet .print-grid-2,
 .official-a4-sheet .print-grid-2 {
-  display: grid !important;
-  grid-template-columns: 1fr 1fr !important;
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between !important;
   gap: 20px !important;
   width: 100% !important;
+}
+
+.cr-document .print-grid-2 > div,
+#portal-cr-sheet .print-grid-2 > div,
+.official-a4-sheet .print-grid-2 > div {
+  flex: 1 1 0% !important;
+  min-width: 0 !important;
 }
 
 .cr-document .print-header,
@@ -2431,17 +2457,24 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 #dialog-portal-session-cr .official-a4-sheet .print-app-title,
 .cr-document .print-app-title,
 #portal-cr-sheet .print-app-title {
-  color: #111827 !important;
+  color: #0d9488 !important;
   font-weight: 700 !important;
+}
+
+.cr-document .print-date,
+#portal-cr-sheet .print-date,
+.official-a4-sheet .print-date {
+  color: #4b5563 !important;
 }
 
 #dialog-portal-session-cr .official-a4-sheet .print-branding,
 .cr-document .print-branding,
 #portal-cr-sheet .print-branding {
-  color: #111827 !important;
-  border: 1px solid #cbd5e1 !important;
+  color: #6d28d9 !important;
+  border: 1px solid #e2e8f0 !important;
   background: #f8fafc !important;
   white-space: nowrap;
+  font-weight: 600 !important;
 }
 
 #dialog-portal-session-cr .official-a4-sheet .divider,
@@ -2456,8 +2489,8 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 .cr-document .print-section-title,
 #portal-cr-sheet .print-grid-2 h3,
 #portal-cr-sheet .print-section-title {
-  color: #111827 !important;
-  border-left: 4px solid #111827 !important;
+  color: #0d9488 !important;
+  border-left: 4px solid #0d9488 !important;
   padding-left: 10px;
   font-weight: 700 !important;
 }
@@ -2466,8 +2499,8 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 .cr-document .print-text-block,
 #portal-cr-sheet .print-text-block {
   background: #f8fafc !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #111827 !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #1f2937 !important;
   white-space: normal;
 }
 

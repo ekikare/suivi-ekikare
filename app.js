@@ -7152,27 +7152,31 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
         Génération PDF...
       `;
 
-      const prevWidth = sheetElement.style.width;
-      const prevMaxWidth = sheetElement.style.maxWidth;
-      const prevMargin = sheetElement.style.margin;
-
+      let printContainer = null;
       try {
         if (typeof html2pdf === 'undefined') {
           throw new Error("Bibliothèque html2pdf non disponible");
         }
 
-        // Forcer une largeur fixe de 800px et l'alignement pour empêcher tout écrasement responsive
-        sheetElement.style.width = '800px';
-        sheetElement.style.maxWidth = '800px';
-        sheetElement.style.margin = '0 auto';
-
-        // Forcer explicitement tous les textes en noir profond contrasté sur l'élément imprimé
-        sheetElement.querySelectorAll('*').forEach(el => {
-          el.style.setProperty('color', '#111827', 'important');
-        });
+        // Cloner le conteneur du compte-rendu dans un conteneur temporaire isolé attaché au document.body
+        printContainer = sheetElement.cloneNode(true);
+        printContainer.id = 'pdf-isolated-print-container';
+        printContainer.style.position = 'fixed';
+        printContainer.style.left = '0';
+        printContainer.style.top = '0';
+        printContainer.style.margin = '0';
+        printContainer.style.transform = 'none';
+        printContainer.style.width = '794px'; // Largeur standard A4 (210mm à 96DPI)
+        printContainer.style.maxWidth = '794px';
+        printContainer.style.minWidth = '794px';
+        printContainer.style.zIndex = '-9999';
+        printContainer.style.backgroundColor = '#ffffff';
+        printContainer.style.padding = '20mm 15mm';
+        printContainer.style.boxSizing = 'border-box';
+        document.body.appendChild(printContainer);
 
         const opt = {
-          margin: [10, 10, 10, 10], // marges propres en mm
+          margin: 0,
           filename: filename,
           image: { type: 'jpeg', quality: 0.98 },
           html2canvas: {
@@ -7180,22 +7184,24 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
             useCORS: true,
             scrollX: 0,
             scrollY: 0,
-            backgroundColor: '#ffffff',
-            windowWidth: 800
+            x: 0,
+            y: 0,
+            windowWidth: 794,
+            backgroundColor: '#ffffff'
           },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
         };
 
-        await html2pdf().set(opt).from(sheetElement).save();
+        await html2pdf().set(opt).from(printContainer).save();
         showToast(`Compte-rendu téléchargé : ${filename}`);
       } catch (err) {
         console.error('Erreur export PDF:', err);
         showToast("Erreur lors de la génération du PDF.", "error");
       } finally {
-        sheetElement.style.width = prevWidth;
-        sheetElement.style.maxWidth = prevMaxWidth;
-        sheetElement.style.margin = prevMargin;
+        if (printContainer && printContainer.parentNode) {
+          printContainer.remove();
+        }
         downloadBtn.disabled = originalDisabled;
         downloadBtn.innerHTML = originalHtml;
       }
