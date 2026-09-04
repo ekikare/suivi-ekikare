@@ -40,6 +40,8 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- Supabase library -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- html2pdf.js for client-side direct PDF export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
   <div class="app-container">
@@ -2058,13 +2060,13 @@
           </svg>
           Partager
         </button>
-        <button type="button" class="btn btn-primary btn-small" id="btn-print-portal-cr" style="display: inline-flex; align-items: center; gap: 6px;">
+        <button type="button" class="btn btn-primary btn-small" id="btn-download-portal-cr" style="display: inline-flex; align-items: center; gap: 6px;">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="6 9 6 2 18 2 18 9"></polyline>
-            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-            <rect x="6" y="14" width="12" height="8"></rect>
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
           </svg>
-          Télécharger / Imprimer
+          Télécharger
         </button>
         <button class="btn-close-dialog" type="button" aria-label="Fermer" style="margin-left: 6px;">&times;</button>
       </div>

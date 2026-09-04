@@ -7008,15 +7008,58 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
     genDateEl.textContent = new Date().toLocaleDateString('fr-FR');
   }
 
-  // Listener pour le bouton Imprimer / Télécharger
-  const printBtn = document.getElementById('btn-print-portal-cr');
-  if (printBtn) {
-    printBtn.onclick = () => {
-      document.body.classList.add('printing-portal-cr');
-      window.print();
-      setTimeout(() => {
-        document.body.classList.remove('printing-portal-cr');
-      }, 500);
+  // Listener pour le bouton Télécharger PDF direct
+  const downloadBtn = document.getElementById('btn-download-portal-cr');
+  if (downloadBtn) {
+    downloadBtn.onclick = async () => {
+      const sheetElement = document.getElementById('portal-cr-sheet');
+      if (!sheetElement) return;
+
+      const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
+      let cleanDate = '';
+      if (session.date_seance) {
+        cleanDate = String(session.date_seance).split('T')[0].replace(/[\s/\\?%*:|"<>]+/g, '-');
+      } else {
+        cleanDate = new Date().toISOString().split('T')[0];
+      }
+      const filename = `CR_eKiKare_${cleanAnimalName}_${cleanDate}.pdf`;
+
+      const originalHtml = downloadBtn.innerHTML;
+      const originalDisabled = downloadBtn.disabled;
+      downloadBtn.disabled = true;
+      downloadBtn.innerHTML = `
+        <div class="sync-icon-spin" style="width: 14px; height: 14px; border-width: 2px; display: inline-block;"></div>
+        Génération PDF...
+      `;
+
+      try {
+        if (typeof html2pdf === 'undefined') {
+          throw new Error("Bibliothèque html2pdf non disponible");
+        }
+
+        const opt = {
+          margin: [10, 10, 10, 10],
+          filename: filename,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            letterRendering: true,
+            scrollY: 0
+          },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        await html2pdf().set(opt).from(sheetElement).save();
+        showToast(`Compte-rendu téléchargé : ${filename}`);
+      } catch (err) {
+        console.error('Erreur export PDF:', err);
+        showToast("Erreur lors de la génération du PDF.", "error");
+      } finally {
+        downloadBtn.disabled = originalDisabled;
+        downloadBtn.innerHTML = originalHtml;
+      }
     };
   }
 
