@@ -2836,6 +2836,18 @@ async function renderSessionDetails(sessionId) {
   const animal = await getById('animals', session.animal_id);
   const client = await getById('clients', session.client_id);
 
+  // En-tête contextuel de la vue session
+  const mainTitleEl = document.getElementById('session-detail-main-title');
+  if (mainTitleEl) {
+    mainTitleEl.textContent = `Compte-rendu — ${animal ? animal.nom : 'Animal'}`;
+  }
+  const subtitleEl = document.getElementById('session-detail-subtitle');
+  if (subtitleEl) {
+    const dateStr = formatDate(session.date_seance);
+    const ownerStr = client ? ` • Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
+    subtitleEl.textContent = `Séance du ${dateStr}${ownerStr}`;
+  }
+
   document.getElementById('print-session-date').textContent = `Séance du : ${formatDate(session.date_seance)}`;
   
   if (client) {
@@ -2948,9 +2960,9 @@ async function renderSessionDetails(sessionId) {
     window.location.hash = `session-editor/${session.id}`;
   };
 
-  // Imprimer la séance
+  // Voir le PDF via la modale A4 officielle
   document.getElementById('btn-print-session').onclick = () => {
-    window.open(`#sessions/${session.id}/print`, '_blank');
+    openPortalSessionModal(session, animal);
   };
 }
 
@@ -7200,34 +7212,34 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
     };
   }
 
-  // Listener pour le bouton Partager
+  // Listener pour le bouton Partager / Imprimer
   const shareBtn = document.getElementById('btn-share-portal-cr');
   if (shareBtn) {
     shareBtn.onclick = async () => {
       const shareData = {
-        title: `Compte-Rendu de séance - ${animal.nom}`,
-        text: `Compte-rendu de séance eKiKare pour ${animal.nom} (séance du ${formatDate(session.date_seance)}) :\nMotif : ${session.motif || '-'}\n\n${rawResume}`,
+        title: `Compte-Rendu de séance - ${animal?.nom || 'Animal'}`,
+        text: `Compte-rendu de séance eKiKare pour ${animal?.nom || 'Animal'} (séance du ${formatDate(session.date_seance)}) :\nMotif : ${session.motif || '-'}\n\n${rawResume}`,
         url: window.location.href
       };
 
-      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+      if (navigator.share && navigator.canShare && navigator.canShare(shareData) && !window.matchMedia('(min-width: 1024px)').matches) {
         try {
           await navigator.share(shareData);
           showToast('Compte-rendu partagé avec succès !');
+          return;
         } catch (err) {
           if (err.name !== 'AbortError') {
             console.warn('Erreur partage:', err);
           }
         }
-      } else {
-        // Fallback: copier dans le presse-papier
-        try {
-          await navigator.clipboard.writeText(`${shareData.title}\n\n${shareData.text}\n\nLien: ${shareData.url}`);
-          showToast('Résumé du compte-rendu copié dans le presse-papier !');
-        } catch (e) {
-          showToast('Impossible de copier le résumé.', 'error');
-        }
       }
+
+      // Impression directe de la feuille A4
+      document.body.classList.add('printing-portal-cr');
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove('printing-portal-cr');
+      }, 1000);
     };
   }
 
