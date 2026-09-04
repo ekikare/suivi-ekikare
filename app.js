@@ -1608,14 +1608,12 @@ async function renderAnimalDetails(animalId) {
         item.innerHTML = `
           <div class="timeline-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
             <div class="timeline-objective" style="font-size:0.86rem; font-weight:700; color:#ffffff; margin:0;">
-              ${s.profession || 'Intervention'}${s.practitionerName ? ` - <em style="font-weight:normal; font-style:italic; color:#cbd5e1;">${s.practitionerName}</em>` : ''}
+              ${s.profession || 'Intervention'}${s.practitionerName ? ` - <em style="font-weight:normal; font-style:italic; color:#96A5BA;">${s.practitionerName}</em>` : ''}
             </div>
             <span class="badge-external" style="font-size:0.72rem; padding: 2px 8px; margin:0;">${formatDate(s.date_seance)}</span>
           </div>
-          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; margin-bottom:2px; line-height:1.35; color:#cbd5e1;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
-          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#cbd5e1;">
-            <strong>Résumé / Prescriptions :</strong> <span style="white-space:pre-wrap;">${cleanSummary}</span>
-          </div>
+          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; margin-bottom:2px; line-height:1.35; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0; white-space:normal;"><strong>Résumé :</strong> <span style="white-space:pre-wrap; color:#96A5BA;">${cleanSummary}</span></div>
           <div class="timeline-actions-ext" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px;">
             <button type="button" class="btn btn-secondary btn-small btn-edit-ext-session" style="padding: 2px 8px; font-size: 0.78rem;">Modifier</button>
             <button type="button" class="btn btn-danger btn-small btn-delete-ext-session" style="padding: 2px 8px; font-size: 0.78rem;">Supprimer</button>
@@ -1678,14 +1676,12 @@ async function renderAnimalDetails(animalId) {
           <div class="timeline-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
             <div class="timeline-objective" style="font-size:0.86rem; font-weight:700; color:#ffffff; margin:0;">${cardTitle}</div>
             <div style="display:flex; align-items:center; gap:6px;">
-              <span class="timeline-date" style="font-size:0.75rem; color:#94a3b8;">${formatDate(s.date_seance)}</span>
-              <span class="timeline-n-session" style="font-size:0.72rem; padding:1px 6px;">Séance ${s.n_seance_annee || 1}</span>
+              <span class="timeline-date" style="font-size:0.75rem; color:#96A5BA;">${formatDate(s.date_seance)}</span>
+              <span class="timeline-n-session" style="font-size:0.72rem; padding:1px 6px; color:#96A5BA;">Séance ${s.n_seance_annee || 1}</span>
             </div>
           </div>
-          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; color:#cbd5e1; margin-bottom:2px; line-height:1.35;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
-          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#cbd5e1;">
-            <strong>Résumé :</strong> <span style="white-space:pre-wrap;">${cleanSummary}</span>
-          </div>
+          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; color:#96A5BA; margin-bottom:2px; line-height:1.35; text-indent:0; margin-left:0; padding-left:0;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0; white-space:normal;"><strong>Résumé :</strong> <span style="white-space:pre-wrap; color:#96A5BA;">${cleanSummary}</span></div>
           <div style="margin-top:6px; display:flex; gap:6px; align-items:center;">
             <button class="btn btn-secondary btn-small btn-print-direct" style="display:inline-flex; align-items:center; gap:4px; padding:2px 8px; font-size:0.78rem;">📄 Voir le CR</button>
           </div>

@@ -951,7 +951,7 @@ body {
 
 .timeline-date {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: #96A5BA !important;
   font-weight: 600;
 }
 
@@ -960,7 +960,7 @@ body {
   background: rgba(255,255,255,0.06);
   padding: 1px 6px;
   border-radius: 4px;
-  color: var(--text-sub);
+  color: #96A5BA !important;
 }
 
 .timeline-objective {
@@ -972,27 +972,40 @@ body {
 
 .timeline-motif {
   font-size: 0.82rem;
-  color: #cbd5e1 !important;
+  color: #96A5BA !important;
   margin-bottom: 2px;
   line-height: 1.35;
+  text-indent: 0 !important;
+  padding-left: 0 !important;
+  margin-left: 0 !important;
+}
+
+.timeline-motif strong {
+  color: #96A5BA !important;
 }
 
 .timeline-preview {
   font-size: 0.82rem;
-  color: #cbd5e1 !important;
+  color: #96A5BA !important;
   display: block;
   -webkit-line-clamp: unset;
   max-height: none;
   overflow: visible;
   line-height: 1.35;
   margin: 0;
-  white-space: pre-wrap;
+  padding: 0;
+  text-indent: 0 !important;
+  white-space: normal;
   word-break: break-word;
 }
 
 .timeline-preview strong {
-  color: #ffffff !important;
+  color: #96A5BA !important;
   font-weight: 700;
+}
+
+.timeline-preview span {
+  color: #96A5BA !important;
 }
 
 .badge-external {
@@ -1029,17 +1042,31 @@ body {
   margin-bottom: 2px !important;
 }
 
+.timeline-item-external .timeline-motif {
+  font-size: 0.82rem !important;
+  color: #96A5BA !important;
+  margin-bottom: 2px !important;
+  line-height: 1.35 !important;
+  text-indent: 0 !important;
+}
+
 .timeline-item-external .timeline-preview {
   display: block !important;
   -webkit-line-clamp: unset !important;
   max-height: none !important;
   overflow: visible !important;
-  white-space: pre-wrap !important;
+  white-space: normal !important;
   word-break: break-word !important;
   line-height: 1.35 !important;
   font-size: 0.82rem !important;
-  color: #cbd5e1 !important;
+  color: #96A5BA !important;
   margin: 0 !important;
+  padding: 0 !important;
+  text-indent: 0 !important;
+}
+
+.timeline-item-external .timeline-preview strong {
+  color: #96A5BA !important;
 }
 
 .timeline-item-external .timeline-actions-ext {
