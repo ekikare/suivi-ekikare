@@ -7405,6 +7405,8 @@ async function exportAnimalDossierPDF(animal, options) {
     `;
   }
 
+  let printContainer = null;
+
   try {
     if (typeof html2pdf === 'undefined') {
       throw new Error("Bibliothèque html2pdf non disponible");
@@ -7457,70 +7459,80 @@ async function exportAnimalDossierPDF(animal, options) {
 
     const idNumber = animal.sire || animal.numero_sire || animal.puce || animal.transpondeur || animal.identification || 'Non renseigné';
 
-    // Créer le conteneur DOM pour la capture A4
-    const printContainer = document.createElement('div');
+    // 1. Créer le conteneur DOM visible pour la capture
+    printContainer = document.createElement('div');
     printContainer.id = 'dossier-pdf-render-target';
     printContainer.className = 'print-container official-a4-sheet cr-document';
-    printContainer.style.cssText = "position: absolute; left: 0; top: 0; width: 800px; z-index: -100; background: #ffffff; color: #1e293b; padding: 30px 40px; box-sizing: border-box; font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;";
+    printContainer.style.cssText = "position: fixed; top: 0; left: 0; width: 800px; z-index: -9999; background: #ffffff; color: #1e293b; padding: 30px 40px; box-sizing: border-box; font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;";
 
     const logoSrc = getEkikareLogoDataUrl();
 
     let html = `
-      <!-- EN-TETE OFFICIEL -->
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 2px solid #e2e8f0; page-break-inside: avoid; break-inside: avoid;">
-        <div>
-          <h1 style="font-size: 1.4rem; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">
-            <span style="color: #D96B27;">eKiKare</span> • Fiche de Liaison & Dossier de Santé
-          </h1>
-          <p style="font-size: 0.85rem; color: #64748b; margin: 0;">Dossier de suivi bien-être et de liaison interprofessionnelle</p>
-          <div style="display: inline-flex; align-items: center; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #D96B27; padding: 8px 14px; border-radius: 6px; margin-top: 12px; font-size: 0.95rem; font-weight: 600; color: #0f172a;">
-            <span>🐾 <strong>${animal.nom}</strong> (${animal.espece}${animal.race ? ' - ' + animal.race : ''})</span>
-            <span style="color: #94a3b8; font-weight: normal;">• Édité le ${new Date().toLocaleDateString('fr-FR')}</span>
-          </div>
-        </div>
-        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
-          <img src="${logoSrc}" alt="eKiKare" style="max-height: 48px; width: auto; object-fit: contain;">
-          <span style="font-size: 0.76rem; color: #64748b; font-weight: 500; letter-spacing: 0.3px;">Techniques manuelles et énergétiques</span>
-        </div>
-      </div>
+      <!-- EN-TETE OFFICIEL (TABLEAU COMPATIBLE HTML2CANVAS) -->
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 16px; page-break-inside: avoid; break-inside: avoid;">
+        <tr>
+          <td style="vertical-align: top; padding: 0 0 16px 0;">
+            <h1 style="font-size: 1.4rem; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">
+              <span style="color: #D96B27;">eKiKare</span> • Fiche de Liaison & Dossier de Santé
+            </h1>
+            <p style="font-size: 0.85rem; color: #64748b; margin: 0 0 8px 0;">Dossier de suivi bien-être et de liaison interprofessionnelle</p>
+            <div style="display: inline-block; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #D96B27; padding: 8px 14px; border-radius: 6px; font-size: 0.95rem; font-weight: 600; color: #0f172a;">
+              <span>🐾 <strong>${animal.nom}</strong> (${animal.espece}${animal.race ? ' - ' + animal.race : ''})</span>
+              <span style="color: #94a3b8; font-weight: normal; margin-left: 6px;">• Édité le ${new Date().toLocaleDateString('fr-FR')}</span>
+            </div>
+          </td>
+          <td style="text-align: right; vertical-align: top; width: 230px; padding: 0 0 16px 0;">
+            <img src="${logoSrc}" alt="eKiKare" style="max-height: 48px; width: auto; object-fit: contain; display: block; margin-left: auto; margin-bottom: 4px;">
+            <span style="font-size: 0.76rem; color: #64748b; font-weight: 500; letter-spacing: 0.3px; display: block;">Techniques manuelles et énergétiques</span>
+          </td>
+        </tr>
+      </table>
     `;
 
-    // SECTION 1: FICHE D'IDENTITE
+    // SECTION 1: FICHE D'IDENTITE (TABLEAU 2 COLONNES 100% COMPATIBLE)
     if (options.includeIdentity) {
       html += `
         <div style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
           <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1.5px solid #e2e8f0;">
             <span style="color: #D96B27;">1.</span> Signalement & Fiche d'Identité
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            
-            <!-- Colonne Animal -->
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; color: #1e293b;">
-              <h4 style="font-size: 0.88rem; font-weight: 700; color: #334155; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px;">Signalement & Mode de vie</h4>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Nom :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.nom}</span></div>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Espèce / Race :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.espece} • ${animal.race || 'Non précisée'}</span></div>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Robe / Sexe :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.robe || '-'} • ${animal.sexe || 'Non précisé'}</span></div>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Âge / Naissance :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${birthDisplay}</span></div>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">SIRE / Puce :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${idNumber}</span></div>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Mode de vie :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${combinedHousing}</span></div>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Alimentation :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.nutrition_details || '-'}</span></div>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Travail / Objectif :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.work_objective || animal.lifestyle_details || '-'}</span></div>
-              <div style="display: flex; margin-bottom: 0; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Problématiques :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.main_problems || '-'}</span></div>
-            </div>
-
-            <!-- Colonne Propriétaire & Lieu -->
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; color: #1e293b;">
-              <h4 style="font-size: 0.88rem; font-weight: 700; color: #334155; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px;">Propriétaire & Hébergement</h4>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Propriétaire :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${ownerName}</span></div>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Téléphone :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${client?.telephone || '-'}</span></div>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">E-mail :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${client?.email || '-'}</span></div>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Adresse :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${client?.adresse || '-'}</span></div>
-              <div style="display: flex; margin-bottom: 6px; margin-top: 10px; border-top: 1px dashed #cbd5e1; padding-top: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Pension / Lieu :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${stableName}</span></div>
-              <div style="display: flex; margin-bottom: 6px; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Adresse pension :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${fullAddress}</span></div>
-              <div style="display: flex; margin-bottom: 0; line-height: 1.4;"><span style="width: 140px; flex-shrink: 0; color: #64748b; font-weight: 500;">Suivi nutrition :</span><span style="flex-grow: 1; color: #0f172a; font-weight: 600;">${animal.nutritionist ? 'Oui' : 'Non'}</span></div>
-            </div>
-
-          </div>
+          <table style="width: 100%; border-collapse: separate; border-spacing: 16px 0; margin-left: -8px; margin-right: -8px;">
+            <tr>
+              <!-- Colonne Animal -->
+              <td style="width: 50%; vertical-align: top; padding: 0;">
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; color: #1e293b;">
+                  <h4 style="font-size: 0.88rem; font-weight: 700; color: #334155; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px;">Signalement & Mode de vie</h4>
+                  <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Nom :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.nom}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Espèce / Race :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.espece} • ${animal.race || 'Non précisée'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Robe / Sexe :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.robe || '-'} • ${animal.sexe || 'Non précisé'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Âge / Naissance :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${birthDisplay}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">SIRE / Puce :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${idNumber}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Mode de vie :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${combinedHousing}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Alimentation :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.nutrition_details || '-'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Travail / Objectif :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.work_objective || animal.lifestyle_details || '-'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Problématiques :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.main_problems || '-'}</td></tr>
+                  </table>
+                </div>
+              </td>
+              <!-- Colonne Propriétaire & Lieu -->
+              <td style="width: 50%; vertical-align: top; padding: 0;">
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; color: #1e293b;">
+                  <h4 style="font-size: 0.88rem; font-weight: 700; color: #334155; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px;">Propriétaire & Hébergement</h4>
+                  <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Propriétaire :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${ownerName}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Téléphone :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${client?.telephone || '-'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">E-mail :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${client?.email || '-'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Adresse :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${client?.adresse || '-'}</td></tr>
+                    <tr><td colspan="2" style="border-top: 1px dashed #cbd5e1; padding: 4px 0 2px 0;"></td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Pension / Lieu :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${stableName}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Adresse pension :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${fullAddress}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Suivi nutrition :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.nutritionist ? 'Oui' : 'Non'}</td></tr>
+                  </table>
+                </div>
+              </td>
+            </tr>
+          </table>
         </div>
       `;
     }
@@ -7630,10 +7642,12 @@ async function exportAnimalDossierPDF(animal, options) {
 
           html += `
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; page-break-inside: avoid; break-inside: avoid;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
-                <span style="font-weight: 700; color: #0f172a; font-size: 0.88rem;">${cardTitle}</span>
-                <span style="font-size: 0.8rem; font-weight: 600; color: #D96B27;">${formatDate(s.date_seance)}</span>
-              </div>
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
+                <tr>
+                  <td style="text-align: left; font-weight: 700; color: #0f172a; font-size: 0.88rem; padding: 0 0 4px 0;">${cardTitle}</td>
+                  <td style="text-align: right; font-size: 0.8rem; font-weight: 600; color: #D96B27; white-space: nowrap; padding: 0 0 4px 0;">${formatDate(s.date_seance)}</td>
+                </tr>
+              </table>
               ${s.motif ? `<div style="font-size: 0.82rem; color: #475569; margin-bottom: 4px; line-height: 1.35;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
               <div style="font-size: 0.82rem; color: #334155; line-height: 1.4; margin: 0; word-break: break-word;">
                 <strong style="color: #0f172a;">Résumé :</strong> <span>${cleanSummaryHtml}</span>
@@ -7688,6 +7702,7 @@ async function exportAnimalDossierPDF(animal, options) {
     const todayIso = new Date().toISOString().split('T')[0];
     const filename = `Dossier_Liaison_eKiKare_${cleanAnimalName}_${todayIso}.pdf`;
 
+    // Options exactement calquées sur les comptes-rendus de séances éprouvés
     const opt = {
       margin: [10, 10, 10, 10],
       filename: filename,
@@ -7700,7 +7715,7 @@ async function exportAnimalDossierPDF(animal, options) {
         scrollX: 0,
         scrollY: 0,
         onclone: (clonedDoc) => {
-          const target = clonedDoc.querySelector('#dossier-pdf-render-target') || clonedDoc.querySelector('.dossier-pdf-sheet') || clonedDoc.querySelector('.cr-document');
+          const target = clonedDoc.querySelector('#dossier-pdf-render-target') || clonedDoc.querySelector('.official-a4-sheet');
           if (target) {
             target.style.position = 'static';
             target.style.margin = '0 auto';
@@ -7722,15 +7737,14 @@ async function exportAnimalDossierPDF(animal, options) {
     await html2pdf().set(opt).from(printContainer).save();
     showToast(`Dossier de liaison téléchargé : ${filename}`);
 
-    // Nettoyer l'élément temporaire
-    if (printContainer && printContainer.parentNode) {
-      printContainer.parentNode.removeChild(printContainer);
-    }
-
   } catch (err) {
     console.error("Erreur lors de l'export du dossier animal:", err);
     showToast("Erreur lors de la génération du PDF du dossier.", "error");
   } finally {
+    // Nettoyer l'élément temporaire UNIQUEMENT après la fin du save
+    if (printContainer && printContainer.parentNode) {
+      printContainer.parentNode.removeChild(printContainer);
+    }
     if (confirmBtn) {
       confirmBtn.disabled = originalDisabled;
       confirmBtn.innerHTML = originalHtml;
