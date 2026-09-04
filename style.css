@@ -945,17 +945,18 @@ body {
 .timeline-header {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 8px;
+  align-items: center;
+  margin-bottom: 2px;
 }
 
 .timeline-date {
-  font-size: 0.8rem;
-  color: var(--color-primary);
+  font-size: 0.75rem;
+  color: #94a3b8;
   font-weight: 600;
 }
 
 .timeline-n-session {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   background: rgba(255,255,255,0.06);
   padding: 1px 6px;
   border-radius: 4px;
@@ -963,22 +964,39 @@ body {
 }
 
 .timeline-objective {
-  font-weight: 600;
-  font-size: 0.9rem;
-  margin-bottom: 6px;
+  font-weight: 700;
+  font-size: 0.86rem;
+  color: #ffffff !important;
+  margin-bottom: 2px;
+}
+
+.timeline-motif {
+  font-size: 0.82rem;
+  color: #cbd5e1 !important;
+  margin-bottom: 2px;
+  line-height: 1.35;
 }
 
 .timeline-preview {
-  font-size: 0.8rem;
-  color: var(--text-sub);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  font-size: 0.82rem;
+  color: #cbd5e1 !important;
+  display: block;
+  -webkit-line-clamp: unset;
+  max-height: none;
+  overflow: visible;
+  line-height: 1.35;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.timeline-preview strong {
+  color: #ffffff !important;
+  font-weight: 700;
 }
 
 .badge-external {
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   background: rgba(59, 130, 246, 0.15); /* Light blue */
   color: #60a5fa;
   padding: 2px 8px;
@@ -1007,18 +1025,20 @@ body {
 
 .timeline-item-external .timeline-objective {
   font-size: 0.86rem !important;
+  color: #ffffff !important;
   margin-bottom: 2px !important;
 }
 
 .timeline-item-external .timeline-preview {
-  display: block;
-  -webkit-line-clamp: unset;
-  max-height: none;
-  overflow: visible;
+  display: block !important;
+  -webkit-line-clamp: unset !important;
+  max-height: none !important;
+  overflow: visible !important;
   white-space: pre-wrap !important;
   word-break: break-word !important;
   line-height: 1.35 !important;
   font-size: 0.82rem !important;
+  color: #cbd5e1 !important;
   margin: 0 !important;
 }
 
@@ -1028,12 +1048,6 @@ body {
   align-items: center !important;
   flex-wrap: wrap !important;
   margin-top: 6px !important;
-}
-
-.timeline-item-external .timeline-actions-ext {
-  margin-top: 6px !important;
-  display: flex;
-  gap: 8px;
 }
 
 /* PROFESSIONALS LIST IN ANIMAL DETAIL */

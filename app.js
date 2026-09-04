@@ -1602,18 +1602,18 @@ async function renderAnimalDetails(animalId) {
         item.className = 'timeline-item timeline-item-external';
         item.style.cursor = s.fileData ? 'pointer' : 'default';
         
-        const cleanSummary = (s.summary || '-').trim();
+        const cleanSummary = formatTimelineSummary(s.summary || '-');
         const crBtnHtml = s.fileData ? `<button type="button" class="btn btn-secondary btn-small btn-view-cr" style="display:inline-flex; align-items:center; gap:4px; padding: 2px 8px; font-size: 0.78rem;">📄 Voir le CR</button>` : '';
         
         item.innerHTML = `
           <div class="timeline-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
-            <div style="font-size:0.86rem; font-weight:700; color:var(--text-main);">
-              ${s.profession || 'Intervention'}${s.practitionerName ? ` - <em style="font-weight:normal; font-style:italic; color:var(--text-sub);">${s.practitionerName}</em>` : ''}
+            <div class="timeline-objective" style="font-size:0.86rem; font-weight:700; color:#ffffff; margin:0;">
+              ${s.profession || 'Intervention'}${s.practitionerName ? ` - <em style="font-weight:normal; font-style:italic; color:#cbd5e1;">${s.practitionerName}</em>` : ''}
             </div>
             <span class="badge-external" style="font-size:0.72rem; padding: 2px 8px; margin:0;">${formatDate(s.date_seance)}</span>
           </div>
-          ${s.motif ? `<div style="font-size:0.82rem; margin-bottom:2px; line-height:1.35; color:var(--text-main);"><strong>Motif :</strong> ${s.motif}</div>` : ''}
-          <div style="font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:var(--text-main);">
+          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; margin-bottom:2px; line-height:1.35; color:#cbd5e1;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#cbd5e1;">
             <strong>Résumé / Prescriptions :</strong> <span style="white-space:pre-wrap;">${cleanSummary}</span>
           </div>
           <div class="timeline-actions-ext" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px;">
@@ -1659,7 +1659,8 @@ async function renderAnimalDetails(animalId) {
         item.className = 'timeline-item';
         item.style.cursor = 'pointer';
         
-        const sumText = s.resume_client_genere || 'Aucun résumé client généré.';
+        const rawSum = s.resume_client_genere || 'Aucun résumé client rédigé.';
+        const cleanSummary = formatTimelineSummary(rawSum);
         
         // Détection de tous les protocoles cochés/utilisés lors de la séance
         const protos = s.protocoles_realises || {};
@@ -1673,21 +1674,20 @@ async function renderAnimalDetails(animalId) {
 
         const cardTitle = activeProtocols.length > 0 ? activeProtocols.join(' + ') : (s.motif || `Séance du ${formatDate(s.date_seance)}`);
         
-        let motifHtml = '';
-        if (activeProtocols.length > 0 && s.motif) {
-          motifHtml = `<div class="timeline-motif" style="font-size: 0.85rem; color: var(--text-sub); margin-bottom: 6px;">${s.motif}</div>`;
-        }
-        
         item.innerHTML = `
-          <div class="timeline-header">
-            <span class="timeline-date">${formatDate(s.date_seance)}</span>
-            <span class="timeline-n-session">Séance ${s.n_seance_annee || 1}</span>
+          <div class="timeline-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+            <div class="timeline-objective" style="font-size:0.86rem; font-weight:700; color:#ffffff; margin:0;">${cardTitle}</div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="timeline-date" style="font-size:0.75rem; color:#94a3b8;">${formatDate(s.date_seance)}</span>
+              <span class="timeline-n-session" style="font-size:0.72rem; padding:1px 6px;">Séance ${s.n_seance_annee || 1}</span>
+            </div>
           </div>
-          <div class="timeline-objective">${cardTitle}</div>
-          ${motifHtml}
-          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible;">${sumText}</div>
-          <div style="margin-top:10px;">
-            <button class="btn btn-secondary btn-small btn-print-direct" style="display:inline-flex; align-items:center; gap:5px;">📄 Voir le CR</button>
+          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; color:#cbd5e1; margin-bottom:2px; line-height:1.35;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#cbd5e1;">
+            <strong>Résumé :</strong> <span style="white-space:pre-wrap;">${cleanSummary}</span>
+          </div>
+          <div style="margin-top:6px; display:flex; gap:6px; align-items:center;">
+            <button class="btn btn-secondary btn-small btn-print-direct" style="display:inline-flex; align-items:center; gap:4px; padding:2px 8px; font-size:0.78rem;">📄 Voir le CR</button>
           </div>
         `;
 
@@ -2809,9 +2809,24 @@ function openFollowupQDialog(session) {
 function interpretMarkdownToHtml(text) {
   if (!text) return '';
   return text
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/\n/g, '<br>');
+    .replace(/(?:\r?\n)+\s*Précisions\s*:[\s\S]*$/i, '') // Supprimer bloc Précisions dupliqué
+    .replace(/\s*-{3,}\s*/g, '<br><br>') // Supprimer tous les séparateurs ---
+    .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>') // Convertir **texte** en <strong>texte</strong>
+    .replace(/\*([^*]+?)\*/g, '<em>$1</em>') // Convertir *texte* en <em>texte</em>
+    .replace(/\r?\n/g, '<br>')
+    .replace(/(?:<br\s*\/?>\s*){3,}/g, '<br><br>') // Normaliser les sauts de lignes multiples
+    .trim();
+}
+
+function formatTimelineSummary(text) {
+  if (!text) return 'Aucun résumé client rédigé.';
+  return text
+    .replace(/(?:\r?\n)+\s*Précisions\s*:[\s\S]*$/i, '') // Supprimer bloc Précisions dupliqué
+    .replace(/\s*-{3,}\s*/g, '\n\n') // Supprimer tous les séparateurs ---
+    .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>') // Convertir **texte** en <strong>texte</strong>
+    .replace(/\*([^*]+?)\*/g, '<em>$1</em>') // Convertir *texte* en <em>texte</em>
+    .replace(/(?:\r?\n){3,}/g, '\n\n') // Normaliser les sauts de lignes multiples
+    .trim();
 }
 
 async function renderSessionDetails(sessionId) {
@@ -4323,16 +4338,12 @@ function getCalculatedSummaryText() {
     parts.push(text);
   }
 
-  let generatedSummaryText = parts.join('\n\n---\n\n');
+  let generatedSummaryText = parts.join('\n\n');
   return generatedSummaryText;
 }
 
 function generateClientSummaryReport() {
   let generatedSummaryText = getCalculatedSummaryText();
-  const globalPrec = document.getElementById('session-form-precisions').value.trim();
-  if (globalPrec) {
-    generatedSummaryText += `\n\nPrécisions :\n${globalPrec}`;
-  }
   document.getElementById('session-form-resume').value = generatedSummaryText;
   showToast('Résumé de séance client généré avec succès.');
 }
@@ -4391,10 +4402,6 @@ async function saveSessionForm() {
   let resume = document.getElementById('session-form-resume').value.trim();
   if (!resume) {
     resume = getCalculatedSummaryText();
-    const globalPrec = document.getElementById('session-form-precisions').value.trim();
-    if (globalPrec) {
-      resume += `\n\nPrécisions :\n${globalPrec}`;
-    }
   }
 
   const animal = await getById('animals', animalId);
@@ -6935,7 +6942,7 @@ async function checkAndInjectMockData() {
       canvas_drawing_data_url: '',
       cr_personnel: 'Cheval calme et attentif. Tensions résolues rapidement.',
       delai_prochaine_seance: '2m',
-      resume_client_genere: '**Protocole Shiatsu**\nMéridiens et Merveilleux Vaisseaux travaillés : Reins (Yin), Vessie (Yang), Vaisseau Gouverneur\nPrécisions : Méridien Reins et Vessie stimulés pour libérer l\'énergie Eau bloquée.'
+      resume_client_genere: '**Protocole Shiatsu**\nMéridiens et Merveilleux Vaisseaux travaillés : Reins (Yin), Vessie (Yang), Vaisseau Gouverneur'
     });
 
     // 5. Rappels
