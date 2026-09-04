@@ -3045,3 +3045,259 @@ body.is-client-portal #dialog-client #client-form-firstname {
   40%, 80% { transform: translateX(8px); }
 }
 
+/* ==========================================================================
+   EXPORT DOSSIER ANIMAL & FICHE DE LIAISON STYLES
+   ========================================================================== */
+.export-option-card {
+  transition: all 0.2s ease;
+}
+.export-option-card:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(217, 107, 39, 0.3) !important;
+}
+
+/* Container de rendu A4 invisible à l'écran mais rendu fidèlement par html2pdf/html2canvas */
+.dossier-pdf-sheet {
+  width: 794px;
+  max-width: 794px;
+  background-color: #ffffff;
+  color: #1e293b;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  padding: 36px 40px;
+  box-sizing: border-box;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+.dossier-pdf-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #e2e8f0;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.dossier-pdf-logo-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.dossier-pdf-logo-img {
+  max-height: 48px;
+  width: auto;
+  object-fit: contain;
+}
+
+.dossier-pdf-branding-tag {
+  font-size: 0.76rem;
+  color: #64748b;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+.dossier-pdf-title-block h1 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dossier-pdf-title-block p {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.dossier-pdf-animal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #D96B27;
+  padding: 8px 14px;
+  border-radius: 6px;
+  margin-top: 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.dossier-pdf-section {
+  margin-bottom: 24px;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.dossier-pdf-section-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 10px;
+  padding-bottom: 5px;
+  border-bottom: 1.5px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dossier-pdf-section-title span.section-tag {
+  color: #D96B27;
+}
+
+.dossier-pdf-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.dossier-pdf-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-size: 0.85rem;
+}
+
+.dossier-pdf-card h4 {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #334155;
+  margin: 0 0 10px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px dashed #cbd5e1;
+  padding-bottom: 4px;
+}
+
+.dossier-pdf-row {
+  display: flex;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.dossier-pdf-row:last-child {
+  margin-bottom: 0;
+}
+
+.dossier-pdf-label {
+  width: 140px;
+  flex-shrink: 0;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.dossier-pdf-value {
+  flex-grow: 1;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.dossier-pdf-session-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.dossier-pdf-session-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 5px;
+}
+
+.dossier-pdf-session-title {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+
+.dossier-pdf-session-date {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #D96B27;
+}
+
+.dossier-pdf-session-motif {
+  font-size: 0.84rem;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.dossier-pdf-session-resume {
+  font-size: 0.84rem;
+  color: #334155;
+  line-height: 1.45;
+  background: #ffffff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.dossier-pdf-med-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin-top: 6px;
+}
+
+.dossier-pdf-med-table th {
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.dossier-pdf-med-table td {
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  color: #1e293b;
+}
+
+.dossier-pdf-med-date {
+  font-weight: 700;
+  color: #D96B27;
+  white-space: nowrap;
+  width: 130px;
+}
+
+.dossier-pdf-footer {
+  margin-top: 30px;
+  border-top: 1px solid #cbd5e1;
+  padding-top: 14px;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.dossier-pdf-disclaimer {
+  font-size: 0.76rem;
+  font-style: italic;
+  line-height: 1.4;
+  color: #64748b;
+  text-align: justify;
+  margin: 0 0 10px 0;
+}
+
+.dossier-pdf-meta {
+  font-size: 0.74rem;
+  color: #94a3b8;
+  text-align: center;
+}
+
+

@@ -421,6 +421,16 @@
           </div>
           <div class="button-group">
             <button class="btn btn-secondary" id="btn-copy-animal-portal-link">🔗 Lien Espace Client</button>
+            <button class="btn btn-secondary" id="btn-export-animal-dossier" style="display: inline-flex; align-items: center; gap: 6px;">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+              </svg>
+              Exporter le dossier
+            </button>
             <button class="btn btn-secondary" id="btn-edit-animal-detail">Modifier</button>
             <button class="btn btn-secondary" id="btn-add-external-session-for-animal">+ Ajouter une séance</button>
             <button class="btn btn-primary" id="btn-new-session-for-animal">Nouvelle séance</button>
@@ -2205,6 +2215,94 @@
         <p style="font-size: 0.8rem; font-style: italic; line-height: 1.4; color: #475569; text-align: justify; margin: 0 0 10px 0;">« Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatif et dans le cadre d’un partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif. »</p>
         <p style="margin-top: 10px; font-size: 0.75rem; color: #64748b; text-align: center;">Généré via l'application Suivi eKiKare le <span id="portal-cr-generation-date">-</span></p>
       </div>
+    </div>
+  </dialog>
+
+  <!-- MODAL EXPORT DOSSIER DE LIAISON / SANTE ANIMAL -->
+  <dialog class="app-dialog glass-card" id="dialog-export-animal-dossier" style="max-width: 540px; width: 92%;">
+    <div class="dialog-header">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(217, 107, 39, 0.15); border: 1px solid rgba(217, 107, 39, 0.3); display: flex; align-items: center; justify-content: center; color: #D96B27; flex-shrink: 0;">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+        </div>
+        <div>
+          <h2 style="margin: 0; font-size: 1.2rem; color: #fff;">Exporter le dossier</h2>
+          <p id="export-dossier-animal-subtitle" style="margin: 2px 0 0; font-size: 0.84rem; color: var(--text-sub);">Fiche de liaison & dossier de santé</p>
+        </div>
+      </div>
+      <button class="btn-close-dialog">&times;</button>
+    </div>
+
+    <div class="export-options-body" style="padding: 16px 0;">
+      <p style="font-size: 0.88rem; color: #cbd5e1; margin-bottom: 14px; line-height: 1.45;">
+        Personnalisez les données à inclure dans le document PDF généré (format A4 soigné) :
+      </p>
+
+      <div class="export-checkbox-group" style="display: flex; flex-direction: column; gap: 12px;">
+        
+        <!-- Option 1: Fiche d'identité -->
+        <label class="export-option-card" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-md); cursor: pointer; transition: all 0.2s;">
+          <input type="checkbox" id="export-opt-identity" checked style="width: 18px; height: 18px; margin-top: 2px; accent-color: #D96B27; cursor: pointer;">
+          <div>
+            <div style="font-weight: 600; color: #fff; font-size: 0.92rem;">Fiche d'identité</div>
+            <div style="font-size: 0.82rem; color: var(--text-sub); margin-top: 2px;">Signalement, race, robe, date de naissance/âge, puce/SIRE, écurie, propriétaire</div>
+          </div>
+        </label>
+
+        <!-- Option 2: Historique médical & antécédents -->
+        <label class="export-option-card" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-md); cursor: pointer; transition: all 0.2s;">
+          <input type="checkbox" id="export-opt-medical" checked style="width: 18px; height: 18px; margin-top: 2px; accent-color: #D96B27; cursor: pointer;">
+          <div>
+            <div style="font-weight: 600; color: #fff; font-size: 0.92rem;">Historique médical & antécédents complets</div>
+            <div style="font-size: 0.82rem; color: var(--text-sub); margin-top: 2px;">Chronologie des événements médicaux, pathologies et antécédents</div>
+          </div>
+        </label>
+
+        <!-- Option 3: Historique des séances de bien-être / soins -->
+        <div class="export-option-card" style="padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-md);">
+          <label style="display: flex; align-items: flex-start; gap: 12px; cursor: pointer;">
+            <input type="checkbox" id="export-opt-sessions" checked style="width: 18px; height: 18px; margin-top: 2px; accent-color: #D96B27; cursor: pointer;">
+            <div>
+              <div style="font-weight: 600; color: #fff; font-size: 0.92rem;">Historique des séances de bien-être / soins</div>
+              <div style="font-size: 0.82rem; color: var(--text-sub); margin-top: 2px;">Synthèse chronologique des séances, praticiens, motifs et résumés</div>
+            </div>
+          </label>
+
+          <!-- Sélecteur de période -->
+          <div id="export-sessions-period-container" style="margin-left: 30px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 6px;">
+            <span style="font-size: 0.78rem; font-weight: 600; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.5px;">Période des séances :</span>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+              <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.86rem; color: #f1f5f9; cursor: pointer;">
+                <input type="radio" name="export-sessions-period" id="export-period-12m" value="12months" checked style="accent-color: #D96B27; cursor: pointer;">
+                <span>12 derniers mois <small style="color: var(--text-sub);">(Recommandé)</small></span>
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.86rem; color: #f1f5f9; cursor: pointer;">
+                <input type="radio" name="export-sessions-period" id="export-period-all" value="all" style="accent-color: #D96B27; cursor: pointer;">
+                <span>Toutes les séances</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="dialog-actions" style="margin-top: 18px; display: flex; justify-content: flex-end; gap: 10px;">
+      <button type="button" class="btn btn-secondary btn-cancel-dialog">Annuler</button>
+      <button type="button" class="btn btn-primary" id="btn-confirm-export-dossier" style="background: linear-gradient(135deg, #D96B27, #f59e0b); border: none; display: inline-flex; align-items: center; gap: 8px;">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        <span>Télécharger le PDF</span>
+      </button>
     </div>
   </dialog>
 

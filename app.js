@@ -1817,6 +1817,13 @@ async function renderAnimalDetails(animalId) {
       openMedicalEventDialog(animal);
     };
   }
+
+  const exportDossierBtn = document.getElementById('btn-export-animal-dossier');
+  if (exportDossierBtn) {
+    exportDossierBtn.onclick = () => {
+      openExportAnimalDossierModal(animal);
+    };
+  }
 }
 
 // Helpers for Leaflet geocoding with official French API Adresse and Nominatim fallbacks
@@ -7263,6 +7270,473 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
   };
 
   dialog.showModal();
+}
+
+// --- MODALE ET EXPORT PDF : FICHE DE LIAISON / DOSSIER DE SANTE ANIMAL ---
+async function openExportAnimalDossierModal(animalOrId) {
+  let animal = null;
+  if (typeof animalOrId === 'object' && animalOrId !== null) {
+    animal = animalOrId;
+  } else {
+    animal = await getById('animals', Number(animalOrId));
+  }
+
+  if (!animal) {
+    showToast("Animal introuvable pour l'export.", "error");
+    return;
+  }
+
+  const dialog = document.getElementById('dialog-export-animal-dossier');
+  if (!dialog) return;
+
+  const subtitleEl = document.getElementById('export-dossier-animal-subtitle');
+  if (subtitleEl) {
+    subtitleEl.textContent = `Dossier de suivi de ${animal.nom} (${animal.espece})`;
+  }
+
+  // Reset checkboxes to default (all checked)
+  const optIdentity = document.getElementById('export-opt-identity');
+  const optMedical = document.getElementById('export-opt-medical');
+  const optSessions = document.getElementById('export-opt-sessions');
+  const periodContainer = document.getElementById('export-sessions-period-container');
+  const period12mRadio = document.getElementById('export-period-12m');
+
+  if (optIdentity) optIdentity.checked = true;
+  if (optMedical) optMedical.checked = true;
+  if (optSessions) optSessions.checked = true;
+  if (period12mRadio) period12mRadio.checked = true;
+  if (periodContainer) periodContainer.style.display = 'flex';
+
+  // Dynamic toggle of period container when sessions checkbox changes
+  if (optSessions && periodContainer) {
+    optSessions.onchange = () => {
+      periodContainer.style.display = optSessions.checked ? 'flex' : 'none';
+    };
+  }
+
+  // Confirm download button
+  const confirmBtn = document.getElementById('btn-confirm-export-dossier');
+  if (confirmBtn) {
+    confirmBtn.onclick = async () => {
+      const includeIdentity = optIdentity ? optIdentity.checked : true;
+      const includeMedical = optMedical ? optMedical.checked : true;
+      const includeSessions = optSessions ? optSessions.checked : true;
+      
+      const selectedPeriodEl = document.querySelector('input[name="export-sessions-period"]:checked');
+      const sessionPeriod = selectedPeriodEl ? selectedPeriodEl.value : '12months';
+
+      if (!includeIdentity && !includeMedical && !includeSessions) {
+        showToast("Veuillez sélectionner au moins une section à exporter.", "warning");
+        return;
+      }
+
+      await exportAnimalDossierPDF(animal, {
+        includeIdentity,
+        includeMedical,
+        includeSessions,
+        sessionPeriod
+      });
+
+      dialog.close();
+    };
+  }
+
+  // Cancel & close buttons
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  // Backdrop click to close
+  dialog.onclick = (e) => {
+    const rect = dialog.getBoundingClientRect();
+    if (
+      e.clientX < rect.left ||
+      e.clientX > rect.right ||
+      e.clientY < rect.top ||
+      e.clientY > rect.bottom
+    ) {
+      dialog.close();
+    }
+  };
+
+  dialog.showModal();
+}
+
+async function exportAnimalDossierPDF(animal, options) {
+  const confirmBtn = document.getElementById('btn-confirm-export-dossier');
+  const originalHtml = confirmBtn ? confirmBtn.innerHTML : '';
+  const originalDisabled = confirmBtn ? confirmBtn.disabled : false;
+
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = `
+      <div class="sync-icon-spin" style="width: 14px; height: 14px; border-width: 2px; display: inline-block;"></div>
+      <span>Génération du dossier PDF...</span>
+    `;
+  }
+
+  try {
+    if (typeof html2pdf === 'undefined') {
+      throw new Error("Bibliothèque html2pdf non disponible");
+    }
+
+    // Récupérer le client
+    const client = await getById('clients', animal.client_id);
+    const ownerName = client ? `${client.prenom} ${client.nom.toUpperCase()}` : 'Propriétaire inconnu';
+
+    // Récupérer et filtrer les séances
+    let filteredSessions = [];
+    let periodLabel = '';
+    if (options.includeSessions) {
+      const allSessions = await getAll('sessions');
+      const animalSessions = allSessions.filter(s => Number(s.animal_id) === Number(animal.id));
+      animalSessions.sort((a, b) => new Date(b.date_seance) - new Date(a.date_seance));
+
+      if (options.sessionPeriod === '12months') {
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+        filteredSessions = animalSessions.filter(s => new Date(s.date_seance) >= oneYearAgo);
+        periodLabel = "12 derniers mois";
+      } else {
+        filteredSessions = animalSessions;
+        periodLabel = "Toutes les séances";
+      }
+    }
+
+    // Construire les informations d'identité
+    const birthdateStr = animal.date_naissance_ou_age || '';
+    const ageDisplay = calculateAge(birthdateStr, birthdateStr);
+    const birthDisplay = birthdateStr ? `${formatDate(birthdateStr)} (${ageDisplay})` : ageDisplay;
+
+    const stableName = animal.stable_name || animal.lieu_de_vie || 'Non précisé';
+    let fullAddress = '-';
+    const stableAddress = animal.stable_address || '';
+    const stableZip = animal.stable_zip || '';
+    const stableCity = animal.stable_city || '';
+    const fullAddressParts = [];
+    if (stableAddress) fullAddressParts.push(stableAddress);
+    if (stableZip || stableCity) fullAddressParts.push(`${stableZip} ${stableCity}`.trim());
+    if (fullAddressParts.length > 0) fullAddress = fullAddressParts.join(', ');
+
+    let hType = animal.housing_type || animal.housing_mode || '-';
+    if (hType === 'Autre') hType = animal.housing_type_other || animal.housing_mode_other || 'Autre hébergement';
+    let sType = animal.social_type || '';
+    if (sType === 'Autre') sType = 'Autre vie sociale';
+    let combinedHousing = hType;
+    if (sType) combinedHousing += ` • ${sType}`;
+
+    const idNumber = animal.sire || animal.numero_sire || animal.puce || animal.transpondeur || animal.identification || 'Non renseigné';
+
+    // Créer le conteneur DOM pour la capture A4
+    const printContainer = document.createElement('div');
+    printContainer.id = 'dossier-pdf-render-target';
+    printContainer.className = 'dossier-pdf-sheet';
+    printContainer.style.position = 'fixed';
+    printContainer.style.left = '-9999px';
+    printContainer.style.top = '0';
+    printContainer.style.zIndex = '-1000';
+
+    let html = `
+      <!-- EN-TETE OFFICIEL -->
+      <div class="dossier-pdf-header">
+        <div class="dossier-pdf-title-block">
+          <h1>
+            <span style="color:#D96B27;">eKiKare</span> • Fiche de Liaison & Dossier de Santé
+          </h1>
+          <p>Dossier de suivi bien-être et de liaison interprofessionnelle</p>
+          <div class="dossier-pdf-animal-badge">
+            <span>🐾 <strong>${animal.nom}</strong> (${animal.espece}${animal.race ? ' - ' + animal.race : ''})</span>
+            <span style="color:#94a3b8; font-weight:normal;">• Édité le ${new Date().toLocaleDateString('fr-FR')}</span>
+          </div>
+        </div>
+        <div class="dossier-pdf-logo-box">
+          <img src="assets/logo-ekikare.png" alt="eKiKare Logo" class="dossier-pdf-logo-img">
+          <span class="dossier-pdf-branding-tag">Techniques manuelles et énergétiques</span>
+        </div>
+      </div>
+    `;
+
+    // SECTION 1: FICHE D'IDENTITE
+    if (options.includeIdentity) {
+      html += `
+        <div class="dossier-pdf-section">
+          <div class="dossier-pdf-section-title">
+            <span class="section-tag">1.</span> Signalement & Fiche d'Identité
+          </div>
+          <div class="dossier-pdf-grid-2">
+            
+            <!-- Colonne Animal -->
+            <div class="dossier-pdf-card">
+              <h4>Signalement & Mode de vie</h4>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Nom :</span>
+                <span class="dossier-pdf-value">${animal.nom}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Espèce / Race :</span>
+                <span class="dossier-pdf-value">${animal.espece} • ${animal.race || 'Non précisée'}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Robe / Sexe :</span>
+                <span class="dossier-pdf-value">${animal.robe || '-'} • ${animal.sexe || 'Non précisé'}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Âge / Naissance :</span>
+                <span class="dossier-pdf-value">${birthDisplay}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">SIRE / Puce :</span>
+                <span class="dossier-pdf-value">${idNumber}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Mode de vie :</span>
+                <span class="dossier-pdf-value">${combinedHousing}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Alimentation :</span>
+                <span class="dossier-pdf-value">${animal.nutrition_details || '-'}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Travail / Objectif :</span>
+                <span class="dossier-pdf-value">${animal.work_objective || animal.lifestyle_details || '-'}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Problématiques :</span>
+                <span class="dossier-pdf-value">${animal.main_problems || '-'}</span>
+              </div>
+            </div>
+
+            <!-- Colonne Propriétaire & Lieu -->
+            <div class="dossier-pdf-card">
+              <h4>Propriétaire & Hébergement</h4>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Propriétaire :</span>
+                <span class="dossier-pdf-value">${ownerName}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Téléphone :</span>
+                <span class="dossier-pdf-value">${client?.telephone || '-'}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">E-mail :</span>
+                <span class="dossier-pdf-value">${client?.email || '-'}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Adresse :</span>
+                <span class="dossier-pdf-value">${client?.adresse || '-'}</span>
+              </div>
+              <div class="dossier-pdf-row" style="margin-top: 10px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">
+                <span class="dossier-pdf-label">Pension / Lieu :</span>
+                <span class="dossier-pdf-value">${stableName}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Adresse pension :</span>
+                <span class="dossier-pdf-value">${fullAddress}</span>
+              </div>
+              <div class="dossier-pdf-row">
+                <span class="dossier-pdf-label">Suivi nutrition :</span>
+                <span class="dossier-pdf-value">${animal.nutritionist ? 'Oui' : 'Non'}</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      `;
+    }
+
+    // SECTION 2: HISTORIQUE MEDICAL & ANTECEDENTS
+    if (options.includeMedical) {
+      const medEvents = animal.medical_events || [];
+      const MONTHS_ORDER = {
+        "Janvier": 1, "Février": 2, "Mars": 3, "Avril": 4, "Mai": 5, "Juin": 6,
+        "Juillet": 7, "Août": 8, "Septembre": 9, "Octobre": 10, "Novembre": 11, "Décembre": 12
+      };
+
+      medEvents.sort((a, b) => {
+        const yearA = parseInt(a.year) || 0;
+        const yearB = parseInt(b.year) || 0;
+        if (yearA !== yearB) return yearB - yearA;
+        const monthA = MONTHS_ORDER[a.month] || 0;
+        const monthB = MONTHS_ORDER[b.month] || 0;
+        return monthB - monthA;
+      });
+
+      html += `
+        <div class="dossier-pdf-section">
+          <div class="dossier-pdf-section-title">
+            <span class="section-tag">2.</span> Historique Médical & Pathologies
+          </div>
+      `;
+
+      if (medEvents.length > 0) {
+        html += `
+          <table class="dossier-pdf-med-table">
+            <thead>
+              <tr>
+                <th style="width: 140px;">Période</th>
+                <th>Événement / Pathologie / Antécédent</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+        medEvents.forEach(ev => {
+          html += `
+            <tr>
+              <td class="dossier-pdf-med-date">${ev.year}${ev.month ? ' - ' + ev.month : ''}</td>
+              <td>${ev.event}</td>
+            </tr>
+          `;
+        });
+        html += `
+            </tbody>
+          </table>
+        `;
+      } else if (animal.antecedents) {
+        html += `
+          <div class="dossier-pdf-card">
+            <p style="margin: 0; white-space: pre-line; color: #1e293b;">${animal.antecedents}</p>
+          </div>
+        `;
+      } else {
+        html += `
+          <div class="dossier-pdf-card" style="text-align: center; color: #64748b; font-style: italic;">
+            Aucun antécédent médical ou pathologie particulier consigné.
+          </div>
+        `;
+      }
+
+      html += `</div>`;
+    }
+
+    // SECTION 3: HISTORIQUE DES SEANCES DE SOINS / BIEN-ETRE
+    if (options.includeSessions) {
+      html += `
+        <div class="dossier-pdf-section">
+          <div class="dossier-pdf-section-title">
+            <span class="section-tag">3.</span> Historique & Synthèse des Séances (${periodLabel})
+          </div>
+      `;
+
+      if (filteredSessions.length === 0) {
+        html += `
+          <div class="dossier-pdf-card" style="text-align: center; color: #64748b; font-style: italic;">
+            Aucune séance enregistrée sur la période sélectionnée (${periodLabel}).
+          </div>
+        `;
+      } else {
+        filteredSessions.forEach(s => {
+          let cardTitle = '';
+          let rawSummary = '';
+
+          if (s.isExternal) {
+            cardTitle = `${s.profession || 'Intervention externe'}${s.practitionerName ? ' — ' + s.practitionerName : ''}`;
+            rawSummary = s.summary || '-';
+          } else {
+            const protos = s.protocoles_realises || {};
+            const activeProtocols = [];
+            if (protos.shiatsu && protos.shiatsu.checked) activeProtocols.push('Shiatsu');
+            if (protos.manuelles && protos.manuelles.checked) activeProtocols.push('Techniques manuelles');
+            if (protos.tensegrite && protos.tensegrite.checked) activeProtocols.push('Tenségrité');
+            if (protos.cranio && protos.cranio.checked) activeProtocols.push('Cranio-Sacrée');
+            if (protos.kinesiologie && protos.kinesiologie.checked) activeProtocols.push('Kinésiologie');
+            if (protos.aura && protos.aura.checked) activeProtocols.push('Aura');
+
+            cardTitle = activeProtocols.length > 0 ? activeProtocols.join(' + ') : 'Séance eKiKare';
+            rawSummary = s.resume_client_genere || 'Aucun résumé client rédigé.';
+          }
+
+          const cleanSummaryHtml = interpretMarkdownToHtml(rawSummary);
+
+          html += `
+            <div class="dossier-pdf-session-item">
+              <div class="dossier-pdf-session-header">
+                <span class="dossier-pdf-session-title">${cardTitle}</span>
+                <span class="dossier-pdf-session-date">Séance du ${formatDate(s.date_seance)}</span>
+              </div>
+              ${s.motif ? `<div class="dossier-pdf-session-motif"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+              <div class="dossier-pdf-session-resume">
+                <strong style="color: #0f172a; display: inline-block; margin-bottom: 3px;">Résumé :</strong><br>
+                ${cleanSummaryHtml}
+              </div>
+              ${s.precisions && s.precisions.trim() ? `
+                <div style="font-size: 0.8rem; font-style: italic; color: #475569; margin-top: 6px; padding-left: 6px; border-left: 2px solid #cbd5e1;">
+                  <strong>Précisions :</strong> ${interpretMarkdownToHtml(s.precisions)}
+                </div>
+              ` : ''}
+            </div>
+          `;
+        });
+      }
+
+      html += `</div>`;
+    }
+
+    // PIED DE PAGE ET DECHARGE LEGALE
+    html += `
+      <div class="dossier-pdf-footer">
+        <p class="dossier-pdf-disclaimer">
+          « Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatif et dans le cadre d’un partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif. »
+        </p>
+        <p class="dossier-pdf-meta">
+          Fiche de liaison générée via l'application Suivi eKiKare le ${new Date().toLocaleDateString('fr-FR')} • Page générée automatiquement
+        </p>
+      </div>
+    `;
+
+    printContainer.innerHTML = html;
+    document.body.appendChild(printContainer);
+
+    const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
+    const todayIso = new Date().toISOString().split('T')[0];
+    const filename = `Dossier_Liaison_eKiKare_${cleanAnimalName}_${todayIso}.pdf`;
+
+    const opt = {
+      margin: [10, 10, 10, 10],
+      filename: filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        scrollX: 0,
+        scrollY: 0,
+        onclone: (clonedDoc) => {
+          const target = clonedDoc.querySelector('#dossier-pdf-render-target');
+          if (target) {
+            target.style.position = 'static';
+            target.style.left = 'auto';
+            target.style.top = 'auto';
+            target.style.display = 'block';
+            target.style.margin = '0 auto';
+            target.style.width = '794px';
+            target.style.maxWidth = '794px';
+            target.style.boxSizing = 'border-box';
+          }
+        }
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    await html2pdf().set(opt).from(printContainer).save();
+    showToast(`Dossier de liaison téléchargé : ${filename}`);
+
+    // Nettoyer l'élément temporaire
+    if (printContainer && printContainer.parentNode) {
+      printContainer.parentNode.removeChild(printContainer);
+    }
+
+  } catch (err) {
+    console.error("Erreur lors de l'export du dossier animal:", err);
+    showToast("Erreur lors de la génération du PDF du dossier.", "error");
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = originalDisabled;
+      confirmBtn.innerHTML = originalHtml;
+    }
+  }
 }
 
 // --- PORTAIL CLIENT ---
