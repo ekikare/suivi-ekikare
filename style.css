@@ -92,16 +92,20 @@ body {
 }
 
 .sidebar-brand {
-  padding: 24px;
+  padding: 20px 24px;
   display: flex;
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid var(--glass-border);
 }
 
-.brand-icon {
-  color: var(--color-primary);
-  filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.4));
+.brand-logo-img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 50%;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
 }
 
 .brand-text {
