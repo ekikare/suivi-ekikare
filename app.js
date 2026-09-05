@@ -25,7 +25,9 @@ import {
   getClientByToken,
   ensureClientsHaveUUID,
   reconcileClientUUIDsFromSupabase,
-  fetchClientPortalData
+  fetchClientPortalData,
+  deleteClientCascade,
+  deleteAnimalCascade
 } from './db.js';
 
 // --- INITIALISATION SPEECH RECOGNITION ---
@@ -44,10 +46,57 @@ let currentSortCol = 'name';
 let currentSortDir = 'asc';
 let clientSortCol = 'name';
 let clientSortDir = 'asc';
+let clientsArchiveFilter = 'active'; // 'active' | 'archived'
+let animalsArchiveFilter = 'active'; // 'active' | 'archived'
 let previousRoute = '';
 let animalDetailsProvenance = null;
 let activeSpeechTarget = null;
 let activeSpeechBtn = null;
+
+// Motifs d'archivage par défaut
+const DEFAULT_CLIENT_ARCHIVE_REASONS = [
+  "Déménagement",
+  "Inactif / Ne consulte plus",
+  "Donnée de test"
+];
+
+const DEFAULT_ANIMAL_ARCHIVE_REASONS = [
+  "Décédé",
+  "Vendu / Changement de propriétaire",
+  "Donnée de test"
+];
+
+function getArchiveReasons(type) {
+  const key = type === 'client' ? 'ekikare_archive_reasons_clients' : 'ekikare_archive_reasons_animals';
+  const defaults = type === 'client' ? DEFAULT_CLIENT_ARCHIVE_REASONS : DEFAULT_ANIMAL_ARCHIVE_REASONS;
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return [...new Set([...defaults, ...parsed])];
+      }
+    }
+  } catch (e) {
+    console.warn('Erreur lecture motifs archivage:', e);
+  }
+  return [...defaults];
+}
+
+function saveArchiveReason(type, reason) {
+  if (!reason || !reason.trim()) return;
+  const trimmed = reason.trim();
+  const current = getArchiveReasons(type);
+  if (!current.includes(trimmed)) {
+    current.push(trimmed);
+    const key = type === 'client' ? 'ekikare_archive_reasons_clients' : 'ekikare_archive_reasons_animals';
+    try {
+      localStorage.setItem(key, JSON.stringify(current));
+    } catch (e) {
+      console.warn('Erreur sauvegarde motif archivage:', e);
+    }
+  }
+}
 
 // Données en cours d'édition/affichage
 let currentClientId = null;
@@ -840,9 +889,11 @@ async function renderDashboard() {
   const sessions = await getAll('sessions');
   const reminders = await getAll('reminders');
 
-  // Stats numeriques
-  document.getElementById('stat-clients-count').textContent = clients.length;
-  document.getElementById('stat-animals-count').textContent = animals.length;
+  // Stats numeriques (actifs uniquement)
+  const activeClients = clients.filter(c => !c.archived_at);
+  const activeAnimals = animals.filter(a => !a.archived_at);
+  document.getElementById('stat-clients-count').textContent = activeClients.length;
+  document.getElementById('stat-animals-count').textContent = activeAnimals.length;
 
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -971,11 +1022,249 @@ async function renderDashboard() {
   }
 }
 
+// --- DIALOGUES & ACTIONS D'ARCHIVAGE ET SUPPRESSION DÉFINITIVE ---
+
+/**
+ * Ouvre la modale d'archivage dynamique pour un client ou un animal
+ */
+function openArchiveRecordDialog(type, record) {
+  const dialog = document.getElementById('dialog-archive-record');
+  if (!dialog) return;
+
+  const titleEl = document.getElementById('archive-dialog-title');
+  const subtitleEl = document.getElementById('archive-dialog-subtitle');
+  const selectEl = document.getElementById('archive-reason-select');
+  const customContainer = document.getElementById('archive-custom-reason-container');
+  const customInput = document.getElementById('archive-custom-reason-input');
+  const confirmBtn = document.getElementById('btn-confirm-archive');
+
+  const recordName = type === 'client' ? `${record.prenom} ${record.nom}` : record.nom;
+  titleEl.textContent = `Archiver ${type === 'client' ? 'le client' : "l'animal"} : ${recordName}`;
+  subtitleEl.textContent = `Sélectionnez un motif d'archivage pour cette fiche`;
+
+  // Remplir les motifs dynamiques
+  const reasons = getArchiveReasons(type);
+  selectEl.innerHTML = '';
+  reasons.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r;
+    opt.textContent = r;
+    selectEl.appendChild(opt);
+  });
+  const customOpt = document.createElement('option');
+  customOpt.value = '__custom__';
+  customOpt.textContent = 'Autre...';
+  selectEl.appendChild(customOpt);
+
+  customContainer.style.display = 'none';
+  customInput.value = '';
+
+  selectEl.onchange = () => {
+    if (selectEl.value === '__custom__') {
+      customContainer.style.display = 'block';
+      customInput.focus();
+    } else {
+      customContainer.style.display = 'none';
+    }
+  };
+
+  // Annulation
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  // Confirmation
+  confirmBtn.onclick = async () => {
+    let chosenReason = selectEl.value;
+    if (chosenReason === '__custom__') {
+      chosenReason = customInput.value.trim();
+      if (!chosenReason) {
+        showToast('Veuillez préciser le motif d\'archivage.', 'error');
+        customInput.focus();
+        return;
+      }
+      saveArchiveReason(type, chosenReason);
+    }
+
+    record.archived_at = new Date().toISOString();
+    record.archive_reason = chosenReason;
+
+    await update(type === 'client' ? 'clients' : 'animals', record);
+    showToast(`${type === 'client' ? 'Client' : 'Animal'} archivé avec succès.`);
+    dialog.close();
+
+    // Actualiser les vues
+    if (type === 'client') {
+      if (window.location.hash.startsWith('#clients/')) {
+        await renderClientDetails(record.id);
+      } else {
+        await renderClientsList();
+      }
+    } else {
+      if (window.location.hash.startsWith('#animals/')) {
+        await renderAnimalDetails(record.id);
+      } else {
+        await renderAnimalsList();
+      }
+    }
+    await renderDashboard();
+  };
+
+  dialog.showModal();
+}
+
+/**
+ * Restaure une fiche archivée
+ */
+async function restoreRecord(type, record) {
+  record.archived_at = null;
+  record.archive_reason = null;
+
+  await update(type === 'client' ? 'clients' : 'animals', record);
+  showToast(`${type === 'client' ? 'Client' : 'Animal'} restauré avec succès.`);
+
+  if (type === 'client') {
+    if (window.location.hash.startsWith('#clients/')) {
+      await renderClientDetails(record.id);
+    } else {
+      await renderClientsList();
+    }
+  } else {
+    if (window.location.hash.startsWith('#animals/')) {
+      await renderAnimalDetails(record.id);
+    } else {
+      await renderAnimalsList();
+    }
+  }
+  await renderDashboard();
+}
+
+/**
+ * Ouvre la modale de suppression définitive en cascade
+ */
+function openPermanentDeleteDialog(type, record) {
+  const dialog = document.getElementById('dialog-confirm-delete-permanent');
+  if (!dialog) return;
+
+  const titleEl = document.getElementById('delete-dialog-title');
+  const cascadeInfo = document.getElementById('delete-cascade-info');
+  const input = document.getElementById('delete-confirm-input');
+  const confirmBtn = document.getElementById('btn-confirm-delete-permanent');
+
+  const recordName = type === 'client' ? `${record.prenom} ${record.nom}` : record.nom;
+  titleEl.textContent = `Supprimer définitivement : ${recordName}`;
+
+  if (type === 'client') {
+    cascadeInfo.textContent = 'tous les animaux, séances, comptes-rendus et rappels associés à ce client';
+  } else {
+    cascadeInfo.textContent = 'toutes les séances, comptes-rendus et rappels associés à cet animal';
+  }
+
+  input.value = '';
+  confirmBtn.disabled = true;
+  confirmBtn.style.opacity = '0.5';
+  confirmBtn.style.cursor = 'not-allowed';
+
+  input.oninput = () => {
+    if (input.value.trim().toUpperCase() === 'SUPPRIMER') {
+      confirmBtn.disabled = false;
+      confirmBtn.style.opacity = '1';
+      confirmBtn.style.cursor = 'pointer';
+    } else {
+      confirmBtn.disabled = true;
+      confirmBtn.style.opacity = '0.5';
+      confirmBtn.style.cursor = 'not-allowed';
+    }
+  };
+
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  confirmBtn.onclick = async () => {
+    if (input.value.trim().toUpperCase() !== 'SUPPRIMER') return;
+
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span>Suppression en cours...</span>';
+
+    try {
+      if (type === 'client') {
+        await deleteClientCascade(record.id);
+        showToast('Client et toutes ses données supprimés définitivement.');
+        dialog.close();
+        window.location.hash = 'clients';
+      } else {
+        await deleteAnimalCascade(record.id);
+        showToast('Animal et toutes ses données supprimés définitivement.');
+        dialog.close();
+        window.location.hash = 'animals';
+      }
+    } catch (err) {
+      console.error('Erreur suppression cascade:', err);
+      showToast('Erreur lors de la suppression.', 'error');
+    } finally {
+      confirmBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </svg>
+        <span>Supprimer définitivement</span>
+      `;
+    }
+  };
+
+  dialog.showModal();
+}
+
 // --- RENDU : ANNUAIRE CLIENTS ---
 async function renderClientsList() {
   const clients = await getAll('clients');
   const animals = await getAll('animals');
   
+  // Onglets de statut (Actifs / Archives)
+  const tabActive = document.getElementById('filter-clients-active');
+  const tabArchived = document.getElementById('filter-clients-archived');
+  const badgeArchived = document.getElementById('badge-clients-archived-count');
+
+  const archivedClientsCount = clients.filter(c => !!c.archived_at).length;
+
+  if (badgeArchived) {
+    badgeArchived.textContent = archivedClientsCount;
+  }
+
+  if (tabActive && !tabActive.dataset.listener) {
+    tabActive.dataset.listener = 'true';
+    tabActive.addEventListener('click', () => {
+      clientsArchiveFilter = 'active';
+      tabActive.classList.add('active');
+      if (tabArchived) tabArchived.classList.remove('active');
+      renderClientsList();
+    });
+  }
+
+  if (tabArchived && !tabArchived.dataset.listener) {
+    tabArchived.dataset.listener = 'true';
+    tabArchived.addEventListener('click', () => {
+      clientsArchiveFilter = 'archived';
+      tabArchived.classList.add('active');
+      if (tabActive) tabActive.classList.remove('active');
+      renderClientsList();
+    });
+  }
+
+  // Synchroniser l'état visuel des onglets
+  if (tabActive && tabArchived) {
+    if (clientsArchiveFilter === 'archived') {
+      tabArchived.classList.add('active');
+      tabActive.classList.remove('active');
+    } else {
+      tabActive.classList.add('active');
+      tabArchived.classList.remove('active');
+    }
+  }
+
   const searchInput = document.getElementById('client-search-input');
   if (searchInput && !searchInput.dataset.listener) {
     searchInput.dataset.listener = 'true';
@@ -986,7 +1275,18 @@ async function renderClientsList() {
   const tbody = document.getElementById('clients-table-body');
   tbody.innerHTML = '';
 
-  const filtered = clients.filter(c => {
+  // 1. Filtrer par statut (actif vs archivé)
+  const statusFiltered = clients.filter(c => {
+    if (!c) return false;
+    if (clientsArchiveFilter === 'archived') {
+      return !!c.archived_at;
+    } else {
+      return !c.archived_at;
+    }
+  });
+
+  // 2. Filtrer par recherche textuelle
+  const filtered = statusFiltered.filter(c => {
     if (!filterVal) return true;
     const term = normalizeText(filterVal);
     
@@ -1082,7 +1382,8 @@ async function renderClientsList() {
   });
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Aucun client trouvé.</td></tr>';
+    const emptyMsg = clientsArchiveFilter === 'archived' ? 'Aucun client archivé.' : 'Aucun client trouvé.';
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${emptyMsg}</td></tr>`;
   } else {
     for (const c of filtered) {
       const clientAnimals = animals.filter(an => an.client_id === c.id);
@@ -1139,6 +1440,41 @@ async function renderClientDetails(clientId) {
   document.getElementById('detail-client-stable').textContent = client.ecurie || '-';
   document.getElementById('detail-client-notes').textContent = client.notes ? String(client.notes).replace(/\[portal_token:[^\]]+\]/g, '').trim() : 'Aucune note enregistrée.';
 
+  // Gestion de l'archivage & des boutons d'actions
+  const archiveBanner = document.getElementById('client-archive-banner');
+  const activeActions = document.getElementById('client-active-actions');
+  const archivedActions = document.getElementById('client-archived-actions');
+
+  if (client.archived_at) {
+    if (archiveBanner) {
+      archiveBanner.innerHTML = `📁 Dossier archivé le <strong>${formatDate(client.archived_at)}</strong> — Motif : <strong>${client.archive_reason || 'Non précisé'}</strong>`;
+      archiveBanner.style.display = 'block';
+    }
+    if (activeActions) activeActions.style.display = 'none';
+    if (archivedActions) archivedActions.style.display = 'inline-flex';
+
+    const restoreBtn = document.getElementById('btn-restore-client');
+    if (restoreBtn) {
+      restoreBtn.onclick = () => restoreRecord('client', client);
+    }
+
+    const deletePermanentBtn = document.getElementById('btn-delete-client-permanent');
+    if (deletePermanentBtn) {
+      deletePermanentBtn.onclick = () => openPermanentDeleteDialog('client', client);
+    }
+  } else {
+    if (archiveBanner) {
+      archiveBanner.style.display = 'none';
+    }
+    if (activeActions) activeActions.style.display = 'inline-flex';
+    if (archivedActions) archivedActions.style.display = 'none';
+
+    const archiveBtn = document.getElementById('btn-archive-client');
+    if (archiveBtn) {
+      archiveBtn.onclick = () => openArchiveRecordDialog('client', client);
+    }
+  }
+
   // Charger les animaux du client
   const animals = await getByIndex('animals', 'client_id', clientId);
   const listContainer = document.getElementById('detail-client-animals');
@@ -1164,7 +1500,7 @@ async function renderClientDetails(clientId) {
         <div class="animal-mini-info">
           <div class="animal-avatar-mini">${avatarText}</div>
           <div>
-            <span class="animal-mini-name">${an.nom}</span>
+            <span class="animal-mini-name">${an.nom} ${an.archived_at ? '<span style="font-size:0.75rem; color:#f59e0b;">(Archivé)</span>' : ''}</span>
             <div class="animal-mini-details">${an.espece} &bull; ${an.race || 'Race inconnue'} &bull; ${ageDisplay}</div>
             <div class="animal-mini-location" style="font-size:0.85rem; color:var(--text-sub); margin-top:2px;">📍 ${locText}</div>
           </div>
@@ -1207,6 +1543,48 @@ async function renderAnimalsList() {
   const animals = await getAll('animals');
   const clients = await getAll('clients');
   
+  // Onglets de statut (Actifs / Archives)
+  const tabActive = document.getElementById('filter-animals-active');
+  const tabArchived = document.getElementById('filter-animals-archived');
+  const badgeArchived = document.getElementById('badge-animals-archived-count');
+
+  const archivedAnimalsCount = animals.filter(a => !!a.archived_at).length;
+
+  if (badgeArchived) {
+    badgeArchived.textContent = archivedAnimalsCount;
+  }
+
+  if (tabActive && !tabActive.dataset.listener) {
+    tabActive.dataset.listener = 'true';
+    tabActive.addEventListener('click', () => {
+      animalsArchiveFilter = 'active';
+      tabActive.classList.add('active');
+      if (tabArchived) tabArchived.classList.remove('active');
+      renderAnimalsList();
+    });
+  }
+
+  if (tabArchived && !tabArchived.dataset.listener) {
+    tabArchived.dataset.listener = 'true';
+    tabArchived.addEventListener('click', () => {
+      animalsArchiveFilter = 'archived';
+      tabArchived.classList.add('active');
+      if (tabActive) tabActive.classList.remove('active');
+      renderAnimalsList();
+    });
+  }
+
+  // Synchroniser l'état visuel des onglets
+  if (tabActive && tabArchived) {
+    if (animalsArchiveFilter === 'archived') {
+      tabArchived.classList.add('active');
+      tabActive.classList.remove('active');
+    } else {
+      tabActive.classList.add('active');
+      tabArchived.classList.remove('active');
+    }
+  }
+
   const searchInput = document.getElementById('animal-search-input');
   if (searchInput && !searchInput.dataset.listener) {
     searchInput.dataset.listener = 'true';
@@ -1224,7 +1602,18 @@ async function renderAnimalsList() {
   const tbody = document.getElementById('animals-table-body');
   tbody.innerHTML = '';
 
-  const filtered = animals.filter(an => {
+  // 1. Filtrer par statut (actif vs archivé)
+  const statusFiltered = animals.filter(a => {
+    if (!a) return false;
+    if (animalsArchiveFilter === 'archived') {
+      return !!a.archived_at;
+    } else {
+      return !a.archived_at;
+    }
+  });
+
+  // 2. Filtrer par espèce et recherche textuelle
+  const filtered = statusFiltered.filter(an => {
     if (!an) return false;
     const spec = an.species || an.espece || 'Cheval';
     
@@ -1333,7 +1722,8 @@ async function renderAnimalsList() {
   });
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Aucun animal trouvé.</td></tr>';
+    const emptyMsg = animalsArchiveFilter === 'archived' ? 'Aucun animal archivé.' : 'Aucun animal trouvé.';
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">${emptyMsg}</td></tr>`;
   } else {
     for (const an of filtered) {
       if (!an) continue;
@@ -1760,6 +2150,41 @@ async function renderAnimalDetails(animalId) {
       });
 
       remindersContainer.appendChild(rDiv);
+    }
+  }
+
+  // Gestion de l'archivage & des boutons d'actions
+  const archiveBanner = document.getElementById('animal-archive-banner');
+  const activeActions = document.getElementById('animal-active-actions');
+  const archivedActions = document.getElementById('animal-archived-actions');
+
+  if (animal.archived_at) {
+    if (archiveBanner) {
+      archiveBanner.innerHTML = `📁 Dossier archivé le <strong>${formatDate(animal.archived_at)}</strong> — Motif : <strong>${animal.archive_reason || 'Non précisé'}</strong>`;
+      archiveBanner.style.display = 'block';
+    }
+    if (activeActions) activeActions.style.display = 'none';
+    if (archivedActions) archivedActions.style.display = 'inline-flex';
+
+    const restoreBtn = document.getElementById('btn-restore-animal');
+    if (restoreBtn) {
+      restoreBtn.onclick = () => restoreRecord('animal', animal);
+    }
+
+    const deletePermanentBtn = document.getElementById('btn-delete-animal-permanent');
+    if (deletePermanentBtn) {
+      deletePermanentBtn.onclick = () => openPermanentDeleteDialog('animal', animal);
+    }
+  } else {
+    if (archiveBanner) {
+      archiveBanner.style.display = 'none';
+    }
+    if (activeActions) activeActions.style.display = 'inline-flex';
+    if (archivedActions) archivedActions.style.display = 'none';
+
+    const archiveBtn = document.getElementById('btn-archive-animal');
+    if (archiveBtn) {
+      archiveBtn.onclick = () => openArchiveRecordDialog('animal', animal);
     }
   }
 
@@ -3220,12 +3645,13 @@ async function prepareSessionEditor(param) {
   const animals = await getAll('animals');
   const clients = await getAll('clients');
 
-  for (const an of animals) {
+  const selectableAnimals = animals.filter(an => !an.archived_at || (session && session.animal_id === an.id));
+  for (const an of selectableAnimals) {
     const client = clients.find(c => c.id === an.client_id);
     const ownerName = client ? `${client.prenom} ${client.nom}` : 'Propriétaire inconnu';
     const opt = document.createElement('option');
     opt.value = an.id;
-    opt.textContent = `${an.nom} (${an.espece} - Propriétaire : ${ownerName})`;
+    opt.textContent = `${an.nom} (${an.espece} - Propriétaire : ${ownerName})${an.archived_at ? ' [Archivé]' : ''}`;
     animalSelect.appendChild(opt);
   }
 
@@ -5433,6 +5859,8 @@ function openClientDialog(client = null) {
       clientData.id = Number(idInput.value);
       if (client) {
         clientData.uuid = client.uuid || generateUUID();
+        clientData.archived_at = client.archived_at || null;
+        clientData.archive_reason = client.archive_reason || null;
       }
       await update('clients', clientData);
       showToast('Client modifié.');
@@ -5980,7 +6408,9 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       lieu_de_vie: stableName || 'Non spécifié',
       antecedents: currentMedicalEvents.map(ev => `${ev.year}${ev.month ? ' - ' + ev.month : ''} : ${ev.event}`).join(', '),
       
-      pros_associes_ids: animal ? (animal.pros_associes_ids || []) : []
+      pros_associes_ids: animal ? (animal.pros_associes_ids || []) : [],
+      archived_at: animal ? (animal.archived_at || null) : null,
+      archive_reason: animal ? (animal.archive_reason || null) : null
     };
 
     if (idInput.value) {
@@ -6218,20 +6648,22 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
   // Populate animal select
   const animals = await getAll('animals');
   animalSelect.innerHTML = '<option value="">-- Aucun animal --</option>';
-  animals.forEach(an => {
+  const selectableAnimals = animals.filter(an => !an.archived_at || (reminder && reminder.animal_id === an.id) || (preselectedAnimalId && preselectedAnimalId === an.id));
+  selectableAnimals.forEach(an => {
     const opt = document.createElement('option');
     opt.value = an.id;
-    opt.textContent = an.nom;
+    opt.textContent = `${an.nom}${an.archived_at ? ' (Archivé)' : ''}`;
     animalSelect.appendChild(opt);
   });
 
   // Populate client select
   const clients = await getAll('clients');
   clientSelect.innerHTML = '<option value="">-- Aucun client --</option>';
-  clients.forEach(cl => {
+  const selectableClients = clients.filter(cl => !cl.archived_at || (reminder && reminder.client_id === cl.id));
+  selectableClients.forEach(cl => {
     const opt = document.createElement('option');
     opt.value = cl.id;
-    opt.textContent = `${cl.prenom} ${cl.nom.toUpperCase()}`;
+    opt.textContent = `${cl.prenom} ${cl.nom.toUpperCase()}${cl.archived_at ? ' (Archivé)' : ''}`;
     clientSelect.appendChild(opt);
   });
 

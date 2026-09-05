@@ -3100,4 +3100,89 @@ body.is-client-portal #dialog-client #client-form-firstname {
   }
 }
 
+/* ==========================================================================
+   ARCHIVE MANAGEMENT STYLES
+   ========================================================================== */
+.directory-filter-tabs {
+  display: inline-flex;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  gap: 4px;
+}
+
+.filter-tab-btn {
+  padding: 6px 14px !important;
+  font-size: 0.85rem !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+  border: none !important;
+  background: transparent !important;
+  color: var(--text-sub) !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.filter-tab-btn:hover {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.filter-tab-btn.active {
+  background: rgba(217, 107, 39, 0.2) !important;
+  color: #D96B27 !important;
+  font-weight: 600 !important;
+  border: 1px solid rgba(217, 107, 39, 0.35) !important;
+}
+
+.filter-tab-btn .badge {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.filter-tab-btn.active .badge {
+  background: rgba(217, 107, 39, 0.35);
+  color: #fff;
+}
+
+.archive-info-banner {
+  background: rgba(217, 107, 39, 0.1);
+  border: 1px solid rgba(217, 107, 39, 0.3);
+  border-left: 4px solid #D96B27;
+  padding: 12px 18px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-icon-only {
+  width: 40px !important;
+  height: 40px !important;
+  min-width: 40px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease;
+}
+
+.btn-icon-only:hover {
+  transform: translateY(-1px);
+}
+
+
 

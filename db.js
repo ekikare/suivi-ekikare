@@ -60,7 +60,9 @@ export function mapLocalToSupabase(storeName, item) {
         address: item.adresse || item.address || '',
         main_stable: item.ecurie || item.main_stable || item.mainStable || '',
         notes: cleanNotes,
-        uuid: item.uuid || null
+        uuid: item.uuid || null,
+        archived_at: item.archived_at || null,
+        archive_reason: item.archive_reason || null
       };
       break;
     case 'animals':
@@ -83,7 +85,9 @@ export function mapLocalToSupabase(storeName, item) {
         work_objective: item.work_objective || item.work_goals || '',
         main_problems: item.main_problems || item.issues || '',
         medical_events: item.medical_events || [],
-        pros_associes_ids: item.pros_associes_ids || []
+        pros_associes_ids: item.pros_associes_ids || [],
+        archived_at: item.archived_at || null,
+        archive_reason: item.archive_reason || null
       };
       specificFields = {
         client_id: String(item.client_id || item.clientId || ''),
@@ -103,7 +107,9 @@ export function mapLocalToSupabase(storeName, item) {
         notes: item.notes || null,
         custom_details: JSON.stringify(customPayload),
         distance_km: item.distanceKm !== undefined && item.distanceKm !== null ? Number(item.distanceKm) : (item.distance_km !== undefined && item.distance_km !== null ? Number(item.distance_km) : (item.stable_distance !== undefined && item.stable_distance !== null ? Number(item.stable_distance) : null)),
-        tracking_mode: item.trackingMode || item.tracking_mode || null
+        tracking_mode: item.trackingMode || item.tracking_mode || null,
+        archived_at: item.archived_at || null,
+        archive_reason: item.archive_reason || null
       };
       break;
     case 'sessions':
@@ -185,7 +191,9 @@ export function mapSupabaseToLocal(storeName, item) {
         adresse: item.address || '',
         ecurie: item.main_stable || '',
         notes: cleanNotesFromDb,
-        uuid: clientUuid
+        uuid: clientUuid,
+        archived_at: item.archived_at || null,
+        archive_reason: item.archive_reason || null
       };
     case 'animals':
       let parsedCustom = {};
@@ -232,7 +240,9 @@ export function mapSupabaseToLocal(storeName, item) {
         nutrition_details: item.diet || parsedCustom.nutrition_details || '',
         work_objective: item.work_goals || parsedCustom.work_objective || '',
         main_problems: item.issues || parsedCustom.main_problems || '',
-        notes: item.notes || ''
+        notes: item.notes || '',
+        archived_at: item.archived_at || parsedCustom.archived_at || null,
+        archive_reason: item.archive_reason || parsedCustom.archive_reason || null
       };
     case 'sessions':
       return {
@@ -964,3 +974,56 @@ export async function fetchClientPortalData(portalUuid) {
   // 2. Repli local IndexedDB (mode hors-ligne ou Supabase inaccessible)
   return await getClientByUuid(tokenStr);
 }
+
+/**
+ * Supprime définitivement un animal et toutes ses données associées (séances, rappels).
+ * @param {number} animalId
+ */
+export async function deleteAnimalCascade(animalId) {
+  const anId = Number(animalId);
+  if (!anId) return;
+
+  // 1. Supprimer les séances associées
+  const allSessions = await getAll('sessions');
+  const animalSessions = allSessions.filter(s => Number(s.animal_id) === anId);
+  for (const session of animalSessions) {
+    await remove('sessions', session.id);
+  }
+
+  // 2. Supprimer les rappels associés
+  const allReminders = await getAll('reminders');
+  const animalReminders = allReminders.filter(r => Number(r.animal_id) === anId || Number(r.relatedAnimalId) === anId);
+  for (const reminder of animalReminders) {
+    await remove('reminders', reminder.id);
+  }
+
+  // 3. Supprimer l'animal
+  await remove('animals', anId);
+}
+
+/**
+ * Supprime définitivement un client et toutes ses données associées en cascade (animaux, séances, rappels).
+ * @param {number} clientId
+ */
+export async function deleteClientCascade(clientId) {
+  const cId = Number(clientId);
+  if (!cId) return;
+
+  // 1. Récupérer et supprimer tous les animaux associés en cascade
+  const allAnimals = await getAll('animals');
+  const clientAnimals = allAnimals.filter(a => Number(a.client_id) === cId);
+  for (const animal of clientAnimals) {
+    await deleteAnimalCascade(animal.id);
+  }
+
+  // 2. Supprimer les rappels directement liés au client
+  const allReminders = await getAll('reminders');
+  const clientReminders = allReminders.filter(r => Number(r.client_id) === cId || Number(r.relatedClientId) === cId);
+  for (const reminder of clientReminders) {
+    await remove('reminders', reminder.id);
+  }
+
+  // 3. Supprimer le client
+  await remove('clients', cId);
+}
+
