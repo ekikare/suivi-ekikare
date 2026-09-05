@@ -16,7 +16,15 @@
 - [x] 5. Modales d'action (`index.html`, `app.js`) <!-- id: 5 -->
   - [x] Modale d'archivage `#dialog-archive-record` avec motifs dynamiques + saisie libre <!-- id: 5.1 -->
   - [x] Modale de suppression définitive `#dialog-confirm-delete-permanent` avec saisie obligatoire de "SUPPRIMER" <!-- id: 5.2 -->
-- [x] 6. Tests, validation & déploiement <!-- id: 6 -->
+- [x] 6. Tests, validation & déploiement initial <!-- id: 6 -->
   - [x] Tests de navigation et vérification de la cascade et des compteurs <!-- id: 6.1 -->
   - [x] Commit et push sur `origin main` <!-- id: 6.2 -->
+- [x] 7. Ajustements des vues Archives et Verrouillage Espace Client <!-- id: 7 -->
+  - [x] Masquage des boutons de création (+ Nouveau client / + Nouvel animal) en mode Archives <!-- id: 7.1 -->
+  - [x] Remplacement dynamique des colonnes de tableau par "Motif d'archivage" <!-- id: 7.2 -->
+  - [x] Masquage du bouton "Lien Espace Client" sur fiche client archivé <!-- id: 7.3 -->
+  - [x] Sécurisation de l'accès à l'Espace Client avec écran de clôture pour client archivé <!-- id: 7.4 -->
+  - [x] Badge "Dossier clôturé" et verrouillage complet en lecture seule pour animal archivé dans l'Espace Client <!-- id: 7.5 -->
+  - [x] Validation complète par tests navigateur, commit et push sur `origin main` <!-- id: 7.6 -->
+
 

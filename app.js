@@ -651,6 +651,12 @@ async function loadViewData(view, param, subRoute = null, subParam = null) {
             return;
           }
 
+          if (client.archived_at) {
+            showToast("Cet espace client a été clôturé.", "warning");
+            window.location.hash = `portal/${client.uuid || client.id}`;
+            return;
+          }
+
           const animalId = Number(subParam);
           let animal = await getById('animals', animalId);
           
@@ -1227,11 +1233,29 @@ async function renderClientsList() {
   const tabActive = document.getElementById('filter-clients-active');
   const tabArchived = document.getElementById('filter-clients-archived');
   const badgeArchived = document.getElementById('badge-clients-archived-count');
+  const btnAddClient = document.getElementById('btn-add-client');
 
   const archivedClientsCount = clients.filter(c => !!c.archived_at).length;
 
   if (badgeArchived) {
     badgeArchived.textContent = archivedClientsCount;
+  }
+
+  // Masquer le bouton "+ Nouveau client" en mode Archives
+  if (btnAddClient) {
+    btnAddClient.style.display = clientsArchiveFilter === 'archived' ? 'none' : 'inline-flex';
+  }
+
+  // Adapter l'en-tête de colonne dynamique (Lieu de vie vs Motif d'archivage)
+  const thDynamic = document.getElementById('th-clients-dynamic-col');
+  if (thDynamic) {
+    if (clientsArchiveFilter === 'archived') {
+      thDynamic.innerHTML = `Motif d'archivage <span class="sort-icon"></span>`;
+      thDynamic.dataset.sort = 'archive_reason';
+    } else {
+      thDynamic.innerHTML = `Lieu de vie des animaux <span class="sort-icon"></span>`;
+      thDynamic.dataset.sort = 'location';
+    }
   }
 
   if (tabActive && !tabActive.dataset.listener) {
@@ -1296,6 +1320,7 @@ async function renderClientsList() {
     if (normalizeText(c.telephone).includes(term)) return true;
     if (normalizeText(c.email).includes(term)) return true;
     if (normalizeText(c.adresse).includes(term)) return true;
+    if (c.archive_reason && normalizeText(c.archive_reason).includes(term)) return true;
 
     // Check associated animals
     const clientAnimals = animals.filter(an => an.client_id === c.id);
@@ -1326,6 +1351,9 @@ async function renderClientsList() {
     if (clientSortCol === 'name') {
       valA = (a.prenom || '').toLowerCase();
       valB = (b.prenom || '').toLowerCase();
+    } else if (clientSortCol === 'archive_reason') {
+      valA = (a.archive_reason || '').toLowerCase();
+      valB = (b.archive_reason || '').toLowerCase();
     } else if (clientSortCol === 'location') {
       const animsA = animals.filter(an => an.client_id === a.id);
       const animsB = animals.filter(an => an.client_id === b.id);
@@ -1401,13 +1429,23 @@ async function renderClientsList() {
         return `<div style="font-size: 0.9rem; color: var(--text-sub); white-space: nowrap;">📍 ${getAnimalLocationSummary(an)}</div>`;
       }).join('');
 
+      let col5Html = locationsHtml || '<span class="empty-state">-</span>';
+      if (clientsArchiveFilter === 'archived') {
+        const reasonText = c.archive_reason || 'Non précisé';
+        const dateText = c.archived_at ? formatDate(c.archived_at) : '';
+        col5Html = `
+          <div style="font-size: 0.88rem; color: #f59e0b; font-weight: 600;">📁 ${reasonText}</div>
+          ${dateText ? `<div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">le ${dateText}</div>` : ''}
+        `;
+      }
+
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${c.nom.toUpperCase()}</strong> ${c.prenom}</td>
         <td>${c.telephone}</td>
         <td>${c.email || '-'}</td>
         <td>${animalsHtml || '<span class="empty-state">-</span>'}</td>
-        <td>${locationsHtml || '<span class="empty-state">-</span>'}</td>
+        <td>${col5Html}</td>
         <td class="actions-column">
           <button class="btn btn-secondary btn-small btn-view-client" data-id="${c.id}">Fiche</button>
         </td>
@@ -1444,6 +1482,7 @@ async function renderClientDetails(clientId) {
   const archiveBanner = document.getElementById('client-archive-banner');
   const activeActions = document.getElementById('client-active-actions');
   const archivedActions = document.getElementById('client-archived-actions');
+  const copyPortalBtn = document.getElementById('btn-copy-client-portal-link');
 
   if (client.archived_at) {
     if (archiveBanner) {
@@ -1452,6 +1491,7 @@ async function renderClientDetails(clientId) {
     }
     if (activeActions) activeActions.style.display = 'none';
     if (archivedActions) archivedActions.style.display = 'inline-flex';
+    if (copyPortalBtn) copyPortalBtn.style.display = 'none';
 
     const restoreBtn = document.getElementById('btn-restore-client');
     if (restoreBtn) {
@@ -1468,6 +1508,7 @@ async function renderClientDetails(clientId) {
     }
     if (activeActions) activeActions.style.display = 'inline-flex';
     if (archivedActions) archivedActions.style.display = 'none';
+    if (copyPortalBtn) copyPortalBtn.style.display = 'inline-flex';
 
     const archiveBtn = document.getElementById('btn-archive-client');
     if (archiveBtn) {
@@ -1513,21 +1554,23 @@ async function renderClientDetails(clientId) {
   }
 
   // Configurer le clic boutons d'actions
-  document.getElementById('btn-copy-client-portal-link').onclick = async () => {
-    let freshClient = await getById('clients', clientId);
-    if (!freshClient) freshClient = client;
-    if (!freshClient.uuid) {
-      freshClient.uuid = generateUUID();
-      await update('clients', freshClient);
-    }
-    const portalUrl = getClientPortalUrl(freshClient.uuid);
-    navigator.clipboard.writeText(portalUrl).then(() => {
-      showToast('Lien Espace Client sécurisé copié dans le presse-papier !');
-    }).catch(err => {
-      console.error('Erreur copie lien:', err);
-      showToast('Impossible de copier le lien.', 'error');
-    });
-  };
+  if (copyPortalBtn) {
+    copyPortalBtn.onclick = async () => {
+      let freshClient = await getById('clients', clientId);
+      if (!freshClient) freshClient = client;
+      if (!freshClient.uuid) {
+        freshClient.uuid = generateUUID();
+        await update('clients', freshClient);
+      }
+      const portalUrl = getClientPortalUrl(freshClient.uuid);
+      navigator.clipboard.writeText(portalUrl).then(() => {
+        showToast('Lien Espace Client sécurisé copié dans le presse-papier !');
+      }).catch(err => {
+        console.error('Erreur copie lien:', err);
+        showToast('Impossible de copier le lien.', 'error');
+      });
+    };
+  }
 
   document.getElementById('btn-edit-client-detail').onclick = () => {
     openClientDialog(client);
@@ -1547,11 +1590,29 @@ async function renderAnimalsList() {
   const tabActive = document.getElementById('filter-animals-active');
   const tabArchived = document.getElementById('filter-animals-archived');
   const badgeArchived = document.getElementById('badge-animals-archived-count');
+  const btnAddAnimal = document.getElementById('btn-add-animal');
 
   const archivedAnimalsCount = animals.filter(a => !!a.archived_at).length;
 
   if (badgeArchived) {
     badgeArchived.textContent = archivedAnimalsCount;
+  }
+
+  // Masquer le bouton "+ Nouvel animal" en mode Archives
+  if (btnAddAnimal) {
+    btnAddAnimal.style.display = animalsArchiveFilter === 'archived' ? 'none' : 'inline-flex';
+  }
+
+  // Adapter l'en-tête de colonne dynamique (Mode de suivi vs Motif d'archivage)
+  const thAnimalsDynamic = document.getElementById('th-animals-dynamic-col');
+  if (thAnimalsDynamic) {
+    if (animalsArchiveFilter === 'archived') {
+      thAnimalsDynamic.innerHTML = `Motif d'archivage <span class="sort-icon"></span>`;
+      thAnimalsDynamic.dataset.sort = 'archive_reason';
+    } else {
+      thAnimalsDynamic.innerHTML = `Mode de suivi <span class="sort-icon"></span>`;
+      thAnimalsDynamic.dataset.sort = 'tracking';
+    }
   }
 
   if (tabActive && !tabActive.dataset.listener) {
@@ -1640,6 +1701,7 @@ async function renderAnimalsList() {
 
     return (an.nom && an.nom.toLowerCase().includes(filterVal)) ||
            (an.race && an.race.toLowerCase().includes(filterVal)) ||
+           (an.archive_reason && an.archive_reason.toLowerCase().includes(filterVal)) ||
            spec.toLowerCase().includes(filterVal) ||
            stableName.includes(filterVal) ||
            stableAddress.includes(filterVal) ||
@@ -1679,6 +1741,9 @@ async function renderAnimalsList() {
       const timeA = (dateA && !isNaN(dateA.getTime())) ? dateA.getTime() : 0;
       const timeB = (dateB && !isNaN(dateB.getTime())) ? dateB.getTime() : 0;
       return currentSortDir === 'asc' ? timeB - timeA : timeA - timeB;
+    } else if (currentSortCol === 'archive_reason') {
+      valA = (a.archive_reason || '').toLowerCase();
+      valB = (b.archive_reason || '').toLowerCase();
     } else if (currentSortCol === 'tracking') {
       const trackA = a.trackingMode || a.modeSuivi || a.tracking_mode || 'À la demande';
       const trackB = b.trackingMode || b.modeSuivi || b.tracking_mode || 'À la demande';
@@ -1742,6 +1807,16 @@ async function renderAnimalsList() {
       const tracking = an.trackingMode || an.modeSuivi || an.tracking_mode || 'À la demande';
       const trackingText = tracking === 'Autre' ? (an.tracking_mode_other || 'Autre') : tracking;
 
+      let col7Html = trackingText;
+      if (animalsArchiveFilter === 'archived') {
+        const reasonText = an.archive_reason || 'Non précisé';
+        const dateText = an.archived_at ? formatDate(an.archived_at) : '';
+        col7Html = `
+          <div style="font-size: 0.88rem; color: #f59e0b; font-weight: 600;">📁 ${reasonText}</div>
+          ${dateText ? `<div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">le ${dateText}</div>` : ''}
+        `;
+      }
+
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${specIcon} &nbsp; <strong>${an.nom || 'Sans nom'}</strong></td>
@@ -1750,7 +1825,7 @@ async function renderAnimalsList() {
         <td>${an.stable_name || an.lieu_de_vie || '-'}</td>
         <td>${ageDisplay}</td>
         <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${prob}</td>
-        <td>${trackingText}</td>
+        <td>${col7Html}</td>
         <td class="actions-column">
           <button class="btn btn-secondary btn-small btn-view-animal" data-id="${an.id}">Fiche</button>
         </td>
@@ -2005,8 +2080,10 @@ async function renderAnimalDetails(animalId) {
           ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; margin-bottom:2px; line-height:1.35; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
           <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0; white-space:normal;"><strong>Résumé :</strong> <span style="white-space:pre-wrap; color:#96A5BA;">${cleanSummary}</span></div>
           <div class="timeline-actions-ext" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px;">
-            <button type="button" class="btn btn-secondary btn-small btn-edit-ext-session" style="padding: 2px 8px; font-size: 0.78rem;">Modifier</button>
-            <button type="button" class="btn btn-danger btn-small btn-delete-ext-session" style="padding: 2px 8px; font-size: 0.78rem;">Supprimer</button>
+            ${(!animal.archived_at) ? `
+              <button type="button" class="btn btn-secondary btn-small btn-edit-ext-session" style="padding: 2px 8px; font-size: 0.78rem;">Modifier</button>
+              <button type="button" class="btn btn-danger btn-small btn-delete-ext-session" style="padding: 2px 8px; font-size: 0.78rem;">Supprimer</button>
+            ` : ''}
             ${crBtnHtml}
           </div>
         `;
@@ -2134,20 +2211,25 @@ async function renderAnimalDetails(animalId) {
           <span class="reminder-title">${displayName}</span>
           <span class="reminder-meta">${r.notes || ''}</span>
         </div>
-        <button class="btn btn-secondary btn-small btn-complete-reminder-animal" data-id="${r.id}">Marquer Fait</button>
+        ${(!animal.archived_at && !currentPortalClientId) ? `<button class="btn btn-secondary btn-small btn-complete-reminder-animal" data-id="${r.id}">Marquer Fait</button>` : ''}
       `;
 
-      rDiv.addEventListener('click', () => {
-        openReminderDialog(r);
-      });
+      if (!currentPortalClientId) {
+        rDiv.addEventListener('click', () => {
+          openReminderDialog(r);
+        });
+      }
 
-      rDiv.querySelector('.btn-complete-reminder-animal').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        r.statut = 'fait';
-        await update('reminders', r);
-        showToast('Rappel marqué fait.');
-        await renderAnimalDetails(animalId);
-      });
+      const completeBtn = rDiv.querySelector('.btn-complete-reminder-animal');
+      if (completeBtn) {
+        completeBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          r.statut = 'fait';
+          await update('reminders', r);
+          showToast('Rappel marqué fait.');
+          await renderAnimalDetails(animalId);
+        });
+      }
 
       remindersContainer.appendChild(rDiv);
     }
@@ -2157,14 +2239,28 @@ async function renderAnimalDetails(animalId) {
   const archiveBanner = document.getElementById('animal-archive-banner');
   const activeActions = document.getElementById('animal-active-actions');
   const archivedActions = document.getElementById('animal-archived-actions');
+  const copyPortalBtn = document.getElementById('btn-copy-animal-portal-link');
+  const addMedBtn = document.getElementById('btn-add-medical-event');
+  const assocProfBtn = document.getElementById('btn-associate-prof');
+  const addRemBtn = document.getElementById('btn-add-reminder-for-animal');
+  const btnArchive = document.getElementById('btn-archive-animal');
+  const btnNewSession = document.getElementById('btn-new-session-for-animal');
 
   if (animal.archived_at) {
     if (archiveBanner) {
-      archiveBanner.innerHTML = `📁 Dossier archivé le <strong>${formatDate(animal.archived_at)}</strong> — Motif : <strong>${animal.archive_reason || 'Non précisé'}</strong>`;
+      if (currentPortalClientId) {
+        archiveBanner.innerHTML = `📁 Dossier clôturé (${formatDate(animal.archived_at)} — Motif : <strong>${animal.archive_reason || 'Non précisé'}</strong>) — Consultation en lecture seule`;
+      } else {
+        archiveBanner.innerHTML = `📁 Dossier archivé le <strong>${formatDate(animal.archived_at)}</strong> — Motif : <strong>${animal.archive_reason || 'Non précisé'}</strong>`;
+      }
       archiveBanner.style.display = 'block';
     }
     if (activeActions) activeActions.style.display = 'none';
-    if (archivedActions) archivedActions.style.display = 'inline-flex';
+    if (archivedActions) archivedActions.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (copyPortalBtn) copyPortalBtn.style.display = 'none';
+    if (addMedBtn) addMedBtn.style.display = 'none';
+    if (assocProfBtn) assocProfBtn.style.display = 'none';
+    if (addRemBtn) addRemBtn.style.display = 'none';
 
     const restoreBtn = document.getElementById('btn-restore-animal');
     if (restoreBtn) {
@@ -2181,6 +2277,12 @@ async function renderAnimalDetails(animalId) {
     }
     if (activeActions) activeActions.style.display = 'inline-flex';
     if (archivedActions) archivedActions.style.display = 'none';
+    if (copyPortalBtn) copyPortalBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (btnArchive) btnArchive.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (btnNewSession) btnNewSession.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (addMedBtn) addMedBtn.style.display = 'inline-flex';
+    if (assocProfBtn) assocProfBtn.style.display = 'inline-flex';
+    if (addRemBtn) addRemBtn.style.display = 'inline-flex';
 
     const archiveBtn = document.getElementById('btn-archive-animal');
     if (archiveBtn) {
@@ -8245,22 +8347,61 @@ async function renderPortalDetails(tokenOrId) {
   sessionStorage.setItem('portalClientId', currentPortalClientId);
   sessionStorage.setItem('portalClientToken', currentPortalClientToken);
 
-  // 4. Mettre à jour l'en-tête et les infos de contact
+  // Si le client est archivé, afficher l'écran de clôture sécurisé
+  if (client.archived_at) {
+    if (ownerTitle) ownerTitle.textContent = `Espace Suivi de ${client.prenom} ${client.nom.toUpperCase()} (Clôturé)`;
+    document.getElementById('portal-client-phone').textContent = client.telephone || '-';
+    document.getElementById('portal-client-email').textContent = client.email || '-';
+    document.getElementById('portal-client-address').textContent = client.adresse || '-';
+    document.getElementById('portal-client-stable').textContent = client.ecurie || '-';
+
+    const btnEditContact = document.getElementById('btn-portal-edit-contact');
+    if (btnEditContact) btnEditContact.style.display = 'none';
+
+    const btnAddAnimal = document.getElementById('btn-portal-add-animal');
+    if (btnAddAnimal) btnAddAnimal.style.display = 'none';
+
+    if (portalAnimalsContainer) {
+      portalAnimalsContainer.innerHTML = `
+        <div class="glass-card" style="text-align: center; padding: 48px 24px; margin: 16px 0; border-radius: 16px; border: 1px solid rgba(217, 107, 39, 0.4); background: rgba(30, 41, 59, 0.7);">
+          <div style="font-size: 2.8rem; margin-bottom: 14px;">📁</div>
+          <h3 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin-bottom: 8px;">Cet espace client a été clôturé</h3>
+          <p style="font-size: 0.92rem; color: var(--text-sub, #94a3b8); max-width: 460px; margin: 0 auto; line-height: 1.55;">
+            Le dossier associé à cet espace a été archivé. L'accès aux consultations et aux formulaires est actuellement désactivé.<br>
+            Veuillez contacter directement votre praticienne eKiKare pour toute information.
+          </p>
+        </div>
+      `;
+    }
+    return;
+  }
+
+  // 4. Mettre à jour l'en-tête et les infos de contact (Client actif)
   if (ownerTitle) ownerTitle.textContent = `Espace Suivi de ${client.prenom} ${client.nom.toUpperCase()}`;
   document.getElementById('portal-client-phone').textContent = client.telephone || '-';
   document.getElementById('portal-client-email').textContent = client.email || '-';
   document.getElementById('portal-client-address').textContent = client.adresse || '-';
   document.getElementById('portal-client-stable').textContent = client.ecurie || '-';
 
+  const btnEditContact = document.getElementById('btn-portal-edit-contact');
+  if (btnEditContact) btnEditContact.style.display = 'inline-flex';
+
+  const btnAddAnimal = document.getElementById('btn-portal-add-animal');
+  if (btnAddAnimal) btnAddAnimal.style.display = 'inline-flex';
+
   // Configurer le bouton de modification des coordonnées
-  document.getElementById('btn-portal-edit-contact').onclick = () => {
-    openClientDialog(client);
-  };
+  if (btnEditContact) {
+    btnEditContact.onclick = () => {
+      openClientDialog(client);
+    };
+  }
 
   // Configurer le bouton d'ajout d'un animal
-  document.getElementById('btn-portal-add-animal').onclick = () => {
-    openAnimalDialog(null, client.id);
-  };
+  if (btnAddAnimal) {
+    btnAddAnimal.onclick = () => {
+      openAnimalDialog(null, client.id);
+    };
+  }
 
   // Récupérer et afficher les animaux associés à ce client
   const animals = await getByIndex('animals', 'client_id', client.id);
@@ -8278,12 +8419,13 @@ async function renderPortalDetails(tokenOrId) {
       const avatarText = an.nom.substring(0, 2).toUpperCase();
       const ageDisplay = calculateAge(an.date_naissance_ou_age, an.date_naissance_ou_age);
       const locText = getAnimalLocationSummary(an);
+      const archiveBadge = an.archived_at ? `<span class="badge" style="background: rgba(217, 107, 39, 0.2); color: #f59e0b; border: 1px solid rgba(217, 107, 39, 0.4); font-size: 0.75rem; padding: 2px 7px; border-radius: 6px; font-weight: 600; margin-left: 8px;">Dossier clôturé</span>` : '';
 
       card.innerHTML = `
         <div class="animal-mini-info">
           <div class="animal-avatar-mini">${avatarText}</div>
           <div>
-            <span class="animal-mini-name">${an.nom}</span>
+            <span class="animal-mini-name">${an.nom} ${archiveBadge}</span>
             <div class="animal-mini-details">${an.espece} &bull; ${an.race || 'Race inconnue'} &bull; ${ageDisplay}</div>
             <div class="animal-mini-location" style="font-size:0.85rem; color:var(--text-sub); margin-top:2px;">📍 ${locText}</div>
           </div>
