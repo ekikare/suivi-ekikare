@@ -827,13 +827,6 @@ export async function reconcileClientUUIDsFromSupabase() {
           changed = true;
         }
 
-        // Mettre à jour le statut d'archivage si différent
-        if ((matchedLocal.archived_at || null) !== (remote.archived_at || null)) {
-          matchedLocal.archived_at = remote.archived_at || null;
-          matchedLocal.archive_reason = remote.archive_reason || null;
-          changed = true;
-        }
-
         // 4. Nettoyer définitivement toute chaîne résiduelle [portal_token:...] qui subsisterait dans le champ notes local
         if (matchedLocal.notes && matchedLocal.notes.includes('[portal_token:')) {
           matchedLocal.notes = matchedLocal.notes.replace(/\[portal_token:[^\]]+\]/g, '').trim();
@@ -845,7 +838,6 @@ export async function reconcileClientUUIDsFromSupabase() {
         }
 
         if (changed) {
-          matchedLocal.synced = 1;
           await updateLocal('clients', matchedLocal);
           hasChanges = true;
         }

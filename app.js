@@ -1097,6 +1097,27 @@ function openArchiveRecordDialog(type, record) {
     record.archive_reason = chosenReason;
 
     await update(type === 'client' ? 'clients' : 'animals', record);
+
+    // Si en ligne, pousser immédiatement et attendre la confirmation Supabase pour éviter tout rollback
+    if (navigator.onLine) {
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const storeName = type === 'client' ? 'clients' : 'animals';
+          const mapped = mapLocalToSupabase(storeName, record);
+          const { error: upsertErr } = await supabase.from(storeName).upsert(mapped);
+          if (!upsertErr) {
+            record.synced = 1;
+            await updateLocal(storeName, record);
+          } else {
+            console.warn(`Erreur sauvegarde distante archivage ${storeName}:`, upsertErr);
+          }
+        }
+      } catch (err) {
+        console.warn("Erreur directe sync archivage:", err);
+      }
+    }
+
     showToast(`${type === 'client' ? 'Client' : 'Animal'} archivé avec succès.`);
     dialog.close();
 
@@ -1128,6 +1149,27 @@ async function restoreRecord(type, record) {
   record.archive_reason = null;
 
   await update(type === 'client' ? 'clients' : 'animals', record);
+
+  // Si en ligne, pousser immédiatement et attendre la confirmation Supabase
+  if (navigator.onLine) {
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const storeName = type === 'client' ? 'clients' : 'animals';
+        const mapped = mapLocalToSupabase(storeName, record);
+        const { error: upsertErr } = await supabase.from(storeName).upsert(mapped);
+        if (!upsertErr) {
+          record.synced = 1;
+          await updateLocal(storeName, record);
+        } else {
+          console.warn(`Erreur sauvegarde distante restauration ${storeName}:`, upsertErr);
+        }
+      }
+    } catch (err) {
+      console.warn("Erreur directe sync restauration:", err);
+    }
+  }
+
   showToast(`${type === 'client' ? 'Client' : 'Animal'} restauré avec succès.`);
 
   if (type === 'client') {
@@ -2245,11 +2287,12 @@ async function renderAnimalDetails(animalId) {
   const addRemBtn = document.getElementById('btn-add-reminder-for-animal');
   const btnArchive = document.getElementById('btn-archive-animal');
   const btnNewSession = document.getElementById('btn-new-session-for-animal');
+  const addExtSessionBtn = document.getElementById('btn-add-external-session-for-animal');
 
   if (animal.archived_at) {
     if (archiveBanner) {
       if (currentPortalClientId) {
-        archiveBanner.innerHTML = `📁 Dossier clôturé (${formatDate(animal.archived_at)} — Motif : <strong>${animal.archive_reason || 'Non précisé'}</strong>) — Consultation en lecture seule`;
+        archiveBanner.innerHTML = `📁 Dossier clôturé (${formatDate(animal.archived_at)}) — Consultation en lecture seule`;
       } else {
         archiveBanner.innerHTML = `📁 Dossier archivé le <strong>${formatDate(animal.archived_at)}</strong> — Motif : <strong>${animal.archive_reason || 'Non précisé'}</strong>`;
       }
@@ -2261,6 +2304,7 @@ async function renderAnimalDetails(animalId) {
     if (addMedBtn) addMedBtn.style.display = 'none';
     if (assocProfBtn) assocProfBtn.style.display = 'none';
     if (addRemBtn) addRemBtn.style.display = 'none';
+    if (addExtSessionBtn) addExtSessionBtn.style.display = 'none';
 
     const restoreBtn = document.getElementById('btn-restore-animal');
     if (restoreBtn) {
@@ -2280,9 +2324,10 @@ async function renderAnimalDetails(animalId) {
     if (copyPortalBtn) copyPortalBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
     if (btnArchive) btnArchive.style.display = currentPortalClientId ? 'none' : 'inline-flex';
     if (btnNewSession) btnNewSession.style.display = currentPortalClientId ? 'none' : 'inline-flex';
-    if (addMedBtn) addMedBtn.style.display = 'inline-flex';
-    if (assocProfBtn) assocProfBtn.style.display = 'inline-flex';
-    if (addRemBtn) addRemBtn.style.display = 'inline-flex';
+    if (addExtSessionBtn) addExtSessionBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (addMedBtn) addMedBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (assocProfBtn) assocProfBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (addRemBtn) addRemBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
 
     const archiveBtn = document.getElementById('btn-archive-animal');
     if (archiveBtn) {
@@ -7288,9 +7333,6 @@ async function syncData() {
   updateSyncStatusUI('syncing');
 
   try {
-    // 0. RECONCILE CLIENT UUIDS WITH SUPABASE
-    await reconcileClientUUIDsFromSupabase();
-
     // 1. PUSH PENDING DELETIONS
     const deletions = await getTrackedDeletions();
     for (const del of deletions) {
@@ -7307,7 +7349,7 @@ async function syncData() {
       }
     }
 
-    // 2. PUSH UNSYNCED LOCAL MODIFICATIONS
+    // 2. PUSH UNSYNCED LOCAL MODIFICATIONS (Priorité pour éviter tout rollback)
     for (const storeName of SYNCED_STORES) {
       const table = storeName === 'reminders' ? 'tasks' : storeName;
       const localRecords = await getAll(storeName);
@@ -7327,6 +7369,9 @@ async function syncData() {
         }
       }
     }
+
+    // 3. RECONCILE CLIENT UUIDS WITH SUPABASE
+    await reconcileClientUUIDsFromSupabase();
 
     // 3. PULL REMOTE MODIFICATIONS
     for (const storeName of SYNCED_STORES) {

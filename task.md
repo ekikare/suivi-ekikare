@@ -33,5 +33,11 @@
   - [x] Blocage strict des écritures/synchronisations vers Supabase pour un portail archivé (`app.js`) <!-- id: 8.4 -->
   - [x] Fichier `favicon.ico` et balises `<link>` dans `<head>` de `index.html` pour éliminer l'erreur 404 <!-- id: 8.5 -->
   - [x] Validation et push sur `origin main` <!-- id: 8.6 -->
+- [x] 9. Persistance de l'archivage, bandeau épuré sans motif et sécurisation Espace Client <!-- id: 9 -->
+  - [x] Persistance immédiate avec await Supabase & ordre de synchro corrigé pour empêcher le rollback <!-- id: 9.1 -->
+  - [x] Bandeau animal clôturé épuré sans motif d'archivage dans l'Espace Client <!-- id: 9.2 -->
+  - [x] Retrait de tous les boutons d'archivage/édition non autorisés dans l'Espace Client <!-- id: 9.3 -->
+  - [x] Validation complète, commit et push sur main <!-- id: 9.4 -->
+
 
 
