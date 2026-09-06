@@ -7269,6 +7269,14 @@ async function syncData() {
     // Bloquer la synchronisation globale tant que l'espace praticien est verrouillé
     return;
   }
+  if (currentPortalClientId && !isPractitionerUnlocked()) {
+    const portalClient = await getById('clients', currentPortalClientId);
+    if (portalClient && portalClient.archived_at) {
+      // Bloquer toute écriture/synchronisation si l'espace client est clôturé / archivé
+      updateSyncStatusUI('online');
+      return;
+    }
+  }
 
   const supabase = getSupabaseClient();
   if (!supabase) {
@@ -8299,8 +8307,14 @@ async function openAnimalDossierPreviewModal(animal, options) {
 async function renderPortalDetails(tokenOrId) {
   hidePractitionerLockOverlay();
 
+  const closedView = document.getElementById('portal-closed-view');
+  const activeView = document.getElementById('portal-active-view');
   const portalAnimalsContainer = document.getElementById('portal-client-animals');
   const ownerTitle = document.getElementById('portal-owner-title');
+
+  // Masquer l'écran clôturé par défaut pendant le chargement
+  if (closedView) closedView.style.display = 'none';
+  if (activeView) activeView.style.display = 'block';
 
   // 1. Indicateur de chargement immédiat
   if (ownerTitle) ownerTitle.textContent = "Chargement de votre espace de suivi...";
@@ -8314,7 +8328,7 @@ async function renderPortalDetails(tokenOrId) {
     `;
   }
 
-  // 2. Recherche locale puis Supabase
+  // 2. Recherche distante prioritaire Supabase (garantit la fraîcheur de archived_at) puis repli local
   let client = await fetchClientPortalData(tokenOrId);
   if (!client && !isNaN(Number(tokenOrId))) {
     client = await getById('clients', Number(tokenOrId));
@@ -8322,6 +8336,8 @@ async function renderPortalDetails(tokenOrId) {
 
   // 3. Cas non trouvé
   if (!client) {
+    if (closedView) closedView.style.display = 'none';
+    if (activeView) activeView.style.display = 'block';
     if (portalAnimalsContainer) {
       portalAnimalsContainer.innerHTML = `
         <div class="empty-state glass-card" style="text-align: center; padding: 48px 24px; margin: 16px 0; border-radius: 16px;">
@@ -8347,36 +8363,17 @@ async function renderPortalDetails(tokenOrId) {
   sessionStorage.setItem('portalClientId', currentPortalClientId);
   sessionStorage.setItem('portalClientToken', currentPortalClientToken);
 
-  // Si le client est archivé, afficher l'écran de clôture sécurisé
+  // 4. Si le client est archivé : BLOQUER STRICTEMENT et afficher l'écran de clôture propre et centré
   if (client.archived_at) {
-    if (ownerTitle) ownerTitle.textContent = `Espace Suivi de ${client.prenom} ${client.nom.toUpperCase()} (Clôturé)`;
-    document.getElementById('portal-client-phone').textContent = client.telephone || '-';
-    document.getElementById('portal-client-email').textContent = client.email || '-';
-    document.getElementById('portal-client-address').textContent = client.adresse || '-';
-    document.getElementById('portal-client-stable').textContent = client.ecurie || '-';
-
-    const btnEditContact = document.getElementById('btn-portal-edit-contact');
-    if (btnEditContact) btnEditContact.style.display = 'none';
-
-    const btnAddAnimal = document.getElementById('btn-portal-add-animal');
-    if (btnAddAnimal) btnAddAnimal.style.display = 'none';
-
-    if (portalAnimalsContainer) {
-      portalAnimalsContainer.innerHTML = `
-        <div class="glass-card" style="text-align: center; padding: 48px 24px; margin: 16px 0; border-radius: 16px; border: 1px solid rgba(217, 107, 39, 0.4); background: rgba(30, 41, 59, 0.7);">
-          <div style="font-size: 2.8rem; margin-bottom: 14px;">📁</div>
-          <h3 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin-bottom: 8px;">Cet espace client a été clôturé</h3>
-          <p style="font-size: 0.92rem; color: var(--text-sub, #94a3b8); max-width: 460px; margin: 0 auto; line-height: 1.55;">
-            Le dossier associé à cet espace a été archivé. L'accès aux consultations et aux formulaires est actuellement désactivé.<br>
-            Veuillez contacter directement votre praticienne eKiKare pour toute information.
-          </p>
-        </div>
-      `;
-    }
+    if (activeView) activeView.style.display = 'none';
+    if (closedView) closedView.style.display = 'block';
     return;
   }
 
-  // 4. Mettre à jour l'en-tête et les infos de contact (Client actif)
+  // 5. Client actif : afficher le tableau de bord standard
+  if (closedView) closedView.style.display = 'none';
+  if (activeView) activeView.style.display = 'block';
+
   if (ownerTitle) ownerTitle.textContent = `Espace Suivi de ${client.prenom} ${client.nom.toUpperCase()}`;
   document.getElementById('portal-client-phone').textContent = client.telephone || '-';
   document.getElementById('portal-client-email').textContent = client.email || '-';
@@ -8384,20 +8381,16 @@ async function renderPortalDetails(tokenOrId) {
   document.getElementById('portal-client-stable').textContent = client.ecurie || '-';
 
   const btnEditContact = document.getElementById('btn-portal-edit-contact');
-  if (btnEditContact) btnEditContact.style.display = 'inline-flex';
-
-  const btnAddAnimal = document.getElementById('btn-portal-add-animal');
-  if (btnAddAnimal) btnAddAnimal.style.display = 'inline-flex';
-
-  // Configurer le bouton de modification des coordonnées
   if (btnEditContact) {
+    btnEditContact.style.display = 'inline-flex';
     btnEditContact.onclick = () => {
       openClientDialog(client);
     };
   }
 
-  // Configurer le bouton d'ajout d'un animal
+  const btnAddAnimal = document.getElementById('btn-portal-add-animal');
   if (btnAddAnimal) {
+    btnAddAnimal.style.display = 'inline-flex';
     btnAddAnimal.onclick = () => {
       openAnimalDialog(null, client.id);
     };

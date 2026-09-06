@@ -26,5 +26,12 @@
   - [x] Sécurisation de l'accès à l'Espace Client avec écran de clôture pour client archivé <!-- id: 7.4 -->
   - [x] Badge "Dossier clôturé" et verrouillage complet en lecture seule pour animal archivé dans l'Espace Client <!-- id: 7.5 -->
   - [x] Validation complète par tests navigateur, commit et push sur `origin main` <!-- id: 7.6 -->
+- [x] 8. Blocage strict de l'Espace Client archivé et Résolution 404 Favicon <!-- id: 8 -->
+  - [x] Récupération et lecture fraîche de `archived_at` depuis Supabase lors du chargement du portail (`db.js`) <!-- id: 8.1 -->
+  - [x] Court-circuit complet de l'affichage (ni tableau de bord ni animaux) pour client archivé (`index.html`, `app.js`) <!-- id: 8.2 -->
+  - [x] Rendu de l'écran d'information centré et sobre « Espace clôturé » (`index.html`) <!-- id: 8.3 -->
+  - [x] Blocage strict des écritures/synchronisations vers Supabase pour un portail archivé (`app.js`) <!-- id: 8.4 -->
+  - [x] Fichier `favicon.ico` et balises `<link>` dans `<head>` de `index.html` pour éliminer l'erreur 404 <!-- id: 8.5 -->
+  - [x] Validation et push sur `origin main` <!-- id: 8.6 -->
 
 

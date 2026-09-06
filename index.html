@@ -30,6 +30,9 @@
       document.documentElement.classList.add('portal-mode');
     }
   </script>
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="assets/logo-icon.png">
+  <link rel="shortcut icon" href="favicon.ico">
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -328,60 +331,77 @@
             <span class="portal-brand-tag">Espace de Suivi Client</span>
           </div>
 
-          <div class="portal-header-card glass-card" style="margin-bottom: 25px; padding: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-            <div style="display: flex; align-items: center; gap: 15px;">
-              <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(217, 107, 39, 0.12); border: 2px solid #D96B27; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; flex-shrink: 0;">
-                🐾
-              </div>
-              <div>
-                <h1 style="margin: 0; font-size: 1.5rem; color: #D96B27;" id="portal-owner-title">Espace Suivi de -</h1>
-                <p style="margin: 4px 0 0 0; font-size: 0.9rem; color: var(--color-primary); font-weight: bold;">Bienvenue sur votre portail sécurisé eKiKare</p>
-              </div>
-            </div>
-            <button class="btn btn-secondary" id="btn-portal-edit-contact">Modifier mes coordonnées</button>
-          </div>
-
-          <div class="detail-grid">
-            <!-- Contact & Info Card -->
-            <div class="glass-card detail-card">
-              <h3>Mes Coordonnées</h3>
-              <div class="info-list">
-                <div class="info-item">
-                  <span class="info-label">Téléphone</span>
-                  <span class="info-value" id="portal-client-phone">-</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">E-mail</span>
-                  <span class="info-value" id="portal-client-email">-</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">Adresse</span>
-                  <span class="info-value" id="portal-client-address">-</span>
-                </div>
-                <div class="info-item" id="portal-client-stable-row">
-                  <span class="info-label">Écurie principale</span>
-                  <span class="info-value" id="portal-client-stable">-</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Associated Animals Card -->
-            <div class="glass-card detail-card">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h3 style="margin: 0;">Mes Animaux</h3>
-                <button class="btn btn-primary btn-small" id="btn-portal-add-animal">+ Ajouter un animal</button>
-              </div>
-              <div class="animal-cards-list" id="portal-client-animals">
-                <!-- Dynamique -->
+          <!-- Écran propre et centré pour client archivé / clôturé -->
+          <div id="portal-closed-view" style="display: none;">
+            <div class="glass-card" style="text-align: center; padding: 50px 30px; max-width: 560px; margin: 40px auto; border-radius: 20px; border: 1px solid rgba(217, 107, 39, 0.4); background: rgba(15, 23, 42, 0.85); box-shadow: 0 12px 36px rgba(0,0,0,0.5);">
+              <div style="font-size: 3.2rem; margin-bottom: 16px;">📁</div>
+              <h2 style="font-size: 1.45rem; font-weight: 700; color: #fff; margin-bottom: 12px; letter-spacing: -0.01em;">Espace clôturé</h2>
+              <p style="font-size: 0.98rem; color: #cbd5e1; line-height: 1.6; margin: 0 auto 18px; max-width: 480px;">
+                Le dossier associé à cet espace client a été archivé. L'accès n'est plus disponible.
+              </p>
+              <div style="font-size: 0.88rem; color: #94a3b8; line-height: 1.5; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08);">
+                Pour toute question, contactez directement votre praticien.
               </div>
             </div>
           </div>
 
-          <footer class="portal-footer">
-            <p class="portal-disclaimer-text">
-              Les informations partagées sur cet espace sont fournies à titre indicatif pour le suivi de confort de votre animal et ne constituent en aucun cas un diagnostic ou un acte vétérinaire.
-            </p>
-          </footer>
+          <!-- Écran actif standard -->
+          <div id="portal-active-view">
+            <div class="portal-header-card glass-card" style="margin-bottom: 25px; padding: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+              <div style="display: flex; align-items: center; gap: 15px;">
+                <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(217, 107, 39, 0.12); border: 2px solid #D96B27; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; flex-shrink: 0;">
+                  🐾
+                </div>
+                <div>
+                  <h1 style="margin: 0; font-size: 1.5rem; color: #D96B27;" id="portal-owner-title">Espace Suivi de -</h1>
+                  <p style="margin: 4px 0 0 0; font-size: 0.9rem; color: var(--color-primary); font-weight: bold;">Bienvenue sur votre portail sécurisé eKiKare</p>
+                </div>
+              </div>
+              <button class="btn btn-secondary" id="btn-portal-edit-contact">Modifier mes coordonnées</button>
+            </div>
+
+            <div class="detail-grid">
+              <!-- Contact & Info Card -->
+              <div class="glass-card detail-card">
+                <h3>Mes Coordonnées</h3>
+                <div class="info-list">
+                  <div class="info-item">
+                    <span class="info-label">Téléphone</span>
+                    <span class="info-value" id="portal-client-phone">-</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">E-mail</span>
+                    <span class="info-value" id="portal-client-email">-</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Adresse</span>
+                    <span class="info-value" id="portal-client-address">-</span>
+                  </div>
+                  <div class="info-item" id="portal-client-stable-row">
+                    <span class="info-label">Écurie principale</span>
+                    <span class="info-value" id="portal-client-stable">-</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Associated Animals Card -->
+              <div class="glass-card detail-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                  <h3 style="margin: 0;">Mes Animaux</h3>
+                  <button class="btn btn-primary btn-small" id="btn-portal-add-animal">+ Ajouter un animal</button>
+                </div>
+                <div class="animal-cards-list" id="portal-client-animals">
+                  <!-- Dynamique -->
+                </div>
+              </div>
+            </div>
+
+            <footer class="portal-footer">
+              <p class="portal-disclaimer-text">
+                Les informations partagées sur cet espace sont fournies à titre indicatif pour le suivi de confort de votre animal et ne constituent en aucun cas un diagnostic ou un acte vétérinaire.
+              </p>
+            </footer>
+          </div>
         </div>
       </section>
 

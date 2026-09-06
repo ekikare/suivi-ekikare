@@ -778,7 +778,7 @@ export async function reconcileClientUUIDsFromSupabase() {
     // 1. Récupérer l'ensemble des clients distants depuis Supabase
     const { data: remoteClients, error } = await supabase
       .from('clients')
-      .select('id, uuid, email, phone, first_name, last_name');
+      .select('id, uuid, email, phone, first_name, last_name, archived_at, archive_reason');
 
     if (error || !remoteClients || remoteClients.length === 0) {
       return false;
@@ -824,6 +824,13 @@ export async function reconcileClientUUIDsFromSupabase() {
         // 3. Mettre à jour l'enregistrement local si l'UUID est manquant ou différent de celui de Supabase
         if (matchedLocal.uuid !== remote.uuid) {
           matchedLocal.uuid = remote.uuid;
+          changed = true;
+        }
+
+        // Mettre à jour le statut d'archivage si différent
+        if ((matchedLocal.archived_at || null) !== (remote.archived_at || null)) {
+          matchedLocal.archived_at = remote.archived_at || null;
+          matchedLocal.archive_reason = remote.archive_reason || null;
           changed = true;
         }
 
