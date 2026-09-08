@@ -22,6 +22,7 @@ import {
   mapSupabaseToLocal,
   registerDatabaseChangeCallback,
   generateUUID,
+  getClientByUuid,
   getClientByToken,
   ensureClientsHaveUUID,
   reconcileClientUUIDsFromSupabase,
