@@ -7541,6 +7541,15 @@ async function syncData() {
         try {
           const mapped = mapLocalToSupabase(storeName, record);
           const { error } = await supabase.from(table).upsert(mapped);
+
+          if ((storeName === 'clients' || storeName === 'animals') && record.id) {
+            await supabase.from(table).update({
+              archived_at: record.archived_at || null,
+              archive_reason: record.archive_reason || null,
+              updated_at: new Date().toISOString()
+            }).eq('id', record.id);
+          }
+
           if (!error) {
             record.synced = 1;
             await updateLocal(storeName, record);
@@ -7553,10 +7562,10 @@ async function syncData() {
       }
     }
 
-    // 3. RECONCILE CLIENT UUIDS WITH SUPABASE
+    // 3. RECONCILE CLIENT UUIDS & ARCHIVES WITH SUPABASE
     await reconcileClientUUIDsFromSupabase();
 
-    // 3. PULL REMOTE MODIFICATIONS
+    // 4. PULL REMOTE MODIFICATIONS
     for (const storeName of SYNCED_STORES) {
       const table = storeName === 'reminders' ? 'tasks' : storeName;
       try {
@@ -7577,23 +7586,46 @@ async function syncData() {
               remoteRec.synced = 1;
               await updateLocal(storeName, remoteRec);
             } else {
-              const localTime = new Date(localRec.last_modified || 0).getTime();
-              const remoteTime = new Date(remoteRec.last_modified || 0).getTime();
-              if (remoteTime > localTime) {
-                remoteRec.synced = 1;
-                await updateLocal(storeName, remoteRec);
-              } else if (localRec.synced === 0) {
+              // Si Supabase a archived_at et pas local : Supabase gagne
+              if (remoteRec.archived_at && !localRec.archived_at) {
+                localRec.archived_at = remoteRec.archived_at;
+                localRec.archive_reason = remoteRec.archive_reason;
+                localRec.synced = 1;
+                await updateLocal(storeName, localRec);
+              }
+              // Si local a archived_at et pas Supabase : local répare Supabase
+              else if (localRec.archived_at && !remoteRec.archived_at) {
                 try {
-                  const mappedLocal = mapLocalToSupabase(storeName, localRec);
-                  const { error: upsertErr } = await supabase.from(table).upsert(mappedLocal);
-                  if (!upsertErr) {
-                    localRec.synced = 1;
-                    await updateLocal(storeName, localRec);
-                  } else {
-                    console.error("Erreur sync:", table, upsertErr.message || upsertErr);
+                  await supabase.from(table).update({
+                    archived_at: localRec.archived_at,
+                    archive_reason: localRec.archive_reason,
+                    updated_at: new Date().toISOString()
+                  }).eq('id', localRec.id);
+                  localRec.synced = 1;
+                  await updateLocal(storeName, localRec);
+                } catch (e) {
+                  console.error("Erreur sync update Supabase archive:", e);
+                }
+              }
+              else {
+                const localTime = new Date(localRec.last_modified || 0).getTime();
+                const remoteTime = new Date(remoteRec.last_modified || 0).getTime();
+                if (remoteTime >= localTime) {
+                  remoteRec.synced = 1;
+                  await updateLocal(storeName, remoteRec);
+                } else if (localRec.synced === 0) {
+                  try {
+                    const mappedLocal = mapLocalToSupabase(storeName, localRec);
+                    const { error: upsertErr } = await supabase.from(table).upsert(mappedLocal);
+                    if (!upsertErr) {
+                      localRec.synced = 1;
+                      await updateLocal(storeName, localRec);
+                    } else {
+                      console.error("Erreur sync:", table, upsertErr.message || upsertErr);
+                    }
+                  } catch (err) {
+                    console.error("Erreur sync:", table, err.message || err);
                   }
-                } catch (err) {
-                  console.error("Erreur sync:", table, err.message || err);
                 }
               }
             }

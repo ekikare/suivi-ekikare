@@ -837,7 +837,25 @@ export async function reconcileClientUUIDsFromSupabase() {
           changed = true;
         }
 
-        // 4. Nettoyer définitivement toute chaîne résiduelle [portal_token:...] qui subsisterait dans le champ notes local
+        // 4. Réconcilier l'état d'archivage (Supabase <-> Local)
+        if (remote.archived_at && !matchedLocal.archived_at) {
+          matchedLocal.archived_at = remote.archived_at;
+          matchedLocal.archive_reason = remote.archive_reason;
+          changed = true;
+        } else if (matchedLocal.archived_at && !remote.archived_at) {
+          // Local est archivé mais Supabase ne l'a pas encore, réparer Supabase !
+          try {
+            await supabase.from('clients').update({
+              archived_at: matchedLocal.archived_at,
+              archive_reason: matchedLocal.archive_reason,
+              updated_at: new Date().toISOString()
+            }).eq('id', matchedLocal.id);
+          } catch (e) {
+            console.error("Erreur sync reconcileClientUUIDsFromSupabase:", e);
+          }
+        }
+
+        // 5. Nettoyer définitivement toute chaîne résiduelle [portal_token:...] qui subsisterait dans le champ notes local
         if (matchedLocal.notes && matchedLocal.notes.includes('[portal_token:')) {
           matchedLocal.notes = matchedLocal.notes.replace(/\[portal_token:[^\]]+\]/g, '').trim();
           changed = true;
@@ -848,6 +866,7 @@ export async function reconcileClientUUIDsFromSupabase() {
         }
 
         if (changed) {
+          matchedLocal.synced = 1;
           await updateLocal('clients', matchedLocal);
           hasChanges = true;
         }
@@ -896,9 +915,18 @@ export async function ensureClientsHaveUUID() {
       changed = true;
     }
     if (changed || !client.synced) {
+      client.synced = 1;
       await updateLocal('clients', client);
       if (navigator.onLine) {
-        await syncUpsert('clients', client);
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const updatePayload = { uuid: client.uuid };
+          if (client.archived_at) {
+            updatePayload.archived_at = client.archived_at;
+            updatePayload.archive_reason = client.archive_reason;
+          }
+          await supabase.from('clients').update(updatePayload).eq('id', client.id);
+        }
       }
       hasChanges = true;
     }
@@ -944,11 +972,23 @@ export async function fetchClientPortalData(portalUuid) {
             existingLocal = await getClientByUuid(clientData.uuid);
           }
           const localClient = mapSupabaseToLocal('clients', clientData);
-          // Si le client est archivé localement mais que Supabase a encore archived_at = null, préserver l'archivage local !
+          
+          // Si le client est archivé localement mais que Supabase a encore archived_at = null, préserver l'archivage local et réparer Supabase !
           if (existingLocal && existingLocal.archived_at && !localClient.archived_at) {
             localClient.archived_at = existingLocal.archived_at;
             localClient.archive_reason = existingLocal.archive_reason;
+            await supabase.from('clients').update({
+              archived_at: localClient.archived_at,
+              archive_reason: localClient.archive_reason,
+              updated_at: new Date().toISOString()
+            }).eq('id', clientData.id);
+          } else if (localClient.archived_at && existingLocal && !existingLocal.archived_at) {
+            existingLocal.archived_at = localClient.archived_at;
+            existingLocal.archive_reason = localClient.archive_reason;
+            existingLocal.synced = 1;
+            await updateLocal('clients', existingLocal);
           }
+          localClient.synced = 1;
           await updateLocal('clients', localClient);
 
           // Si le client est archivé, ne PAS charger ses animaux ni ses séances
