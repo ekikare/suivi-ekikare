@@ -59,6 +59,22 @@ let animalDetailsProvenance = null;
 let activeSpeechTarget = null;
 let activeSpeechBtn = null;
 
+// --- GESTION DU PULL DE SÉCURITÉ (Inactivité 15 min) ---
+let lastSyncCheck = Date.now();
+const INACTIVITY_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+
+export function checkPassiveSync() {
+  const now = Date.now();
+  if (now - lastSyncCheck > INACTIVITY_COOLDOWN_MS) {
+    lastSyncCheck = now;
+    if (typeof syncData === 'function' && navigator.onLine) {
+      syncData({ silent: true }).then(() => {
+        if (typeof refreshCurrentView === 'function') refreshCurrentView();
+      });
+    }
+  }
+}
+
 // Motifs d'archivage par défaut
 const DEFAULT_CLIENT_ARCHIVE_REASONS = [
   "Déménagement",
@@ -164,21 +180,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateSyncStatusUI('offline');
   });
 
-  // Écouteur de visibilité de l'onglet (réveil de l'application / portail en arrière-plan avec cooldown)
-  let lastSyncVisibilityTime = Date.now();
-  const VISIBILITY_SYNC_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
-
+  // Écouteur de visibilité de l'onglet (réveil de l'application / portail en arrière-plan)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      const now = Date.now();
-      if (now - lastSyncVisibilityTime > VISIBILITY_SYNC_COOLDOWN_MS) {
-        lastSyncVisibilityTime = now;
-        if (typeof syncData === 'function') {
-          syncData({ silent: true }).then(() => {
-            if (typeof refreshCurrentView === 'function') refreshCurrentView();
-          });
-        }
-      }
+      checkPassiveSync();
     }
   });
 
@@ -447,6 +452,7 @@ async function checkPortalContext() {
 }
 
 async function handleRouting() {
+  checkPassiveSync();
   const hash = getNormalizedHash();
   previousRoute = currentRoute;
   currentRoute = hash;
@@ -7530,6 +7536,7 @@ async function syncData(options = {}) {
       }
     }
 
+    lastSyncCheck = Date.now();
     if (!isSilent) updateSyncStatusUI('online');
     await refreshCurrentView();
 
@@ -7540,6 +7547,9 @@ async function syncData(options = {}) {
     isSyncing = false;
   }
 }
+
+// Exposition globale pour débogage et contrôles directs
+window.syncData = syncData;
 
 // --- MOCK DATA ---
 async function checkAndInjectMockData() {
