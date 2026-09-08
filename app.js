@@ -60,20 +60,26 @@ let activeSpeechTarget = null;
 let activeSpeechBtn = null;
 
 // --- GESTION DU PULL DE SÉCURITÉ (Inactivité 15 min) ---
-let lastSyncCheck = Date.now();
+window.lastSyncCheck = window.lastSyncCheck || Date.now();
 const INACTIVITY_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
 
-export function checkPassiveSync() {
+export async function checkAndSyncIfInactive() {
   const now = Date.now();
-  if (now - lastSyncCheck > INACTIVITY_COOLDOWN_MS) {
-    lastSyncCheck = now;
-    if (typeof syncData === 'function' && navigator.onLine) {
-      syncData({ silent: true }).then(() => {
-        if (typeof refreshCurrentView === 'function') refreshCurrentView();
-      });
+  if (now - window.lastSyncCheck >= INACTIVITY_COOLDOWN_MS) {
+    console.log('Cooldown 15min dépassé : lancement de la synchro de sécurité...');
+    window.lastSyncCheck = now;
+    try {
+      if (typeof syncData === 'function' && navigator.onLine) {
+        await syncData({ silent: true });
+        if (typeof renderCurrentView === 'function') renderCurrentView();
+        else if (typeof refreshCurrentView === 'function') refreshCurrentView();
+      }
+    } catch (err) {
+      console.warn('Erreur sync inactivité:', err);
     }
   }
 }
+window.checkAndSyncIfInactive = checkAndSyncIfInactive;
 
 // Motifs d'archivage par défaut
 const DEFAULT_CLIENT_ARCHIVE_REASONS = [
@@ -183,7 +189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Écouteur de visibilité de l'onglet (réveil de l'application / portail en arrière-plan)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      checkPassiveSync();
+      checkAndSyncIfInactive();
     }
   });
 
@@ -364,6 +370,7 @@ function setupPractitionerLock() {
 function setupNavigation() {
   document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
     item.addEventListener('click', () => {
+      checkAndSyncIfInactive();
       sessionStorage.removeItem('portalClientId');
       currentPortalClientId = null;
       document.body.classList.remove('is-client-portal');
@@ -452,7 +459,7 @@ async function checkPortalContext() {
 }
 
 async function handleRouting() {
-  checkPassiveSync();
+  checkAndSyncIfInactive();
   const hash = getNormalizedHash();
   previousRoute = currentRoute;
   currentRoute = hash;
@@ -7536,7 +7543,7 @@ async function syncData(options = {}) {
       }
     }
 
-    lastSyncCheck = Date.now();
+    window.lastSyncCheck = Date.now();
     if (!isSilent) updateSyncStatusUI('online');
     await refreshCurrentView();
 
