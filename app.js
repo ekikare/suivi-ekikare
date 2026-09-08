@@ -8469,6 +8469,10 @@ async function renderPortalDetails(tokenOrId) {
   const portalAnimalsContainer = document.getElementById('portal-client-animals');
   const ownerTitle = document.getElementById('portal-owner-title');
 
+  // Masquer systématiquement les deux vues au démarrage du chargement
+  if (closedView) closedView.style.display = 'none';
+  if (activeView) activeView.style.display = 'none';
+
   // 0. Vérification locale immédiate (priorité absolue si client déjà archivé localement)
   let localClient = await getClientByUuid(tokenOrId);
   if (!localClient && !isNaN(Number(tokenOrId))) {
@@ -8484,29 +8488,13 @@ async function renderPortalDetails(tokenOrId) {
     return;
   }
 
-  // Masquer l'écran clôturé par défaut pendant le chargement
-  if (closedView) closedView.style.display = 'none';
-  if (activeView) activeView.style.display = 'block';
-
-  // 1. Indicateur de chargement immédiat
-  if (ownerTitle) ownerTitle.textContent = "Chargement de votre espace de suivi...";
-  if (portalAnimalsContainer) {
-    portalAnimalsContainer.innerHTML = `
-      <div class="portal-loading-card glass-card" style="text-align: center; padding: 48px 24px; margin: 16px 0; border-radius: 16px;">
-        <div class="sync-icon-spin" style="width: 32px; height: 32px; border-width: 3px; color: var(--color-primary, #10b981); margin: 0 auto 16px;"></div>
-        <h3 style="font-size: 1.15rem; font-weight: 600; color: #fff; margin-bottom: 6px;">Récupération de votre dossier...</h3>
-        <p style="font-size: 0.88rem; color: var(--text-sub, #94a3b8); max-width: 380px; margin: 0 auto;">Connexion sécurisée en cours avec la base de données eKiKare.</p>
-      </div>
-    `;
-  }
-
-  // 2. Recherche distante prioritaire Supabase (garantit la fraîcheur de archived_at) puis repli local
+  // 1. Recherche distante prioritaire Supabase (garantit la fraîcheur de archived_at) puis repli local
   let client = await fetchClientPortalData(tokenOrId);
   if (!client && !isNaN(Number(tokenOrId))) {
     client = await getById('clients', Number(tokenOrId));
   }
 
-  // 3. Cas non trouvé
+  // 2. Cas non trouvé
   if (!client) {
     if (closedView) closedView.style.display = 'none';
     if (activeView) activeView.style.display = 'block';
@@ -8535,14 +8523,14 @@ async function renderPortalDetails(tokenOrId) {
   sessionStorage.setItem('portalClientId', currentPortalClientId);
   sessionStorage.setItem('portalClientToken', currentPortalClientToken);
 
-  // 4. Si le client est archivé : BLOQUER STRICTEMENT et afficher l'écran de clôture propre et centré
+  // 3. Si le client est archivé : BLOQUER STRICTEMENT et afficher l'écran de clôture propre et centré
   if (client.archived_at) {
     if (activeView) activeView.style.display = 'none';
     if (closedView) closedView.style.display = 'block';
     return;
   }
 
-  // 5. Client actif : afficher le tableau de bord standard
+  // 4. Client actif : afficher le tableau de bord standard
   if (closedView) closedView.style.display = 'none';
   if (activeView) activeView.style.display = 'block';
 

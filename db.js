@@ -926,7 +926,13 @@ export async function fetchClientPortalData(portalUuid) {
         }
 
         if (clientData) {
-          const existingLocal = await getClientByUuid(tokenStr);
+          let existingLocal = await getClientByUuid(tokenStr);
+          if (!existingLocal && clientData.id) {
+            existingLocal = await getById('clients', Number(clientData.id));
+          }
+          if (!existingLocal && clientData.uuid) {
+            existingLocal = await getClientByUuid(clientData.uuid);
+          }
           const localClient = mapSupabaseToLocal('clients', clientData);
           // Si le client est archivé localement mais que Supabase a encore archived_at = null, préserver l'archivage local !
           if (existingLocal && existingLocal.archived_at && !localClient.archived_at) {
