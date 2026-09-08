@@ -164,14 +164,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateSyncStatusUI('offline');
   });
 
-  // Écouteur de visibilité de l'onglet (réveil de l'application / portail en arrière-plan)
+  // Écouteur de visibilité de l'onglet (réveil de l'application / portail en arrière-plan avec cooldown)
+  let lastSyncVisibilityTime = Date.now();
+  const VISIBILITY_SYNC_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      // Déclencher un rafraîchissement silencieux des données distantes
-      if (typeof syncData === 'function') {
-        syncData({ silent: true }).then(() => {
-          if (typeof refreshCurrentView === 'function') refreshCurrentView();
-        });
+      const now = Date.now();
+      if (now - lastSyncVisibilityTime >= VISIBILITY_SYNC_COOLDOWN_MS) {
+        lastSyncVisibilityTime = now;
+        // Déclencher un rafraîchissement silencieux des données distantes
+        if (typeof syncData === 'function') {
+          syncData({ silent: true }).then(() => {
+            if (typeof refreshCurrentView === 'function') refreshCurrentView();
+          });
+        }
       }
     }
   });
