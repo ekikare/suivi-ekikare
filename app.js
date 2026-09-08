@@ -171,9 +171,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       const now = Date.now();
-      if (now - lastSyncVisibilityTime >= VISIBILITY_SYNC_COOLDOWN_MS) {
+      if (now - lastSyncVisibilityTime > VISIBILITY_SYNC_COOLDOWN_MS) {
         lastSyncVisibilityTime = now;
-        // Déclencher un rafraîchissement silencieux des données distantes
         if (typeof syncData === 'function') {
           syncData({ silent: true }).then(() => {
             if (typeof refreshCurrentView === 'function') refreshCurrentView();
