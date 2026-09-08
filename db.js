@@ -838,20 +838,24 @@ export async function reconcileClientUUIDsFromSupabase() {
         }
 
         // 4. Réconcilier l'état d'archivage (Supabase <-> Local)
-        if (remote.archived_at && !matchedLocal.archived_at) {
-          matchedLocal.archived_at = remote.archived_at;
-          matchedLocal.archive_reason = remote.archive_reason;
-          changed = true;
-        } else if (matchedLocal.archived_at && !remote.archived_at) {
-          // Local est archivé mais Supabase ne l'a pas encore, réparer Supabase !
-          try {
-            await supabase.from('clients').update({
-              archived_at: matchedLocal.archived_at,
-              archive_reason: matchedLocal.archive_reason,
-              updated_at: new Date().toISOString()
-            }).eq('id', matchedLocal.id);
-          } catch (e) {
-            console.error("Erreur sync reconcileClientUUIDsFromSupabase:", e);
+        if (remote.archived_at !== (matchedLocal.archived_at || null)) {
+          if (matchedLocal.synced === 0) {
+            // Changement local en attente de synchronisation
+            try {
+              await supabase.from('clients').update({
+                archived_at: matchedLocal.archived_at || null,
+                archive_reason: matchedLocal.archive_reason || null,
+                updated_at: new Date().toISOString()
+              }).eq('id', matchedLocal.id);
+              matchedLocal.synced = 1;
+            } catch (e) {
+              console.error("Erreur sync reconcileClientUUIDsFromSupabase:", e);
+            }
+          } else {
+            // Modification distante depuis Supabase -> Le local s'aligne
+            matchedLocal.archived_at = remote.archived_at || null;
+            matchedLocal.archive_reason = remote.archive_reason || null;
+            changed = true;
           }
         }
 
@@ -964,30 +968,7 @@ export async function fetchClientPortalData(portalUuid) {
         }
 
         if (clientData) {
-          let existingLocal = await getClientByUuid(tokenStr);
-          if (!existingLocal && clientData.id) {
-            existingLocal = await getById('clients', Number(clientData.id));
-          }
-          if (!existingLocal && clientData.uuid) {
-            existingLocal = await getClientByUuid(clientData.uuid);
-          }
           const localClient = mapSupabaseToLocal('clients', clientData);
-          
-          // Si le client est archivé localement mais que Supabase a encore archived_at = null, préserver l'archivage local et réparer Supabase !
-          if (existingLocal && existingLocal.archived_at && !localClient.archived_at) {
-            localClient.archived_at = existingLocal.archived_at;
-            localClient.archive_reason = existingLocal.archive_reason;
-            await supabase.from('clients').update({
-              archived_at: localClient.archived_at,
-              archive_reason: localClient.archive_reason,
-              updated_at: new Date().toISOString()
-            }).eq('id', clientData.id);
-          } else if (localClient.archived_at && existingLocal && !existingLocal.archived_at) {
-            existingLocal.archived_at = localClient.archived_at;
-            existingLocal.archive_reason = localClient.archive_reason;
-            existingLocal.synced = 1;
-            await updateLocal('clients', existingLocal);
-          }
           localClient.synced = 1;
           await updateLocal('clients', localClient);
 
@@ -1038,7 +1019,220 @@ export async function fetchClientPortalData(portalUuid) {
   }
 
   // 2. Repli local IndexedDB (mode hors-ligne ou Supabase inaccessible)
-  return await getClientByUuid(tokenStr);
+  let localFound = await getClientByUuid(tokenStr);
+  if (!localFound && !isNaN(Number(tokenStr))) {
+    localFound = await getById('clients', Number(tokenStr));
+  }
+  return localFound;
+}
+
+/**
+ * Archive un enregistrement (client ou animal) avec synchronisation immédiate et stricte.
+ */
+export async function archiveRecordDirect(storeName, id, reason) {
+  const now = new Date().toISOString();
+  const recId = Number(id);
+  
+  // 1. IndexedDB immédiat
+  let local = await getById(storeName, recId);
+  if (!local) {
+    const all = await getAll(storeName);
+    local = all.find(r => Number(r.id) === recId || String(r.id) === String(id));
+  }
+  if (!local) return null;
+
+  local.archived_at = now;
+  local.archive_reason = reason || 'Archivé par le praticien';
+  local.updated_at = now;
+  local.last_modified = Date.now();
+  local.synced = 1;
+  await updateLocal(storeName, local);
+
+  // 2. Supabase immédiat avec await strict
+  if (navigator.onLine) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const table = storeName === 'reminders' ? 'tasks' : storeName;
+      try {
+        const { error: updateErr } = await supabase
+          .from(table)
+          .update({
+            archived_at: now,
+            archive_reason: local.archive_reason,
+            updated_at: now,
+            last_modified: now
+          })
+          .eq('id', recId);
+        
+        if (updateErr) {
+          console.error(`Erreur update direct ${table} archive:`, updateErr);
+          await supabase
+            .from(table)
+            .update({
+              archived_at: now,
+              archive_reason: local.archive_reason,
+              updated_at: now,
+              last_modified: now
+            })
+            .eq('id', String(id));
+        }
+      } catch (err) {
+        console.error(`Exception sync directe archive ${storeName}:`, err);
+      }
+    }
+  }
+
+  // 3. Cascade : si client, archiver tous ses animaux rattachés
+  if (storeName === 'clients') {
+    const allAnimals = await getAll('animals');
+    const clientAnimals = allAnimals.filter(an => String(an.client_id) === String(recId) || Number(an.client_id) === recId);
+    const animalReason = `Client archivé (${reason || 'Archivé par le praticien'})`;
+
+    for (const an of clientAnimals) {
+      if (!an.archived_at) {
+        an.archived_at = now;
+        an.archive_reason = animalReason;
+        an.updated_at = now;
+        an.last_modified = Date.now();
+        an.synced = 1;
+        await updateLocal('animals', an);
+
+        if (navigator.onLine) {
+          const supabase = getSupabaseClient();
+          if (supabase) {
+            try {
+              await supabase
+                .from('animals')
+                .update({
+                  archived_at: now,
+                  archive_reason: animalReason,
+                  updated_at: now,
+                  last_modified: now
+                })
+                .eq('id', an.id);
+            } catch (err) {
+              console.error("Erreur sync cascade animal archive:", err);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return local;
+}
+
+/**
+ * Désarchive / restaure un enregistrement (client ou animal) avec synchronisation immédiate et stricte.
+ */
+export async function restoreRecordDirect(storeName, id) {
+  const now = new Date().toISOString();
+  const recId = Number(id);
+
+  // 1. IndexedDB immédiat
+  let local = await getById(storeName, recId);
+  if (!local) {
+    const all = await getAll(storeName);
+    local = all.find(r => Number(r.id) === recId || String(r.id) === String(id));
+  }
+  if (!local) return null;
+
+  local.archived_at = null;
+  local.archive_reason = null;
+  local.updated_at = now;
+  local.last_modified = Date.now();
+  local.synced = 1;
+  await updateLocal(storeName, local);
+
+  // 2. Supabase immédiat avec await strict (remise à null)
+  if (navigator.onLine) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const table = storeName === 'reminders' ? 'tasks' : storeName;
+      try {
+        const { error: updateErr } = await supabase
+          .from(table)
+          .update({
+            archived_at: null,
+            archive_reason: null,
+            updated_at: now,
+            last_modified: now
+          })
+          .eq('id', recId);
+
+        if (updateErr) {
+          console.error(`Erreur update direct ${table} restore:`, updateErr);
+          await supabase
+            .from(table)
+            .update({
+              archived_at: null,
+              archive_reason: null,
+              updated_at: now,
+              last_modified: now
+            })
+            .eq('id', String(id));
+        }
+      } catch (err) {
+        console.error(`Exception sync directe restore ${storeName}:`, err);
+      }
+    }
+  }
+
+  // 3. Cascade : si client, restaurer tous ses animaux rattachés
+  if (storeName === 'clients') {
+    const allAnimals = await getAll('animals');
+    const clientAnimals = allAnimals.filter(an => String(an.client_id) === String(recId) || Number(an.client_id) === recId);
+
+    for (const an of clientAnimals) {
+      if (an.archived_at && an.archive_reason && an.archive_reason.startsWith('Client archivé')) {
+        an.archived_at = null;
+        an.archive_reason = null;
+        an.updated_at = now;
+        an.last_modified = Date.now();
+        an.synced = 1;
+        await updateLocal('animals', an);
+
+        if (navigator.onLine) {
+          const supabase = getSupabaseClient();
+          if (supabase) {
+            try {
+              await supabase
+                .from('animals')
+                .update({
+                  archived_at: null,
+                  archive_reason: null,
+                  updated_at: now,
+                  last_modified: now
+                })
+                .eq('id', an.id);
+            } catch (err) {
+              console.error("Erreur sync cascade animal restore:", err);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return local;
+}
+
+/**
+ * Archivage client direct avec persistance IndexedDB et Supabase immédiate.
+ */
+export async function archiveClient(clientId, reason) {
+  return await archiveRecordDirect('clients', clientId, reason);
+}
+
+/**
+ * Restauration / désarchivage client direct avec persistance IndexedDB et Supabase immédiate.
+ */
+export async function restoreClient(clientId) {
+  return await restoreRecordDirect('clients', clientId);
+}
+
+export async function unarchiveClient(clientId) {
+  return await restoreRecordDirect('clients', clientId);
 }
 
 /**

@@ -28,7 +28,12 @@ import {
   reconcileClientUUIDsFromSupabase,
   fetchClientPortalData,
   deleteClientCascade,
-  deleteAnimalCascade
+  deleteAnimalCascade,
+  archiveRecordDirect,
+  restoreRecordDirect,
+  archiveClient,
+  restoreClient,
+  unarchiveClient
 } from './db.js';
 
 // --- INITIALISATION SPEECH RECOGNITION ---
@@ -1125,89 +1130,8 @@ function openArchiveRecordDialog(type, record) {
       saveArchiveReason(type, chosenReason);
     }
 
-    const now = new Date().toISOString();
-    record.archived_at = now;
-    record.archive_reason = chosenReason || 'Archivé par le praticien';
-
-    await update(type === 'client' ? 'clients' : 'animals', record);
-
-    // Si en ligne, pousser immédiatement et explicitement vers Supabase
-    if (navigator.onLine) {
-      try {
-        const supabase = getSupabaseClient();
-        if (supabase) {
-          const storeName = type === 'client' ? 'clients' : 'animals';
-          const { error: updateErr } = await supabase
-            .from(storeName)
-            .update({
-              archived_at: now,
-              archive_reason: record.archive_reason,
-              updated_at: now,
-              last_modified: now
-            })
-            .eq('id', record.id);
-
-          if (updateErr) {
-            console.error(`Erreur update Supabase ${storeName}.archived_at:`, updateErr);
-            await supabase
-              .from(storeName)
-              .update({
-                archived_at: now,
-                archive_reason: record.archive_reason,
-                updated_at: now,
-                last_modified: now
-              })
-              .eq('id', String(record.id));
-          }
-
-          const mapped = mapLocalToSupabase(storeName, record);
-          await supabase.from(storeName).upsert(mapped);
-          record.synced = 1;
-          await updateLocal(storeName, record);
-        }
-      } catch (err) {
-        console.error(`Erreur directe sync archivage ${type} vers Supabase:`, err);
-      }
-    }
-
-    // Cascade : si on archive un client, archiver automatiquement tous ses animaux actifs rattachés
-    if (type === 'client') {
-      const allAnimals = await getAll('animals');
-      const clientAnimals = allAnimals.filter(an => String(an.client_id) === String(record.id) || Number(an.client_id) === Number(record.id));
-      const archiveTimestamp = record.archived_at;
-      const animalReason = `Client archivé (${chosenReason})`;
-
-      for (const animal of clientAnimals) {
-        if (!animal.archived_at) {
-          animal.archived_at = archiveTimestamp;
-          animal.archive_reason = animalReason;
-          await update('animals', animal);
-          if (navigator.onLine) {
-            try {
-              const supabase = getSupabaseClient();
-              if (supabase) {
-                await supabase
-                  .from('animals')
-                  .update({
-                    archived_at: archiveTimestamp,
-                    archive_reason: animalReason,
-                    updated_at: archiveTimestamp,
-                    last_modified: archiveTimestamp
-                  })
-                  .eq('id', animal.id);
-
-                const mapped = mapLocalToSupabase('animals', animal);
-                await supabase.from('animals').upsert(mapped);
-                animal.synced = 1;
-                await updateLocal('animals', animal);
-              }
-            } catch (err) {
-              console.error("Erreur directe sync cascade animal vers Supabase:", err);
-            }
-          }
-        }
-      }
-    }
+    const storeName = type === 'client' ? 'clients' : 'animals';
+    await archiveRecordDirect(storeName, record.id, chosenReason);
 
     showToast(`${type === 'client' ? 'Client' : 'Animal'} archivé avec succès.`);
     dialog.close();
@@ -1236,87 +1160,8 @@ function openArchiveRecordDialog(type, record) {
  * Restaure une fiche archivée
  */
 async function restoreRecord(type, record) {
-  const now = new Date().toISOString();
-  record.archived_at = null;
-  record.archive_reason = null;
-
-  await update(type === 'client' ? 'clients' : 'animals', record);
-
-  // Si en ligne, pousser immédiatement et attendre la confirmation Supabase
-  if (navigator.onLine) {
-    try {
-      const supabase = getSupabaseClient();
-      if (supabase) {
-        const storeName = type === 'client' ? 'clients' : 'animals';
-        const { error: updateErr } = await supabase
-          .from(storeName)
-          .update({
-            archived_at: null,
-            archive_reason: null,
-            updated_at: now,
-            last_modified: now
-          })
-          .eq('id', record.id);
-
-        if (updateErr) {
-          console.error(`Erreur update Supabase ${storeName} restore:`, updateErr);
-          await supabase
-            .from(storeName)
-            .update({
-              archived_at: null,
-              archive_reason: null,
-              updated_at: now,
-              last_modified: now
-            })
-            .eq('id', String(record.id));
-        }
-
-        const mapped = mapLocalToSupabase(storeName, record);
-        await supabase.from(storeName).upsert(mapped);
-        record.synced = 1;
-        await updateLocal(storeName, record);
-      }
-    } catch (err) {
-      console.error("Erreur directe sync restauration:", err);
-    }
-  }
-
-  // Cascade : si on restaure un client, restaurer automatiquement les animaux rattachés qui avaient été archivés suite à l'archivage du client
-  if (type === 'client') {
-    const allAnimals = await getAll('animals');
-    const clientAnimals = allAnimals.filter(an => String(an.client_id) === String(record.id) || Number(an.client_id) === Number(record.id));
-
-    for (const animal of clientAnimals) {
-      if (animal.archived_at && animal.archive_reason && animal.archive_reason.startsWith('Client archivé')) {
-        animal.archived_at = null;
-        animal.archive_reason = null;
-        await update('animals', animal);
-        if (navigator.onLine) {
-          try {
-            const supabase = getSupabaseClient();
-            if (supabase) {
-              await supabase
-                .from('animals')
-                .update({
-                  archived_at: null,
-                  archive_reason: null,
-                  updated_at: now,
-                  last_modified: now
-                })
-                .eq('id', animal.id);
-
-              const mapped = mapLocalToSupabase('animals', animal);
-              await supabase.from('animals').upsert(mapped);
-              animal.synced = 1;
-              await updateLocal('animals', animal);
-            }
-          } catch (err) {
-            console.error("Erreur directe sync restauration cascade animal:", err);
-          }
-        }
-      }
-    }
-  }
+  const storeName = type === 'client' ? 'clients' : 'animals';
+  await restoreRecordDirect(storeName, record.id);
 
   showToast(`${type === 'client' ? 'Client' : 'Animal'} restauré avec succès.`);
 
@@ -7586,28 +7431,28 @@ async function syncData() {
               remoteRec.synced = 1;
               await updateLocal(storeName, remoteRec);
             } else {
-              // Si Supabase a archived_at et pas local : Supabase gagne
-              if (remoteRec.archived_at && !localRec.archived_at) {
-                localRec.archived_at = remoteRec.archived_at;
-                localRec.archive_reason = remoteRec.archive_reason;
-                localRec.synced = 1;
-                await updateLocal(storeName, localRec);
-              }
-              // Si local a archived_at et pas Supabase : local répare Supabase
-              else if (localRec.archived_at && !remoteRec.archived_at) {
-                try {
-                  await supabase.from(table).update({
-                    archived_at: localRec.archived_at,
-                    archive_reason: localRec.archive_reason,
-                    updated_at: new Date().toISOString()
-                  }).eq('id', localRec.id);
+              // Réconciliation de l'archivage (clients & animaux)
+              if ((storeName === 'clients' || storeName === 'animals') && (remoteRec.archived_at || null) !== (localRec.archived_at || null)) {
+                if (localRec.synced === 0) {
+                  try {
+                    await supabase.from(table).update({
+                      archived_at: localRec.archived_at || null,
+                      archive_reason: localRec.archive_reason || null,
+                      updated_at: new Date().toISOString(),
+                      last_modified: new Date().toISOString()
+                    }).eq('id', localRec.id);
+                    localRec.synced = 1;
+                    await updateLocal(storeName, localRec);
+                  } catch (e) {
+                    console.error("Erreur sync update Supabase archive:", e);
+                  }
+                } else {
+                  localRec.archived_at = remoteRec.archived_at || null;
+                  localRec.archive_reason = remoteRec.archive_reason || null;
                   localRec.synced = 1;
                   await updateLocal(storeName, localRec);
-                } catch (e) {
-                  console.error("Erreur sync update Supabase archive:", e);
                 }
-              }
-              else {
+              } else {
                 const localTime = new Date(localRec.last_modified || 0).getTime();
                 const remoteTime = new Date(remoteRec.last_modified || 0).getTime();
                 if (remoteTime >= localTime) {
