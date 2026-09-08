@@ -3184,5 +3184,46 @@ body.is-client-portal #dialog-client #client-form-firstname {
   transform: translateY(-1px);
 }
 
+/* ==========================================================================
+   PORTAL CLIENT STRICT SECURITY & ACCESS RULES
+   ========================================================================== */
+body.portal-mode #btn-archive-animal,
+body.portal-mode #btn-archive-client,
+body.portal-mode #btn-restore-animal,
+body.portal-mode #btn-restore-client,
+body.portal-mode #btn-delete-animal-permanent,
+body.portal-mode #btn-delete-client-permanent,
+body.portal-mode #btn-new-session-for-animal,
+body.portal-mode #btn-add-external-session-for-animal,
+body.portal-mode #btn-copy-animal-portal-link,
+body.portal-mode #btn-copy-client-portal-link,
+body.portal-mode #btn-export-animal-dossier,
+body.portal-mode #btn-add-medical-event,
+body.portal-mode #btn-associate-prof,
+body.portal-mode #btn-add-reminder-for-animal,
+body.portal-mode .btn-edit-ext-session,
+body.portal-mode .btn-delete-ext-session,
+body.portal-mode .btn-complete-reminder-animal,
+body.is-client-portal #btn-archive-animal,
+body.is-client-portal #btn-archive-client,
+body.is-client-portal #btn-restore-animal,
+body.is-client-portal #btn-restore-client,
+body.is-client-portal #btn-delete-animal-permanent,
+body.is-client-portal #btn-delete-client-permanent,
+body.is-client-portal #btn-new-session-for-animal,
+body.is-client-portal #btn-add-external-session-for-animal,
+body.is-client-portal #btn-copy-animal-portal-link,
+body.is-client-portal #btn-copy-client-portal-link,
+body.is-client-portal #btn-export-animal-dossier,
+body.is-client-portal #btn-add-medical-event,
+body.is-client-portal #btn-associate-prof,
+body.is-client-portal #btn-add-reminder-for-animal,
+body.is-client-portal .btn-edit-ext-session,
+body.is-client-portal .btn-delete-ext-session,
+body.is-client-portal .btn-complete-reminder-animal {
+  display: none !important;
+}
+
+
 
 

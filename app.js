@@ -365,10 +365,19 @@ function setupNavigation() {
 let currentPortalClientId = null;
 let currentPortalClientToken = null;
 
+function getNormalizedHash() {
+  let hash = window.location.hash || '';
+  // Nettoyer '#', '#/', '/' au début
+  hash = hash.replace(/^#?\/?/, '');
+  // Nettoyer '/' à la fin si présent
+  hash = hash.replace(/\/+$/, '');
+  return hash || 'dashboard';
+}
+
 async function checkPortalContext() {
   const storedPortalId = sessionStorage.getItem('portalClientId');
   const storedPortalToken = sessionStorage.getItem('portalClientToken');
-  const hash = window.location.hash.substring(1) || 'dashboard';
+  const hash = getNormalizedHash();
   const parts = hash.split('/');
   const routeBase = parts[0];
   const routeParam = parts[1];
@@ -408,7 +417,7 @@ async function checkPortalContext() {
 }
 
 async function handleRouting() {
-  const hash = window.location.hash.substring(1) || 'dashboard';
+  const hash = getNormalizedHash();
   previousRoute = currentRoute;
   currentRoute = hash;
   
@@ -642,21 +651,32 @@ async function loadViewData(view, param, subRoute = null, subParam = null) {
       break;
     case 'portal':
       if (param) {
+        let client = await fetchClientPortalData(param);
+        if (!client && !isNaN(Number(param))) {
+          client = await getById('clients', Number(param));
+        }
+
+        if (!client) {
+          showToast("Espace client introuvable.", "error");
+          window.location.hash = 'dashboard';
+          return;
+        }
+
+        // Si le client est archivé : BLOQUER STRICTEMENT quelle que soit la sous-route (dashboard ou animal)
+        if (client.archived_at) {
+          currentPortalClientId = client.id;
+          currentPortalClientToken = client.uuid || String(client.id);
+          sessionStorage.setItem('portalClientId', currentPortalClientId);
+          sessionStorage.setItem('portalClientToken', currentPortalClientToken);
+          
+          document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+          const portalSec = document.getElementById('view-portal');
+          if (portalSec) portalSec.classList.add('active');
+          await renderPortalDetails(param);
+          return;
+        }
+
         if (subRoute === 'animals' && subParam) {
-          // Charger le client via son :clientUuid depuis Supabase
-          const client = await fetchClientPortalData(param);
-          if (!client) {
-            showToast("Espace client introuvable.", "error");
-            window.location.hash = 'dashboard';
-            return;
-          }
-
-          if (client.archived_at) {
-            showToast("Cet espace client a été clôturé.", "warning");
-            window.location.hash = `portal/${client.uuid || client.id}`;
-            return;
-          }
-
           const animalId = Number(subParam);
           let animal = await getById('animals', animalId);
           
@@ -1118,6 +1138,37 @@ function openArchiveRecordDialog(type, record) {
       }
     }
 
+    // Cascade : si on archive un client, archiver automatiquement tous ses animaux actifs rattachés
+    if (type === 'client') {
+      const allAnimals = await getAll('animals');
+      const clientAnimals = allAnimals.filter(an => String(an.client_id) === String(record.id) || Number(an.client_id) === Number(record.id));
+      const archiveTimestamp = record.archived_at;
+      const animalReason = `Client archivé (${chosenReason})`;
+
+      for (const animal of clientAnimals) {
+        if (!animal.archived_at) {
+          animal.archived_at = archiveTimestamp;
+          animal.archive_reason = animalReason;
+          await update('animals', animal);
+          if (navigator.onLine) {
+            try {
+              const supabase = getSupabaseClient();
+              if (supabase) {
+                const mapped = mapLocalToSupabase('animals', animal);
+                const { error: upsertErr } = await supabase.from('animals').upsert(mapped);
+                if (!upsertErr) {
+                  animal.synced = 1;
+                  await updateLocal('animals', animal);
+                }
+              }
+            } catch (err) {
+              console.warn("Erreur directe sync cascade animal:", err);
+            }
+          }
+        }
+      }
+    }
+
     showToast(`${type === 'client' ? 'Client' : 'Animal'} archivé avec succès.`);
     dialog.close();
 
@@ -1167,6 +1218,35 @@ async function restoreRecord(type, record) {
       }
     } catch (err) {
       console.warn("Erreur directe sync restauration:", err);
+    }
+  }
+
+  // Cascade : si on restaure un client, restaurer automatiquement les animaux rattachés qui avaient été archivés suite à l'archivage du client
+  if (type === 'client') {
+    const allAnimals = await getAll('animals');
+    const clientAnimals = allAnimals.filter(an => String(an.client_id) === String(record.id) || Number(an.client_id) === Number(record.id));
+
+    for (const animal of clientAnimals) {
+      if (animal.archived_at && animal.archive_reason && animal.archive_reason.startsWith('Client archivé')) {
+        animal.archived_at = null;
+        animal.archive_reason = null;
+        await update('animals', animal);
+        if (navigator.onLine) {
+          try {
+            const supabase = getSupabaseClient();
+            if (supabase) {
+              const mapped = mapLocalToSupabase('animals', animal);
+              const { error: upsertErr } = await supabase.from('animals').upsert(mapped);
+              if (!upsertErr) {
+                animal.synced = 1;
+                await updateLocal('animals', animal);
+              }
+            }
+          } catch (err) {
+            console.warn("Erreur directe sync restauration cascade animal:", err);
+          }
+        }
+      }
     }
   }
 
@@ -2282,6 +2362,7 @@ async function renderAnimalDetails(animalId) {
   const activeActions = document.getElementById('animal-active-actions');
   const archivedActions = document.getElementById('animal-archived-actions');
   const copyPortalBtn = document.getElementById('btn-copy-animal-portal-link');
+  const exportDossierBtn = document.getElementById('btn-export-animal-dossier');
   const addMedBtn = document.getElementById('btn-add-medical-event');
   const assocProfBtn = document.getElementById('btn-associate-prof');
   const addRemBtn = document.getElementById('btn-add-reminder-for-animal');
@@ -2301,6 +2382,7 @@ async function renderAnimalDetails(animalId) {
     if (activeActions) activeActions.style.display = 'none';
     if (archivedActions) archivedActions.style.display = currentPortalClientId ? 'none' : 'inline-flex';
     if (copyPortalBtn) copyPortalBtn.style.display = 'none';
+    if (exportDossierBtn) exportDossierBtn.style.display = 'none';
     if (addMedBtn) addMedBtn.style.display = 'none';
     if (assocProfBtn) assocProfBtn.style.display = 'none';
     if (addRemBtn) addRemBtn.style.display = 'none';
@@ -2322,6 +2404,7 @@ async function renderAnimalDetails(animalId) {
     if (activeActions) activeActions.style.display = 'inline-flex';
     if (archivedActions) archivedActions.style.display = 'none';
     if (copyPortalBtn) copyPortalBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (exportDossierBtn) exportDossierBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
     if (btnArchive) btnArchive.style.display = currentPortalClientId ? 'none' : 'inline-flex';
     if (btnNewSession) btnNewSession.style.display = currentPortalClientId ? 'none' : 'inline-flex';
     if (addExtSessionBtn) addExtSessionBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';

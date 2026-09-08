@@ -38,6 +38,12 @@
   - [x] Bandeau animal clôturé épuré sans motif d'archivage dans l'Espace Client <!-- id: 9.2 -->
   - [x] Retrait de tous les boutons d'archivage/édition non autorisés dans l'Espace Client <!-- id: 9.3 -->
   - [x] Validation complète, commit et push sur main <!-- id: 9.4 -->
+- [x] 10. Verrouillage de l'Espace Client et cascade d'archivage client <!-- id: 10 -->
+  - [x] Retrait strict de l'icône boîte d'archive sur la fiche animal du portail client (CSS et JS) <!-- id: 10.1 -->
+  - [x] Verrouillage strict de l'accès au portail pour un client archivé sur toutes les sous-routes avec écran sobre de clôture <!-- id: 10.2 -->
+  - [x] Cascade d'archivage et de restauration automatique des animaux rattachés lors de l'archivage/restauration d'un client <!-- id: 10.3 -->
+  - [x] Validation, commit et push sur `origin main` <!-- id: 10.4 -->
+
 
 
 
