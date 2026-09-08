@@ -131,9 +131,9 @@ export function mapLocalToSupabase(storeName, item) {
       };
       break;
     case 'professionals':
+      const profFullName = [item.prenom || item.first_name || '', item.nom || item.last_name || ''].filter(Boolean).join(' ').trim() || item.name || '';
       specificFields = {
-        first_name: item.prenom || item.first_name || '',
-        last_name: item.nom || item.last_name || '',
+        name: profFullName,
         phone: item.telephone || item.phone || '',
         specialty: item.specialite || item.specialty || '',
         notes: item.notes || ''
@@ -270,12 +270,23 @@ export function mapSupabaseToLocal(storeName, item) {
         fileType: item.file_type || ''
       };
     case 'professionals':
+      let profPrenom = item.prenom || item.first_name || '';
+      let profNom = item.nom || item.last_name || '';
+      if (!profPrenom && !profNom && item.name) {
+        const parts = String(item.name).trim().split(' ');
+        if (parts.length > 1) {
+          profPrenom = parts[0];
+          profNom = parts.slice(1).join(' ');
+        } else {
+          profNom = parts[0] || '';
+        }
+      }
       return {
         ...local,
-        prenom: item.first_name || '',
-        nom: item.last_name || '',
-        telephone: item.phone || '',
-        specialite: item.specialty || '',
+        prenom: profPrenom,
+        nom: profNom,
+        telephone: item.phone || item.telephone || '',
+        specialite: item.specialty || item.specialite || '',
         notes: item.notes || ''
       };
     case 'reminders':

@@ -7398,36 +7398,44 @@ async function syncData(options = {}) {
 
     // 2. PUSH UNSYNCED LOCAL MODIFICATIONS (Priorité pour éviter tout rollback)
     for (const storeName of SYNCED_STORES) {
-      const table = storeName === 'reminders' ? 'tasks' : storeName;
-      const localRecords = await getAll(storeName);
-      const unsynced = localRecords.filter(r => r.synced === 0);
-      for (const record of unsynced) {
-        try {
-          const mapped = mapLocalToSupabase(storeName, record);
-          const { error } = await supabase.from(table).upsert(mapped);
+      try {
+        const table = storeName === 'reminders' ? 'tasks' : storeName;
+        const localRecords = await getAll(storeName);
+        const unsynced = localRecords.filter(r => r.synced === 0);
+        for (const record of unsynced) {
+          try {
+            const mapped = mapLocalToSupabase(storeName, record);
+            const { error } = await supabase.from(table).upsert(mapped);
 
-          if ((storeName === 'clients' || storeName === 'animals') && record.id) {
-            await supabase.from(table).update({
-              archived_at: record.archived_at || null,
-              archive_reason: record.archive_reason || null,
-              updated_at: new Date().toISOString()
-            }).eq('id', record.id);
-          }
+            if ((storeName === 'clients' || storeName === 'animals') && record.id) {
+              await supabase.from(table).update({
+                archived_at: record.archived_at || null,
+                archive_reason: record.archive_reason || null,
+                updated_at: new Date().toISOString()
+              }).eq('id', record.id);
+            }
 
-          if (!error) {
-            record.synced = 1;
-            await updateLocal(storeName, record);
-          } else {
-            console.error("Erreur sync:", table, error.message || error);
+            if (!error) {
+              record.synced = 1;
+              await updateLocal(storeName, record);
+            } else {
+              console.warn("Sync push notice:", table, error.message || error);
+            }
+          } catch (err) {
+            console.warn("Sync push error on record:", table, err.message || err);
           }
-        } catch (err) {
-          console.error("Erreur sync:", table, err.message || err);
         }
+      } catch (storeErr) {
+        console.warn("Sync push error on store:", storeName, storeErr.message || storeErr);
       }
     }
 
     // 3. RECONCILE CLIENT UUIDS & ARCHIVES WITH SUPABASE
-    await reconcileClientUUIDsFromSupabase();
+    try {
+      await reconcileClientUUIDsFromSupabase();
+    } catch (recErr) {
+      console.warn("Erreur réconciliation UUIDs:", recErr.message || recErr);
+    }
 
     // 4. PULL REMOTE MODIFICATIONS
     for (const storeName of SYNCED_STORES) {
@@ -7435,7 +7443,7 @@ async function syncData(options = {}) {
       try {
         const { data: remoteRecords, error } = await supabase.from(table).select('*');
         if (error) {
-          console.error("Erreur sync:", table, error.message || error);
+          console.warn(`Sync pull notice (${table}):`, error.message || error);
           continue;
         }
 
@@ -7463,7 +7471,7 @@ async function syncData(options = {}) {
                     localRec.synced = 1;
                     await updateLocal(storeName, localRec);
                   } catch (e) {
-                    console.error("Erreur sync update Supabase archive:", e);
+                    console.warn("Erreur sync update Supabase archive:", e);
                   }
                 } else {
                   localRec.archived_at = remoteRec.archived_at || null;
@@ -7485,10 +7493,10 @@ async function syncData(options = {}) {
                       localRec.synced = 1;
                       await updateLocal(storeName, localRec);
                     } else {
-                      console.error("Erreur sync:", table, upsertErr.message || upsertErr);
+                      console.warn("Sync pull upsert notice:", table, upsertErr.message || upsertErr);
                     }
                   } catch (err) {
-                    console.error("Erreur sync:", table, err.message || err);
+                    console.warn("Sync error:", table, err.message || err);
                   }
                 }
               }
@@ -7504,7 +7512,7 @@ async function syncData(options = {}) {
           }
         }
       } catch (err) {
-        console.error("Erreur sync:", table, err.message || err);
+        console.warn("Erreur sync table:", table, err.message || err);
       }
     }
 
