@@ -2357,11 +2357,13 @@ async function renderAnimalDetails(animalId) {
     });
   };
 
-  document.getElementById('btn-edit-animal-detail').onclick = () => {
-    openAnimalDialog(animal);
-  };
+  const editAnimalBtn = document.getElementById('btn-edit-animal-detail');
+  if (editAnimalBtn) {
+    editAnimalBtn.onclick = () => {
+      openAnimalDialog(animal);
+    };
+  }
 
-  const addExtSessionBtn = document.getElementById('btn-add-external-session-for-animal');
   if (addExtSessionBtn) {
     addExtSessionBtn.onclick = () => {
       openExternalSessionDialog(null, animal.id);
