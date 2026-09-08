@@ -387,6 +387,12 @@ async function checkPortalContext() {
 
   if (routeBase === 'portal' && routeParam) {
     let client = await fetchClientPortalData(routeParam);
+    if (!client) {
+      client = await getClientByUuid(routeParam);
+    }
+    if (!client && !isNaN(Number(routeParam))) {
+      client = await getById('clients', Number(routeParam));
+    }
     if (client) {
       currentPortalClientId = client.id;
       currentPortalClientToken = client.uuid || String(client.id);
@@ -653,9 +659,14 @@ async function loadViewData(view, param, subRoute = null, subParam = null) {
     case 'portal':
       if (param) {
         let client = await fetchClientPortalData(param);
+        if (!client) {
+          client = await getClientByUuid(param);
+        }
         if (!client && !isNaN(Number(param))) {
           client = await getById('clients', Number(param));
         }
+
+        console.log('[PORTAL GUARD] loadViewData Client:', client?.id, 'archived_at:', client?.archived_at);
 
         if (!client) {
           showToast("Espace client introuvable.", "error");
@@ -7408,12 +7419,16 @@ async function refreshCurrentView() {
   const hash = window.location.hash.substring(1) || 'dashboard';
   let routeBase = hash;
   let routeParam = null;
+  let subRoute = null;
+  let subParam = null;
   if (hash.includes('/')) {
     const parts = hash.split('/');
     routeBase = parts[0];
     routeParam = parts[1];
+    subRoute = parts[2] || null;
+    subParam = parts[3] || null;
   }
-  await loadViewData(routeBase, routeParam);
+  await loadViewData(routeBase, routeParam, subRoute, subParam);
 }
 
 async function syncData() {
@@ -8464,6 +8479,7 @@ async function openAnimalDossierPreviewModal(animal, options) {
 async function renderPortalDetails(tokenOrId) {
   hidePractitionerLockOverlay();
 
+  const container = document.querySelector('#view-portal .portal-container') || document.getElementById('view-portal');
   const closedView = document.getElementById('portal-closed-view');
   const activeView = document.getElementById('portal-active-view');
   const portalAnimalsContainer = document.getElementById('portal-client-animals');
@@ -8473,28 +8489,53 @@ async function renderPortalDetails(tokenOrId) {
   if (closedView) closedView.style.display = 'none';
   if (activeView) activeView.style.display = 'none';
 
-  // 0. Vérification locale immédiate (priorité absolue si client déjà archivé localement)
-  let localClient = await getClientByUuid(tokenOrId);
-  if (!localClient && !isNaN(Number(tokenOrId))) {
-    localClient = await getById('clients', Number(tokenOrId));
-  }
-  if (localClient && localClient.archived_at) {
-    currentPortalClientId = localClient.id;
-    currentPortalClientToken = localClient.uuid || String(localClient.id);
-    sessionStorage.setItem('portalClientId', currentPortalClientId);
-    sessionStorage.setItem('portalClientToken', currentPortalClientToken);
-    if (activeView) activeView.style.display = 'none';
-    if (closedView) closedView.style.display = 'block';
-    return;
-  }
-
-  // 1. Recherche distante prioritaire Supabase (garantit la fraîcheur de archived_at) puis repli local
+  // 1. Recherche distante prioritaire Supabase puis repli local
   let client = await fetchClientPortalData(tokenOrId);
+  if (!client) {
+    client = await getClientByUuid(tokenOrId);
+  }
   if (!client && !isNaN(Number(tokenOrId))) {
     client = await getById('clients', Number(tokenOrId));
   }
 
-  // 2. Cas non trouvé
+  console.log('[PORTAL GUARD] Client:', client?.id, 'archived_at:', client?.archived_at);
+
+  // 2. Early Return Guard strict si client archivé
+  if (client && client.archived_at) {
+    currentPortalClientId = client.id;
+    currentPortalClientToken = client.uuid || String(client.id);
+    sessionStorage.setItem('portalClientId', currentPortalClientId);
+    sessionStorage.setItem('portalClientToken', currentPortalClientToken);
+
+    if (activeView) activeView.style.display = 'none';
+    if (closedView) {
+      closedView.innerHTML = `
+        <div style="min-height: 80vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem;">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">📁</div>
+          <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 0.75rem;">Espace clôturé</h2>
+          <p style="max-width: 500px; color: #9ca3af; line-height: 1.5;">
+            Le dossier associé à cet espace client a été archivé. L'accès aux informations et aux modifications n'est plus disponible.<br><br>
+            Pour toute question, contactez directement votre praticien.
+          </p>
+        </div>
+      `;
+      closedView.style.display = 'block';
+    } else if (container) {
+      container.innerHTML = `
+        <div style="min-height: 80vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem;">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">📁</div>
+          <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 0.75rem;">Espace clôturé</h2>
+          <p style="max-width: 500px; color: #9ca3af; line-height: 1.5;">
+            Le dossier associé à cet espace client a été archivé. L'accès aux informations et aux modifications n'est plus disponible.<br><br>
+            Pour toute question, contactez directement votre praticien.
+          </p>
+        </div>
+      `;
+    }
+    return;
+  }
+
+  // 3. Cas non trouvé
   if (!client) {
     if (closedView) closedView.style.display = 'none';
     if (activeView) activeView.style.display = 'block';
@@ -8522,13 +8563,6 @@ async function renderPortalDetails(tokenOrId) {
   currentPortalClientToken = client.uuid || String(client.id);
   sessionStorage.setItem('portalClientId', currentPortalClientId);
   sessionStorage.setItem('portalClientToken', currentPortalClientToken);
-
-  // 3. Si le client est archivé : BLOQUER STRICTEMENT et afficher l'écran de clôture propre et centré
-  if (client.archived_at) {
-    if (activeView) activeView.style.display = 'none';
-    if (closedView) closedView.style.display = 'block';
-    return;
-  }
 
   // 4. Client actif : afficher le tableau de bord standard
   if (closedView) closedView.style.display = 'none';
