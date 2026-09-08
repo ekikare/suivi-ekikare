@@ -1125,28 +1125,48 @@ function openArchiveRecordDialog(type, record) {
       saveArchiveReason(type, chosenReason);
     }
 
-    record.archived_at = new Date().toISOString();
-    record.archive_reason = chosenReason;
+    const now = new Date().toISOString();
+    record.archived_at = now;
+    record.archive_reason = chosenReason || 'Archivé par le praticien';
 
     await update(type === 'client' ? 'clients' : 'animals', record);
 
-    // Si en ligne, pousser immédiatement et attendre la confirmation Supabase pour éviter tout rollback
+    // Si en ligne, pousser immédiatement et explicitement vers Supabase
     if (navigator.onLine) {
       try {
         const supabase = getSupabaseClient();
         if (supabase) {
           const storeName = type === 'client' ? 'clients' : 'animals';
-          const mapped = mapLocalToSupabase(storeName, record);
-          const { error: upsertErr } = await supabase.from(storeName).upsert(mapped);
-          if (!upsertErr) {
-            record.synced = 1;
-            await updateLocal(storeName, record);
-          } else {
-            console.warn(`Erreur sauvegarde distante archivage ${storeName}:`, upsertErr);
+          const { error: updateErr } = await supabase
+            .from(storeName)
+            .update({
+              archived_at: now,
+              archive_reason: record.archive_reason,
+              updated_at: now,
+              last_modified: now
+            })
+            .eq('id', record.id);
+
+          if (updateErr) {
+            console.error(`Erreur update Supabase ${storeName}.archived_at:`, updateErr);
+            await supabase
+              .from(storeName)
+              .update({
+                archived_at: now,
+                archive_reason: record.archive_reason,
+                updated_at: now,
+                last_modified: now
+              })
+              .eq('id', String(record.id));
           }
+
+          const mapped = mapLocalToSupabase(storeName, record);
+          await supabase.from(storeName).upsert(mapped);
+          record.synced = 1;
+          await updateLocal(storeName, record);
         }
       } catch (err) {
-        console.warn("Erreur directe sync archivage:", err);
+        console.error(`Erreur directe sync archivage ${type} vers Supabase:`, err);
       }
     }
 
@@ -1166,15 +1186,23 @@ function openArchiveRecordDialog(type, record) {
             try {
               const supabase = getSupabaseClient();
               if (supabase) {
+                await supabase
+                  .from('animals')
+                  .update({
+                    archived_at: archiveTimestamp,
+                    archive_reason: animalReason,
+                    updated_at: archiveTimestamp,
+                    last_modified: archiveTimestamp
+                  })
+                  .eq('id', animal.id);
+
                 const mapped = mapLocalToSupabase('animals', animal);
-                const { error: upsertErr } = await supabase.from('animals').upsert(mapped);
-                if (!upsertErr) {
-                  animal.synced = 1;
-                  await updateLocal('animals', animal);
-                }
+                await supabase.from('animals').upsert(mapped);
+                animal.synced = 1;
+                await updateLocal('animals', animal);
               }
             } catch (err) {
-              console.warn("Erreur directe sync cascade animal:", err);
+              console.error("Erreur directe sync cascade animal vers Supabase:", err);
             }
           }
         }
@@ -1208,6 +1236,7 @@ function openArchiveRecordDialog(type, record) {
  * Restaure une fiche archivée
  */
 async function restoreRecord(type, record) {
+  const now = new Date().toISOString();
   record.archived_at = null;
   record.archive_reason = null;
 
@@ -1219,17 +1248,36 @@ async function restoreRecord(type, record) {
       const supabase = getSupabaseClient();
       if (supabase) {
         const storeName = type === 'client' ? 'clients' : 'animals';
-        const mapped = mapLocalToSupabase(storeName, record);
-        const { error: upsertErr } = await supabase.from(storeName).upsert(mapped);
-        if (!upsertErr) {
-          record.synced = 1;
-          await updateLocal(storeName, record);
-        } else {
-          console.warn(`Erreur sauvegarde distante restauration ${storeName}:`, upsertErr);
+        const { error: updateErr } = await supabase
+          .from(storeName)
+          .update({
+            archived_at: null,
+            archive_reason: null,
+            updated_at: now,
+            last_modified: now
+          })
+          .eq('id', record.id);
+
+        if (updateErr) {
+          console.error(`Erreur update Supabase ${storeName} restore:`, updateErr);
+          await supabase
+            .from(storeName)
+            .update({
+              archived_at: null,
+              archive_reason: null,
+              updated_at: now,
+              last_modified: now
+            })
+            .eq('id', String(record.id));
         }
+
+        const mapped = mapLocalToSupabase(storeName, record);
+        await supabase.from(storeName).upsert(mapped);
+        record.synced = 1;
+        await updateLocal(storeName, record);
       }
     } catch (err) {
-      console.warn("Erreur directe sync restauration:", err);
+      console.error("Erreur directe sync restauration:", err);
     }
   }
 
@@ -1247,15 +1295,23 @@ async function restoreRecord(type, record) {
           try {
             const supabase = getSupabaseClient();
             if (supabase) {
+              await supabase
+                .from('animals')
+                .update({
+                  archived_at: null,
+                  archive_reason: null,
+                  updated_at: now,
+                  last_modified: now
+                })
+                .eq('id', animal.id);
+
               const mapped = mapLocalToSupabase('animals', animal);
-              const { error: upsertErr } = await supabase.from('animals').upsert(mapped);
-              if (!upsertErr) {
-                animal.synced = 1;
-                await updateLocal('animals', animal);
-              }
+              await supabase.from('animals').upsert(mapped);
+              animal.synced = 1;
+              await updateLocal('animals', animal);
             }
           } catch (err) {
-            console.warn("Erreur directe sync restauration cascade animal:", err);
+            console.error("Erreur directe sync restauration cascade animal:", err);
           }
         }
       }

@@ -306,6 +306,16 @@ export async function syncUpsert(storeName, item) {
     try {
       const mapped = mapLocalToSupabase(storeName, item);
       const { error } = await client.from(table).upsert(mapped);
+
+      // Si c'est un client ou animal, garantir la mise à jour explicite de archived_at / archive_reason
+      if ((storeName === 'clients' || storeName === 'animals') && item.id) {
+        await client.from(table).update({
+          archived_at: item.archived_at || null,
+          archive_reason: item.archive_reason || null,
+          updated_at: new Date().toISOString()
+        }).eq('id', item.id);
+      }
+
       if (!error) {
         item.synced = 1;
         await updateLocal(storeName, item);
