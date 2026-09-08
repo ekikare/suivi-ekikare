@@ -2382,7 +2382,7 @@ async function renderAnimalDetails(animalId) {
     if (activeActions) activeActions.style.display = 'none';
     if (archivedActions) archivedActions.style.display = currentPortalClientId ? 'none' : 'inline-flex';
     if (copyPortalBtn) copyPortalBtn.style.display = 'none';
-    if (exportDossierBtn) exportDossierBtn.style.display = 'none';
+    if (exportDossierBtn) exportDossierBtn.style.display = 'inline-flex';
     if (addMedBtn) addMedBtn.style.display = 'none';
     if (assocProfBtn) assocProfBtn.style.display = 'none';
     if (addRemBtn) addRemBtn.style.display = 'none';
@@ -2404,13 +2404,13 @@ async function renderAnimalDetails(animalId) {
     if (activeActions) activeActions.style.display = 'inline-flex';
     if (archivedActions) archivedActions.style.display = 'none';
     if (copyPortalBtn) copyPortalBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
-    if (exportDossierBtn) exportDossierBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (exportDossierBtn) exportDossierBtn.style.display = 'inline-flex';
     if (btnArchive) btnArchive.style.display = currentPortalClientId ? 'none' : 'inline-flex';
     if (btnNewSession) btnNewSession.style.display = currentPortalClientId ? 'none' : 'inline-flex';
-    if (addExtSessionBtn) addExtSessionBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
-    if (addMedBtn) addMedBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
-    if (assocProfBtn) assocProfBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
-    if (addRemBtn) addRemBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (addExtSessionBtn) addExtSessionBtn.style.display = 'inline-flex';
+    if (addMedBtn) addMedBtn.style.display = 'inline-flex';
+    if (assocProfBtn) assocProfBtn.style.display = 'inline-flex';
+    if (addRemBtn) addRemBtn.style.display = 'inline-flex';
 
     const archiveBtn = document.getElementById('btn-archive-animal');
     if (archiveBtn) {
@@ -5992,6 +5992,15 @@ function openExternalSessionDialog(session = null, animalId = null) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     
+    if (currentPortalClientId) {
+      const pClient = await getById('clients', currentPortalClientId);
+      if (pClient && pClient.archived_at) {
+        showToast("Action impossible : cet espace client a été clôturé.", "error");
+        dialog.close();
+        return;
+      }
+    }
+
     const id = document.getElementById('dialog-external-session-id').value;
     const finalAnimalId = Number(document.getElementById('dialog-external-session-animal-id').value);
     const dateVal = document.getElementById('ext-session-date').value;
@@ -6076,6 +6085,15 @@ function openClientDialog(client = null) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     
+    if (currentPortalClientId) {
+      const pClient = await getById('clients', currentPortalClientId);
+      if (pClient && pClient.archived_at) {
+        showToast("Action impossible : cet espace client a été clôturé.", "error");
+        dialog.close();
+        return;
+      }
+    }
+
     const clientData = {
       nom: document.getElementById('client-form-lastname').value.trim(),
       prenom: document.getElementById('client-form-firstname').value.trim(),
@@ -6529,6 +6547,15 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     
+    if (currentPortalClientId) {
+      const pClient = await getById('clients', currentPortalClientId);
+      if (pClient && pClient.archived_at) {
+        showToast("Action impossible : cet espace client a été clôturé.", "error");
+        dialog.close();
+        return;
+      }
+    }
+
     const ownerId = Number(ownerSelect.value) || (animal && animal.client_id ? Number(animal.client_id) : (preselectedClientId ? Number(preselectedClientId) : (currentPortalClientId ? Number(currentPortalClientId) : null)));
     
     // Déterminer la date de naissance (avec calcul automatique si âge estimé est fourni)
@@ -8440,6 +8467,21 @@ async function renderPortalDetails(tokenOrId) {
   const activeView = document.getElementById('portal-active-view');
   const portalAnimalsContainer = document.getElementById('portal-client-animals');
   const ownerTitle = document.getElementById('portal-owner-title');
+
+  // 0. Vérification locale immédiate (priorité absolue si client déjà archivé localement)
+  let localClient = await getClientByUuid(tokenOrId);
+  if (!localClient && !isNaN(Number(tokenOrId))) {
+    localClient = await getById('clients', Number(tokenOrId));
+  }
+  if (localClient && localClient.archived_at) {
+    currentPortalClientId = localClient.id;
+    currentPortalClientToken = localClient.uuid || String(localClient.id);
+    sessionStorage.setItem('portalClientId', currentPortalClientId);
+    sessionStorage.setItem('portalClientToken', currentPortalClientToken);
+    if (activeView) activeView.style.display = 'none';
+    if (closedView) closedView.style.display = 'block';
+    return;
+  }
 
   // Masquer l'écran clôturé par défaut pendant le chargement
   if (closedView) closedView.style.display = 'none';

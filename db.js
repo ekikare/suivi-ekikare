@@ -926,8 +926,19 @@ export async function fetchClientPortalData(portalUuid) {
         }
 
         if (clientData) {
+          const existingLocal = await getClientByUuid(tokenStr);
           const localClient = mapSupabaseToLocal('clients', clientData);
+          // Si le client est archivé localement mais que Supabase a encore archived_at = null, préserver l'archivage local !
+          if (existingLocal && existingLocal.archived_at && !localClient.archived_at) {
+            localClient.archived_at = existingLocal.archived_at;
+            localClient.archive_reason = existingLocal.archive_reason;
+          }
           await updateLocal('clients', localClient);
+
+          // Si le client est archivé, ne PAS charger ses animaux ni ses séances
+          if (localClient.archived_at) {
+            return localClient;
+          }
 
           // Récupérer les animaux associés
           const { data: animalsData } = await supabase.from('animals')

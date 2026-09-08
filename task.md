@@ -43,6 +43,12 @@
   - [x] Verrouillage strict de l'accès au portail pour un client archivé sur toutes les sous-routes avec écran sobre de clôture <!-- id: 10.2 -->
   - [x] Cascade d'archivage et de restauration automatique des animaux rattachés lors de l'archivage/restauration d'un client <!-- id: 10.3 -->
   - [x] Validation, commit et push sur `origin main` <!-- id: 10.4 -->
+- [x] 11. Restauration des boutons animal actif et blocage global portail client archivé <!-- id: 11 -->
+  - [x] Restitution des boutons "Exporter le dossier", "+ Ajouter une séance", "Modifier" sur animal actif du portail <!-- id: 11.1 -->
+  - [x] Maintien du bouton "Exporter le dossier" sur animal archivé <!-- id: 11.2 -->
+  - [x] Verrouillage instantané et blocage de toutes modifications si le client est archivé <!-- id: 11.3 -->
+  - [x] Validation, commit et push sur `origin main` <!-- id: 11.4 -->
+
 
 
 
