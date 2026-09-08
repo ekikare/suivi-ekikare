@@ -134,8 +134,9 @@ export function mapLocalToSupabase(storeName, item) {
       const profFullName = [item.prenom || item.first_name || '', item.nom || item.last_name || ''].filter(Boolean).join(' ').trim() || item.name || '';
       specificFields = {
         name: profFullName,
+        profession: item.profession || item.specialite || item.specialty || '',
         phone: item.telephone || item.phone || '',
-        specialty: item.specialite || item.specialty || '',
+        email: item.email || '',
         notes: item.notes || ''
       };
       break;
@@ -286,7 +287,8 @@ export function mapSupabaseToLocal(storeName, item) {
         prenom: profPrenom,
         nom: profNom,
         telephone: item.phone || item.telephone || '',
-        specialite: item.specialty || item.specialite || '',
+        email: item.email || '',
+        specialite: item.profession || item.specialite || item.specialty || '',
         notes: item.notes || ''
       };
     case 'reminders':

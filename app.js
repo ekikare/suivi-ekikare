@@ -7404,7 +7404,21 @@ async function syncData(options = {}) {
         const unsynced = localRecords.filter(r => r.synced === 0);
         for (const record of unsynced) {
           try {
-            const mapped = mapLocalToSupabase(storeName, record);
+            let mapped = mapLocalToSupabase(storeName, record);
+            if (storeName === 'professionals') {
+              const profFullName = [record.prenom || record.first_name || '', record.nom || record.last_name || ''].filter(Boolean).join(' ').trim() || record.name || '';
+              mapped = {
+                id: String(record.id),
+                name: profFullName,
+                profession: record.profession || record.specialite || record.specialty || '',
+                phone: record.telephone || record.phone || '',
+                email: record.email || '',
+                notes: record.notes || '',
+                updated_at: new Date().toISOString(),
+                last_modified: new Date().toISOString()
+              };
+            }
+
             const { error } = await supabase.from(table).upsert(mapped);
 
             if ((storeName === 'clients' || storeName === 'animals') && record.id) {
