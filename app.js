@@ -2475,7 +2475,6 @@ async function renderAnimalDetails(animalId) {
     };
   }
 
-  const exportDossierBtn = document.getElementById('btn-export-animal-dossier');
   if (exportDossierBtn) {
     exportDossierBtn.onclick = () => {
       openExportAnimalDossierModal(animal);
