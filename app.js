@@ -164,6 +164,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateSyncStatusUI('offline');
   });
 
+  // Écouteur de visibilité de l'onglet (réveil de l'application / portail en arrière-plan)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      // Déclencher un rafraîchissement silencieux des données distantes
+      if (typeof syncData === 'function') {
+        syncData({ silent: true }).then(() => {
+          if (typeof refreshCurrentView === 'function') refreshCurrentView();
+        });
+      }
+    }
+  });
+
   if (isPractitionerUnlocked() || currentPortalClientId) {
     await checkAndInjectMockData();
     if (navigator.onLine) {
@@ -7332,10 +7344,11 @@ async function refreshCurrentView() {
   await loadViewData(routeBase, routeParam, subRoute, subParam);
 }
 
-async function syncData() {
+async function syncData(options = {}) {
+  const isSilent = Boolean(options && options.silent);
   if (isSyncing) return;
   if (!navigator.onLine) {
-    updateSyncStatusUI('offline');
+    if (!isSilent) updateSyncStatusUI('offline');
     return;
   }
   if (!isPractitionerUnlocked() && !currentPortalClientId) {
@@ -7346,19 +7359,19 @@ async function syncData() {
     const portalClient = await getById('clients', currentPortalClientId);
     if (portalClient && portalClient.archived_at) {
       // Bloquer toute écriture/synchronisation si l'espace client est clôturé / archivé
-      updateSyncStatusUI('online');
+      if (!isSilent) updateSyncStatusUI('online');
       return;
     }
   }
 
   const supabase = getSupabaseClient();
   if (!supabase) {
-    updateSyncStatusUI('offline');
+    if (!isSilent) updateSyncStatusUI('offline');
     return;
   }
 
   isSyncing = true;
-  updateSyncStatusUI('syncing');
+  if (!isSilent) updateSyncStatusUI('syncing');
 
   try {
     // 1. PUSH PENDING DELETIONS
@@ -7489,12 +7502,12 @@ async function syncData() {
       }
     }
 
-    updateSyncStatusUI('online');
+    if (!isSilent) updateSyncStatusUI('online');
     await refreshCurrentView();
 
   } catch (err) {
     console.error("Erreur sync:", "global", err.message || err);
-    updateSyncStatusUI(navigator.onLine ? 'online' : 'offline');
+    if (!isSilent) updateSyncStatusUI(navigator.onLine ? 'online' : 'offline');
   } finally {
     isSyncing = false;
   }
