@@ -81,6 +81,76 @@ export async function checkAndSyncIfInactive() {
 }
 window.checkAndSyncIfInactive = checkAndSyncIfInactive;
 
+// --- SUPABASE REALTIME SUBSCRIPTION ---
+let realtimeChannel = null;
+
+export function setupRealtimeSync() {
+  if (!navigator.onLine) return;
+  const supabase = getSupabaseClient();
+  if (!supabase || realtimeChannel) return;
+
+  try {
+    realtimeChannel = supabase
+      .channel('db-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'clients' },
+        async (payload) => {
+          console.log('Realtime update clients reçu:', payload);
+          await syncData({ silent: true });
+          if (typeof renderCurrentView === 'function') renderCurrentView();
+          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'animals' },
+        async (payload) => {
+          console.log('Realtime update animals reçu:', payload);
+          await syncData({ silent: true });
+          if (typeof renderCurrentView === 'function') renderCurrentView();
+          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sessions' },
+        async (payload) => {
+          console.log('Realtime update sessions reçu:', payload);
+          await syncData({ silent: true });
+          if (typeof renderCurrentView === 'function') renderCurrentView();
+          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks' },
+        async (payload) => {
+          console.log('Realtime update tasks reçu:', payload);
+          await syncData({ silent: true });
+          if (typeof renderCurrentView === 'function') renderCurrentView();
+          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'professionals' },
+        async (payload) => {
+          console.log('Realtime update professionals reçu:', payload);
+          await syncData({ silent: true });
+          if (typeof renderCurrentView === 'function') renderCurrentView();
+          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
+        }
+      )
+      .subscribe((status) => {
+        console.log('Supabase Realtime status:', status);
+      });
+  } catch (err) {
+    console.warn('Erreur initialisation Supabase Realtime:', err);
+  }
+}
+window.setupRealtimeSync = setupRealtimeSync;
+
 // Motifs d'archivage par défaut
 const DEFAULT_CLIENT_ARCHIVE_REASONS = [
   "Déménagement",
@@ -174,9 +244,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialiser l'UI de statut de synchronisation
   updateSyncStatusUI(navigator.onLine ? 'online' : 'offline');
   
+  // Initialiser la souscription Supabase Realtime si connecté
+  if (navigator.onLine) {
+    setupRealtimeSync();
+  }
+  
   // Écouteurs de connexion réseau
   window.addEventListener('online', () => {
     showToast("Connexion rétablie. Synchronisation des données...", "info");
+    setupRealtimeSync();
     if (isPractitionerUnlocked() || currentPortalClientId) {
       syncData();
     }
@@ -310,6 +386,7 @@ function setupPractitionerLock() {
         handleRouting();
         if (navigator.onLine) {
           syncData();
+          setupRealtimeSync();
         }
       } else {
         if (errorMsg) {
@@ -7347,7 +7424,7 @@ function updateSyncStatusUI(status) {
   container.innerHTML = html;
 }
 
-async function refreshCurrentView() {
+export async function refreshCurrentView() {
   const hash = window.location.hash.substring(1) || 'dashboard';
   let routeBase = hash;
   let routeParam = null;
@@ -7362,6 +7439,9 @@ async function refreshCurrentView() {
   }
   await loadViewData(routeBase, routeParam, subRoute, subParam);
 }
+export const renderCurrentView = refreshCurrentView;
+window.refreshCurrentView = refreshCurrentView;
+window.renderCurrentView = refreshCurrentView;
 
 async function syncData(options = {}) {
   const isSilent = Boolean(options && options.silent);
