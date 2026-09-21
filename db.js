@@ -9,17 +9,77 @@ let dbInstance = null;
 // CONFIGURATION SYNCHRONISATION
 export const SYNCED_STORES = ['clients', 'professionals', 'animals', 'sessions', 'reminders'];
 let supabaseClient = null;
+let realtimeChannel = null;
+
+const renderCurrentView = () => {
+  if (typeof window !== 'undefined') {
+    if (typeof window.renderCurrentView === 'function') window.renderCurrentView();
+    else if (typeof window.refreshCurrentView === 'function') window.refreshCurrentView();
+  }
+};
+
+/**
+ * Attache l'écouteur Realtime directement sur l'instance connectée
+ */
+export function setupRealtimeClientsListener(instance) {
+  const targetInstance = instance || supabaseClient || (typeof window !== 'undefined' ? window.supabaseClient : null);
+  if (!targetInstance || realtimeChannel) return realtimeChannel;
+
+  realtimeChannel = targetInstance
+    .channel('clients-sync')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'clients' },
+      async (payload) => {
+        console.log('>>> REALTIME REÇU SUR L INSTANCE <<<', payload);
+        if (payload && payload.new && payload.new.id) {
+          try {
+            const updatedClient = mapSupabaseToLocal('clients', payload.new);
+            if (updatedClient) {
+              updatedClient.synced = 1;
+              await updateLocal('clients', updatedClient);
+            }
+          } catch (e) {
+            console.warn('Erreur mise à jour locale realtime payload:', e);
+          }
+        }
+        if (typeof window.syncData === 'function') {
+          await window.syncData({ silent: true });
+        }
+        if (typeof renderCurrentView === 'function') renderCurrentView();
+
+        if (typeof window.handleRealtimeClientPayload === 'function') {
+          window.handleRealtimeClientPayload(payload);
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log('Statut canal clients-sync:', status);
+    });
+
+  return realtimeChannel;
+}
 
 /**
  * Lazy initialisation du client Supabase
  */
 export function getSupabaseClient() {
-  if (supabaseClient) return supabaseClient;
-  if (window.supabase) {
+  if (supabaseClient) {
+    if (typeof window !== 'undefined') {
+      window.supabaseClient = supabaseClient;
+    }
+    return supabaseClient;
+  }
+  if (typeof window !== 'undefined' && window.supabase && typeof window.supabase.createClient === 'function') {
     supabaseClient = window.supabase.createClient(
       "https://vctunemarfbmoffvgjha.supabase.co",
       "sb_publishable_qxlXJDcBhAP0j8zYbNAeBQ_cjLDYy3H"
     );
+    // Exposer explicitement l'instance sur window pour le debug et l'accessibilité
+    window.supabaseClient = supabaseClient;
+
+    // Brancher l'écouteur Realtime directement sur cette instance connectée
+    setupRealtimeClientsListener(supabaseClient);
   } else {
     console.error("Supabase CDN non chargé.");
   }
@@ -1306,3 +1366,7 @@ export async function deleteClientCascade(clientId) {
   await remove('clients', cId);
 }
 
+// Initialiser et exposer immédiatement l'instance Supabase connectée si disponible
+if (typeof window !== 'undefined' && window.supabase && typeof window.supabase.createClient === 'function') {
+  getSupabaseClient();
+}

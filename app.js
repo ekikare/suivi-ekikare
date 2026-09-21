@@ -13,6 +13,7 @@ import {
   importAllData,
   SYNCED_STORES,
   getSupabaseClient,
+  setupRealtimeClientsListener,
   addLocal,
   updateLocal,
   removeLocal,
@@ -81,116 +82,62 @@ export async function checkAndSyncIfInactive() {
 }
 window.checkAndSyncIfInactive = checkAndSyncIfInactive;
 
-// --- SUPABASE REALTIME SUBSCRIPTION ---
-let realtimeChannel = null;
-let isRealtimeSubscribed = false;
+// --- GESTIONNAIRE EVENEMENTS REALTIME ---
+window.handleRealtimeClientPayload = (payload) => {
+  if (!payload || !payload.new || !payload.new.id) return;
+  const updatedClient = mapSupabaseToLocal('clients', payload.new);
+  if (!updatedClient) return;
+
+  // Si nous sommes dans l'espace client (portail) et concerné :
+  if (currentPortalClientId && String(payload.new.id) === String(currentPortalClientId)) {
+    const ownerTitle = document.getElementById('portal-owner-title');
+    if (ownerTitle && (updatedClient.prenom || updatedClient.nom)) {
+      ownerTitle.textContent = `Espace Suivi de ${updatedClient.prenom || ''} ${(updatedClient.nom || '').toUpperCase()}`.trim();
+    }
+    const phoneEl = document.getElementById('portal-client-phone');
+    if (phoneEl) phoneEl.textContent = updatedClient.telephone || '-';
+    const emailEl = document.getElementById('portal-client-email');
+    if (emailEl) emailEl.textContent = updatedClient.email || '-';
+    const addressEl = document.getElementById('portal-client-address');
+    if (addressEl) addressEl.textContent = updatedClient.adresse || '-';
+    const stableEl = document.getElementById('portal-client-stable');
+    if (stableEl) stableEl.textContent = updatedClient.ecurie || '-';
+
+    if (updatedClient.archived_at && typeof renderPortalDetails === 'function') {
+      renderPortalDetails(currentPortalClientToken || currentPortalClientId);
+    }
+  }
+
+  // Si le dialogue client est ouvert pour ce client, synchroniser les champs du formulaire
+  const dialogClient = document.getElementById('dialog-client');
+  if (dialogClient && dialogClient.open) {
+    const idInput = document.getElementById('dialog-client-id');
+    if (idInput && String(idInput.value) === String(payload.new.id)) {
+      const phoneInput = document.getElementById('client-form-phone');
+      if (phoneInput && document.activeElement !== phoneInput) {
+        phoneInput.value = updatedClient.telephone || '';
+      }
+      const emailInput = document.getElementById('client-form-email');
+      if (emailInput && document.activeElement !== emailInput) {
+        emailInput.value = updatedClient.email || '';
+      }
+      const addressInput = document.getElementById('client-form-address');
+      if (addressInput && document.activeElement !== addressInput) {
+        addressInput.value = updatedClient.adresse || '';
+      }
+      const stableInput = document.getElementById('client-form-stable');
+      if (stableInput && document.activeElement !== stableInput) {
+        stableInput.value = updatedClient.ecurie || '';
+      }
+    }
+  }
+};
 
 export function setupRealtimeSync() {
   if (!navigator.onLine) return;
-  const supabaseClient = getSupabaseClient();
-  if (!supabaseClient) return;
-
-  if (realtimeChannel && isRealtimeSubscribed) {
-    return;
-  }
-
-  if (realtimeChannel) {
-    try {
-      supabaseClient.removeChannel(realtimeChannel);
-    } catch (e) {
-      // Ignorer si déjà supprimé
-    }
-    realtimeChannel = null;
-    isRealtimeSubscribed = false;
-  }
-
-  try {
-    const channel = supabaseClient
-      .channel('clients-db-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'clients'
-        },
-        async (payload) => {
-          console.log('>>> REALTIME EVENT REÇU <<<', payload);
-          if (payload && payload.new && payload.new.id) {
-            const updatedClient = mapSupabaseToLocal('clients', payload.new);
-            updatedClient.synced = 1;
-            await updateLocal('clients', updatedClient);
-
-            // Si nous sommes dans l'espace client (portail) et concerné :
-            if (currentPortalClientId && String(payload.new.id) === String(currentPortalClientId)) {
-              const ownerTitle = document.getElementById('portal-owner-title');
-              if (ownerTitle && (updatedClient.prenom || updatedClient.nom)) {
-                ownerTitle.textContent = `Espace Suivi de ${updatedClient.prenom || ''} ${(updatedClient.nom || '').toUpperCase()}`.trim();
-              }
-              const phoneEl = document.getElementById('portal-client-phone');
-              if (phoneEl) phoneEl.textContent = updatedClient.telephone || '-';
-              const emailEl = document.getElementById('portal-client-email');
-              if (emailEl) emailEl.textContent = updatedClient.email || '-';
-              const addressEl = document.getElementById('portal-client-address');
-              if (addressEl) addressEl.textContent = updatedClient.adresse || '-';
-              const stableEl = document.getElementById('portal-client-stable');
-              if (stableEl) stableEl.textContent = updatedClient.ecurie || '-';
-
-              if (updatedClient.archived_at && typeof renderPortalDetails === 'function') {
-                renderPortalDetails(currentPortalClientToken || currentPortalClientId);
-              }
-            }
-
-            // Si le dialogue client est ouvert pour ce client, synchroniser les champs du formulaire
-            const dialogClient = document.getElementById('dialog-client');
-            if (dialogClient && dialogClient.open) {
-              const idInput = document.getElementById('dialog-client-id');
-              if (idInput && String(idInput.value) === String(payload.new.id)) {
-                const phoneInput = document.getElementById('client-form-phone');
-                if (phoneInput && document.activeElement !== phoneInput) {
-                  phoneInput.value = updatedClient.telephone || '';
-                }
-                const emailInput = document.getElementById('client-form-email');
-                if (emailInput && document.activeElement !== emailInput) {
-                  emailInput.value = updatedClient.email || '';
-                }
-                const addressInput = document.getElementById('client-form-address');
-                if (addressInput && document.activeElement !== addressInput) {
-                  addressInput.value = updatedClient.adresse || '';
-                }
-                const stableInput = document.getElementById('client-form-stable');
-                if (stableInput && document.activeElement !== stableInput) {
-                  stableInput.value = updatedClient.ecurie || '';
-                }
-              }
-            }
-          }
-
-          // Recharger les données locales
-          if (typeof window.syncData === 'function') {
-            await window.syncData({ silent: true });
-          }
-          // Forcer le rafraîchissement de la vue active
-          if (typeof renderCurrentView === 'function') renderCurrentView();
-          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
-        }
-      )
-      .subscribe((status, err) => {
-        console.log('Statut Realtime canal:', status);
-        if (err) console.error('Erreur souscription Realtime:', err);
-        if (status === 'SUBSCRIBED') {
-          isRealtimeSubscribed = true;
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          isRealtimeSubscribed = false;
-          realtimeChannel = null;
-        }
-      });
-
-    realtimeChannel = channel;
-  } catch (err) {
-    console.warn('Erreur initialisation Supabase Realtime:', err);
-    realtimeChannel = null;
-    isRealtimeSubscribed = false;
+  const client = window.supabaseClient || getSupabaseClient();
+  if (client && typeof setupRealtimeClientsListener === 'function') {
+    setupRealtimeClientsListener(client);
   }
 }
 window.setupRealtimeSync = setupRealtimeSync;
