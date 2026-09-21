@@ -113,61 +113,39 @@ export function setupRealtimeSync() {
           const updatedClient = mapSupabaseToLocal('clients', payload.new);
           updatedClient.synced = 1;
           await updateLocal('clients', updatedClient);
+
+          // Si nous sommes dans l'espace client et que la notification concerne ce client :
+          if (currentPortalClientId && String(payload.new.id) === String(currentPortalClientId)) {
+            const ownerTitle = document.getElementById('portal-owner-title');
+            if (ownerTitle && (updatedClient.prenom || updatedClient.nom)) {
+              ownerTitle.textContent = `Espace Suivi de ${updatedClient.prenom || ''} ${(updatedClient.nom || '').toUpperCase()}`.trim();
+            }
+            const phoneEl = document.getElementById('portal-client-phone');
+            if (phoneEl) phoneEl.textContent = updatedClient.telephone || '-';
+            const emailEl = document.getElementById('portal-client-email');
+            if (emailEl) emailEl.textContent = updatedClient.email || '-';
+            const addressEl = document.getElementById('portal-client-address');
+            if (addressEl) addressEl.textContent = updatedClient.adresse || '-';
+            const stableEl = document.getElementById('portal-client-stable');
+            if (stableEl) stableEl.textContent = updatedClient.ecurie || '-';
+
+            if (updatedClient.archived_at) {
+              if (typeof renderPortalDetails === 'function') {
+                await renderPortalDetails(currentPortalClientToken || currentPortalClientId);
+              }
+            }
+          }
         }
-        if (typeof window.syncData === 'function') {
-          await window.syncData({ silent: true });
+
+        // Si nous sommes dans l'espace praticien (déverrouillé) : rafraîchissement complet
+        if (isPractitionerUnlocked()) {
+          if (typeof window.syncData === 'function') {
+            await window.syncData({ silent: true });
+          }
+          if (typeof renderCurrentView === 'function') renderCurrentView();
+          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
         }
-        if (typeof renderCurrentView === 'function') renderCurrentView();
-        else if (typeof refreshCurrentView === 'function') refreshCurrentView();
       })
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'animals' },
-        async (payload) => {
-          console.log('Realtime animals reçu:', payload);
-          if (typeof window.syncData === 'function') {
-            await window.syncData({ silent: true });
-          }
-          if (typeof renderCurrentView === 'function') renderCurrentView();
-          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'sessions' },
-        async (payload) => {
-          console.log('Realtime sessions reçu:', payload);
-          if (typeof window.syncData === 'function') {
-            await window.syncData({ silent: true });
-          }
-          if (typeof renderCurrentView === 'function') renderCurrentView();
-          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks' },
-        async (payload) => {
-          console.log('Realtime tasks reçu:', payload);
-          if (typeof window.syncData === 'function') {
-            await window.syncData({ silent: true });
-          }
-          if (typeof renderCurrentView === 'function') renderCurrentView();
-          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'professionals' },
-        async (payload) => {
-          console.log('Realtime professionals reçu:', payload);
-          if (typeof window.syncData === 'function') {
-            await window.syncData({ silent: true });
-          }
-          if (typeof renderCurrentView === 'function') renderCurrentView();
-          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
-        }
-      )
       .subscribe((status) => {
         console.log('Statut Realtime:', status);
         if (status === 'SUBSCRIBED') {
@@ -269,8 +247,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   populateSpecialtyDropdown();
   setupDateHeader();
   
-  // Migration automatique des UUIDs pour les clients existants
-  await ensureClientsHaveUUID();
+  // Migration automatique des UUIDs pour les clients existants (réservée au praticien)
+  if (isPractitionerUnlocked()) {
+    await ensureClientsHaveUUID();
+  }
 
   // Enregistrer le callback de synchronisation pour les écritures locales
   registerDatabaseChangeCallback(syncData);
@@ -287,7 +267,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('online', () => {
     showToast("Connexion rétablie. Synchronisation des données...", "info");
     setupRealtimeSync();
-    if (isPractitionerUnlocked() || currentPortalClientId) {
+    if (isPractitionerUnlocked()) {
       syncData();
     }
   });
@@ -296,14 +276,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateSyncStatusUI('offline');
   });
 
-  // Écouteur de visibilité de l'onglet (réveil de l'application / portail en arrière-plan)
+  // Écouteur de visibilité de l'onglet (réveil de l'application en arrière-plan)
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
+    if (document.visibilityState === 'visible' && isPractitionerUnlocked()) {
       checkAndSyncIfInactive();
     }
   });
 
-  if (isPractitionerUnlocked() || currentPortalClientId) {
+  if (isPractitionerUnlocked()) {
     await checkAndInjectMockData();
     if (navigator.onLine) {
       await syncData();
@@ -532,12 +512,12 @@ async function checkPortalContext() {
   const isPortalRoute = routeBase === 'portal' || (window.location.hash && window.location.hash.includes('portal'));
 
   if (routeBase === 'portal' && routeParam) {
-    let client = await fetchClientPortalData(routeParam);
-    if (!client) {
-      client = await getClientByUuid(routeParam);
-    }
+    let client = await getClientByUuid(routeParam);
     if (!client && !isNaN(Number(routeParam))) {
       client = await getById('clients', Number(routeParam));
+    }
+    if (!client && navigator.onLine) {
+      client = await fetchClientPortalData(routeParam);
     }
     if (client) {
       currentPortalClientId = client.id;
@@ -805,12 +785,12 @@ async function loadViewData(view, param, subRoute = null, subParam = null) {
       break;
     case 'portal':
       if (param) {
-        let client = await fetchClientPortalData(param);
-        if (!client) {
-          client = await getClientByUuid(param);
-        }
+        let client = await getClientByUuid(param);
         if (!client && !isNaN(Number(param))) {
           client = await getById('clients', Number(param));
+        }
+        if (!client && navigator.onLine) {
+          client = await fetchClientPortalData(param);
         }
 
         console.log('[PORTAL GUARD] loadViewData Client:', client?.id, 'archived_at:', client?.archived_at);
@@ -6208,10 +6188,18 @@ async function openClientDialog(client = null) {
       const supabase = getSupabaseClient();
       if (navigator.onLine && supabase) {
         try {
-          const { error: updateErr } = await supabase
+          let { error: updateErr } = await supabase
             .from('clients')
             .update(patchPayload)
             .eq('id', String(clientId));
+
+          if (updateErr && currentClient && currentClient.uuid) {
+            const fallbackRes = await supabase
+              .from('clients')
+              .update(patchPayload)
+              .eq('uuid', currentClient.uuid);
+            if (!fallbackRes.error) updateErr = null;
+          }
 
           if (!updateErr) {
             updateSuccess = true;
@@ -7575,17 +7563,9 @@ async function syncData(options = {}) {
     if (!isSilent) updateSyncStatusUI('offline');
     return;
   }
-  if (!isPractitionerUnlocked() && !currentPortalClientId) {
-    // Bloquer la synchronisation globale tant que l'espace praticien est verrouillé
+  if (!isPractitionerUnlocked()) {
+    // La synchronisation globale (toutes tables) est strictement réservée au praticien déverrouillé
     return;
-  }
-  if (currentPortalClientId && !isPractitionerUnlocked()) {
-    const portalClient = await getById('clients', currentPortalClientId);
-    if (portalClient && portalClient.archived_at) {
-      // Bloquer toute écriture/synchronisation si l'espace client est clôturé / archivé
-      if (!isSilent) updateSyncStatusUI('online');
-      return;
-    }
   }
 
   const supabase = getSupabaseClient();
@@ -8785,10 +8765,8 @@ async function renderPortalDetails(tokenOrId) {
 
   if (client) {
     await renderClientUI(client);
-  }
-
-  // 2. Synchronisation distante en arrière-plan sans masquer la vue
-  if (navigator.onLine) {
+  } else if (navigator.onLine) {
+    // 2. Synchronisation distante uniquement si non présent localement
     try {
       const remoteClient = await fetchClientPortalData(tokenOrId);
       if (remoteClient) {
