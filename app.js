@@ -83,27 +83,37 @@ window.checkAndSyncIfInactive = checkAndSyncIfInactive;
 
 // --- SUPABASE REALTIME SUBSCRIPTION ---
 let realtimeChannel = null;
+let isRealtimeSubscribed = false;
 
 export function setupRealtimeSync() {
   if (!navigator.onLine) return;
   const supabaseClient = getSupabaseClient();
   if (!supabaseClient) return;
 
+  if (realtimeChannel && isRealtimeSubscribed) {
+    return;
+  }
+
   if (realtimeChannel) {
     try {
-      if (realtimeChannel.state === 'joined') return;
       supabaseClient.removeChannel(realtimeChannel);
     } catch (e) {
       // Ignorer si déjà supprimé
     }
     realtimeChannel = null;
+    isRealtimeSubscribed = false;
   }
 
   try {
     realtimeChannel = supabaseClient
       .channel('public:clients')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' }, async (payload) => {
-        console.log('Realtime update reçu:', payload);
+        console.log('Realtime praticien reçu:', payload);
+        if (payload && payload.new && payload.new.id) {
+          const updatedClient = mapSupabaseToLocal('clients', payload.new);
+          updatedClient.synced = 1;
+          await updateLocal('clients', updatedClient);
+        }
         if (typeof window.syncData === 'function') {
           await window.syncData({ silent: true });
         }
@@ -114,7 +124,7 @@ export function setupRealtimeSync() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'animals' },
         async (payload) => {
-          console.log('Realtime update animals reçu:', payload);
+          console.log('Realtime animals reçu:', payload);
           if (typeof window.syncData === 'function') {
             await window.syncData({ silent: true });
           }
@@ -126,7 +136,7 @@ export function setupRealtimeSync() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'sessions' },
         async (payload) => {
-          console.log('Realtime update sessions reçu:', payload);
+          console.log('Realtime sessions reçu:', payload);
           if (typeof window.syncData === 'function') {
             await window.syncData({ silent: true });
           }
@@ -138,7 +148,7 @@ export function setupRealtimeSync() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
         async (payload) => {
-          console.log('Realtime update tasks reçu:', payload);
+          console.log('Realtime tasks reçu:', payload);
           if (typeof window.syncData === 'function') {
             await window.syncData({ silent: true });
           }
@@ -150,7 +160,7 @@ export function setupRealtimeSync() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'professionals' },
         async (payload) => {
-          console.log('Realtime update professionals reçu:', payload);
+          console.log('Realtime professionals reçu:', payload);
           if (typeof window.syncData === 'function') {
             await window.syncData({ silent: true });
           }
@@ -159,14 +169,18 @@ export function setupRealtimeSync() {
         }
       )
       .subscribe((status) => {
-        console.log('Statut Realtime clients:', status);
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        console.log('Statut Realtime:', status);
+        if (status === 'SUBSCRIBED') {
+          isRealtimeSubscribed = true;
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          isRealtimeSubscribed = false;
           realtimeChannel = null;
         }
       });
   } catch (err) {
     console.warn('Erreur initialisation Supabase Realtime:', err);
     realtimeChannel = null;
+    isRealtimeSubscribed = false;
   }
 }
 window.setupRealtimeSync = setupRealtimeSync;
@@ -6173,49 +6187,26 @@ async function openClientDialog(client = null) {
         }
       }
 
-      // 2. Fusionner avec les dernières données disponibles (local + Supabase si en ligne)
-      let mergedClient = (await getById('clients', clientId)) || currentClient || {};
+      // Si aucun champ n'a été modifié, fermer simplement
+      if (Object.keys(modifiedFields).length === 0) {
+        dialog.close();
+        return;
+      }
 
+      // 2. Préparer le patch ciblé pour Supabase (uniquement les champs modifiés valides)
+      const patchPayload = {};
+      if ('nom' in modifiedFields) patchPayload.last_name = modifiedFields.nom;
+      if ('prenom' in modifiedFields) patchPayload.first_name = modifiedFields.prenom;
+      if ('telephone' in modifiedFields) patchPayload.phone = modifiedFields.telephone;
+      if ('email' in modifiedFields) patchPayload.email = modifiedFields.email;
+      if ('adresse' in modifiedFields) patchPayload.address = modifiedFields.adresse;
+      if ('ecurie' in modifiedFields) patchPayload.main_stable = modifiedFields.ecurie;
+      if ('notes' in modifiedFields) patchPayload.notes = modifiedFields.notes;
+      patchPayload.updated_at = new Date().toISOString();
+
+      let updateSuccess = false;
       const supabase = getSupabaseClient();
       if (navigator.onLine && supabase) {
-        try {
-          const { data: remoteData } = await supabase
-            .from('clients')
-            .select('*')
-            .eq('id', String(clientId))
-            .maybeSingle();
-          if (remoteData) {
-            const mappedRemote = mapSupabaseToLocal('clients', remoteData);
-            mergedClient = { ...mergedClient, ...mappedRemote };
-          }
-        } catch (pullErr) {
-          console.warn("Pull distant avant enregistrement client:", pullErr);
-        }
-      }
-
-      // 3. Appliquer uniquement les champs modifiés par l'utilisateur sur l'enregistrement fusionné
-      for (const [key, val] of Object.entries(modifiedFields)) {
-        mergedClient[key] = val;
-      }
-      mergedClient.id = clientId;
-      mergedClient.uuid = mergedClient.uuid || (currentClient && currentClient.uuid) || generateUUID();
-      mergedClient.archived_at = mergedClient.archived_at || (currentClient && currentClient.archived_at) || null;
-      mergedClient.archive_reason = mergedClient.archive_reason || (currentClient && currentClient.archive_reason) || null;
-
-      // 4. Si connecté et champs modifiés : envoyer un UPDATE ciblé (PATCH) avec uniquement les champs changés
-      if (navigator.onLine && supabase && Object.keys(modifiedFields).length > 0) {
-        const patchPayload = {};
-        if ('nom' in modifiedFields) patchPayload.last_name = modifiedFields.nom;
-        if ('prenom' in modifiedFields) patchPayload.first_name = modifiedFields.prenom;
-        if ('telephone' in modifiedFields) patchPayload.phone = modifiedFields.telephone;
-        if ('email' in modifiedFields) patchPayload.email = modifiedFields.email;
-        if ('adresse' in modifiedFields) patchPayload.address = modifiedFields.adresse;
-        if ('ecurie' in modifiedFields) patchPayload.main_stable = modifiedFields.ecurie;
-        if ('notes' in modifiedFields) patchPayload.notes = modifiedFields.notes;
-
-        patchPayload.updated_at = new Date().toISOString();
-        patchPayload.last_modified = patchPayload.updated_at;
-
         try {
           const { error: updateErr } = await supabase
             .from('clients')
@@ -6223,24 +6214,50 @@ async function openClientDialog(client = null) {
             .eq('id', String(clientId));
 
           if (!updateErr) {
-            mergedClient.synced = 1;
-            mergedClient.updated_at = patchPayload.updated_at;
-            mergedClient.last_modified = Date.now();
-            await updateLocal('clients', mergedClient);
+            updateSuccess = true;
           } else {
-            console.warn("Erreur update ciblé Supabase, repli update classique:", updateErr);
-            await update('clients', mergedClient);
+            console.warn("Erreur update ciblé Supabase:", updateErr);
           }
         } catch (netErr) {
           console.warn("Exception update ciblé Supabase:", netErr);
-          await update('clients', mergedClient);
         }
-      } else if (Object.keys(modifiedFields).length > 0) {
-        // Hors ligne : enregistrement local avec synchronisation différée
-        await update('clients', mergedClient);
-      } else {
-        // Aucun champ modifié
-        await updateLocal('clients', mergedClient);
+      }
+
+      // 3. Mettre à jour l'enregistrement local avec les champs modifiés
+      const current = (await getById('clients', clientId)) || currentClient || {};
+      const updatedClient = {
+        ...current,
+        ...modifiedFields,
+        id: clientId,
+        uuid: current.uuid || (currentClient && currentClient.uuid) || generateUUID(),
+        archived_at: current.archived_at || (currentClient && currentClient.archived_at) || null,
+        archive_reason: current.archive_reason || (currentClient && currentClient.archive_reason) || null,
+        updated_at: patchPayload.updated_at,
+        last_modified: Date.now(),
+        synced: updateSuccess ? 1 : 0
+      };
+
+      await updateLocal('clients', updatedClient);
+
+      // Si l'envoi direct a échoué (hors-ligne), programmer via update pour sync ultérieure
+      if (!updateSuccess) {
+        await update('clients', updatedClient);
+      }
+
+      // 4. Mettre à jour immédiatement l'interface locale sans rechargement lourd
+      if (currentPortalClientId) {
+        const ownerTitle = document.getElementById('portal-owner-title');
+        if (ownerTitle && (updatedClient.prenom || updatedClient.nom)) {
+          ownerTitle.textContent = `Espace Suivi de ${updatedClient.prenom || ''} ${(updatedClient.nom || '').toUpperCase()}`.trim();
+        }
+        const phoneEl = document.getElementById('portal-client-phone');
+        if (phoneEl) phoneEl.textContent = updatedClient.telephone || '-';
+        const emailEl = document.getElementById('portal-client-email');
+        if (emailEl) emailEl.textContent = updatedClient.email || '-';
+        const addressEl = document.getElementById('portal-client-address');
+        if (addressEl) addressEl.textContent = updatedClient.adresse || '-';
+        const stableEl = document.getElementById('portal-client-stable');
+        if (stableEl) stableEl.textContent = updatedClient.ecurie || '-';
       }
 
       showToast('Client modifié.');
@@ -6252,17 +6269,15 @@ async function openClientDialog(client = null) {
 
     dialog.close();
     
-    // Recharger la vue clients active
-    if (currentPortalClientId) {
-      await renderPortalDetails(currentPortalClientId);
-    } else if (window.location.hash.startsWith('#clients/')) {
-      await renderClientDetails(currentClientId);
-    } else {
-      await renderClientsList();
+    // Recharger la vue praticien si nécessaire (sans perturber le portail)
+    if (!currentPortalClientId) {
+      if (window.location.hash.startsWith('#clients/')) {
+        await renderClientDetails(currentClientId);
+      } else if (window.location.hash === '#clients') {
+        await renderClientsList();
+      }
+      await renderDashboard();
     }
-    
-    // Recharger dashboard au cas où
-    await renderDashboard();
   };
 
   dialog.showModal();
@@ -8666,57 +8681,126 @@ async function renderPortalDetails(tokenOrId) {
   const portalAnimalsContainer = document.getElementById('portal-client-animals');
   const ownerTitle = document.getElementById('portal-owner-title');
 
-  // Masquer systématiquement les deux vues au démarrage du chargement
-  if (closedView) closedView.style.display = 'none';
-  if (activeView) activeView.style.display = 'none';
+  // Fonction interne de mise à jour fluide de l'affichage sans masquer les conteneurs
+  const renderClientUI = async (c) => {
+    if (!c) return;
+    if (c.archived_at) {
+      currentPortalClientId = c.id;
+      currentPortalClientToken = c.uuid || String(c.id);
+      sessionStorage.setItem('portalClientId', currentPortalClientId);
+      sessionStorage.setItem('portalClientToken', currentPortalClientToken);
 
-  // 1. Recherche distante prioritaire Supabase puis repli local
-  let client = await fetchClientPortalData(tokenOrId);
-  if (!client) {
-    client = await getClientByUuid(tokenOrId);
-  }
+      if (activeView) activeView.style.display = 'none';
+      if (closedView) {
+        closedView.innerHTML = `
+          <div style="min-height: 80vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem;">
+            <div style="font-size: 3rem; margin-bottom: 1rem;">📁</div>
+            <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 0.75rem;">Espace clôturé</h2>
+            <p style="max-width: 500px; color: #9ca3af; line-height: 1.5;">
+              Le dossier associé à cet espace client a été archivé. L'accès aux informations et aux modifications n'est plus disponible.<br><br>
+              Pour toute question, contactez directement votre praticien.
+            </p>
+          </div>
+        `;
+        closedView.style.display = 'block';
+      }
+      return;
+    }
+
+    currentPortalClientId = c.id;
+    currentPortalClientToken = c.uuid || String(c.id);
+    sessionStorage.setItem('portalClientId', currentPortalClientId);
+    sessionStorage.setItem('portalClientToken', currentPortalClientToken);
+
+    if (closedView) closedView.style.display = 'none';
+    if (activeView) activeView.style.display = 'block';
+
+    if (ownerTitle) ownerTitle.textContent = `Espace Suivi de ${c.prenom || ''} ${(c.nom || '').toUpperCase()}`.trim();
+    const phoneEl = document.getElementById('portal-client-phone');
+    if (phoneEl) phoneEl.textContent = c.telephone || '-';
+    const emailEl = document.getElementById('portal-client-email');
+    if (emailEl) emailEl.textContent = c.email || '-';
+    const addressEl = document.getElementById('portal-client-address');
+    if (addressEl) addressEl.textContent = c.adresse || '-';
+    const stableEl = document.getElementById('portal-client-stable');
+    if (stableEl) stableEl.textContent = c.ecurie || '-';
+
+    const btnEditContact = document.getElementById('btn-portal-edit-contact');
+    if (btnEditContact) {
+      btnEditContact.style.display = 'inline-flex';
+      btnEditContact.onclick = () => {
+        openClientDialog(c);
+      };
+    }
+
+    const btnAddAnimal = document.getElementById('btn-portal-add-animal');
+    if (btnAddAnimal) {
+      btnAddAnimal.style.display = 'inline-flex';
+      btnAddAnimal.onclick = () => {
+        openAnimalDialog(null, c.id);
+      };
+    }
+
+    // Récupérer et afficher les animaux associés à ce client
+    const animals = await getByIndex('animals', 'client_id', c.id);
+    if (portalAnimalsContainer) {
+      portalAnimalsContainer.innerHTML = '';
+      if (animals.length === 0) {
+        portalAnimalsContainer.innerHTML = '<p class="empty-state">Aucun animal enregistré sur votre compte.</p>';
+      } else {
+        for (const an of animals) {
+          const portalToken = currentPortalClientToken || c.uuid || c.id;
+          const card = document.createElement('a');
+          card.className = 'animal-mini-card';
+          card.href = `#portal/${portalToken}/animals/${an.id}`;
+          
+          const avatarText = (an.nom || '').substring(0, 2).toUpperCase();
+          const ageDisplay = calculateAge(an.date_naissance_ou_age, an.date_naissance_ou_age);
+          const locText = getAnimalLocationSummary(an);
+          const archiveBadge = an.archived_at ? `<span class="badge" style="background: rgba(217, 107, 39, 0.2); color: #f59e0b; border: 1px solid rgba(217, 107, 39, 0.4); font-size: 0.75rem; padding: 2px 7px; border-radius: 6px; font-weight: 600; margin-left: 8px;">Dossier clôturé</span>` : '';
+
+          card.innerHTML = `
+            <div class="animal-mini-info">
+              <div class="animal-avatar-mini">${avatarText}</div>
+              <div>
+                <span class="animal-mini-name">${an.nom || ''} ${archiveBadge}</span>
+                <div class="animal-mini-details">${an.espece || ''} &bull; ${an.race || 'Race inconnue'} &bull; ${ageDisplay}</div>
+                <div class="animal-mini-location" style="font-size:0.85rem; color:var(--text-sub); margin-top:2px;">📍 ${locText}</div>
+              </div>
+            </div>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          `;
+
+          portalAnimalsContainer.appendChild(card);
+        }
+      }
+    }
+  };
+
+  // 1. Recherche locale immédiate (0ms de latence, zéro clignotement)
+  let client = await getClientByUuid(tokenOrId);
   if (!client && !isNaN(Number(tokenOrId))) {
     client = await getById('clients', Number(tokenOrId));
   }
 
-  console.log('[PORTAL GUARD] Client:', client?.id, 'archived_at:', client?.archived_at);
-
-  // 2. Early Return Guard strict si client archivé
-  if (client && client.archived_at) {
-    currentPortalClientId = client.id;
-    currentPortalClientToken = client.uuid || String(client.id);
-    sessionStorage.setItem('portalClientId', currentPortalClientId);
-    sessionStorage.setItem('portalClientToken', currentPortalClientToken);
-
-    if (activeView) activeView.style.display = 'none';
-    if (closedView) {
-      closedView.innerHTML = `
-        <div style="min-height: 80vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem;">
-          <div style="font-size: 3rem; margin-bottom: 1rem;">📁</div>
-          <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 0.75rem;">Espace clôturé</h2>
-          <p style="max-width: 500px; color: #9ca3af; line-height: 1.5;">
-            Le dossier associé à cet espace client a été archivé. L'accès aux informations et aux modifications n'est plus disponible.<br><br>
-            Pour toute question, contactez directement votre praticien.
-          </p>
-        </div>
-      `;
-      closedView.style.display = 'block';
-    } else if (container) {
-      container.innerHTML = `
-        <div style="min-height: 80vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem;">
-          <div style="font-size: 3rem; margin-bottom: 1rem;">📁</div>
-          <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 0.75rem;">Espace clôturé</h2>
-          <p style="max-width: 500px; color: #9ca3af; line-height: 1.5;">
-            Le dossier associé à cet espace client a été archivé. L'accès aux informations et aux modifications n'est plus disponible.<br><br>
-            Pour toute question, contactez directement votre praticien.
-          </p>
-        </div>
-      `;
-    }
-    return;
+  if (client) {
+    await renderClientUI(client);
   }
 
-  // 3. Cas non trouvé
+  // 2. Synchronisation distante en arrière-plan sans masquer la vue
+  if (navigator.onLine) {
+    try {
+      const remoteClient = await fetchClientPortalData(tokenOrId);
+      if (remoteClient) {
+        client = remoteClient;
+        await renderClientUI(client);
+      }
+    } catch (err) {
+      console.warn("fetchClientPortalData distant:", err);
+    }
+  }
+
+  // 3. Cas où le client est définitivement introuvable (local et distant)
   if (!client) {
     if (closedView) closedView.style.display = 'none';
     if (activeView) activeView.style.display = 'block';
@@ -8733,75 +8817,13 @@ async function renderPortalDetails(tokenOrId) {
       `;
     }
     if (ownerTitle) ownerTitle.textContent = "Espace Suivi eKiKare";
-    document.getElementById('portal-client-phone').textContent = "-";
-    document.getElementById('portal-client-email').textContent = "-";
-    document.getElementById('portal-client-address').textContent = "-";
-    document.getElementById('portal-client-stable').textContent = "-";
-    return;
-  }
-
-  currentPortalClientId = client.id;
-  currentPortalClientToken = client.uuid || String(client.id);
-  sessionStorage.setItem('portalClientId', currentPortalClientId);
-  sessionStorage.setItem('portalClientToken', currentPortalClientToken);
-
-  // 4. Client actif : afficher le tableau de bord standard
-  if (closedView) closedView.style.display = 'none';
-  if (activeView) activeView.style.display = 'block';
-
-  if (ownerTitle) ownerTitle.textContent = `Espace Suivi de ${client.prenom} ${client.nom.toUpperCase()}`;
-  document.getElementById('portal-client-phone').textContent = client.telephone || '-';
-  document.getElementById('portal-client-email').textContent = client.email || '-';
-  document.getElementById('portal-client-address').textContent = client.adresse || '-';
-  document.getElementById('portal-client-stable').textContent = client.ecurie || '-';
-
-  const btnEditContact = document.getElementById('btn-portal-edit-contact');
-  if (btnEditContact) {
-    btnEditContact.style.display = 'inline-flex';
-    btnEditContact.onclick = () => {
-      openClientDialog(client);
-    };
-  }
-
-  const btnAddAnimal = document.getElementById('btn-portal-add-animal');
-  if (btnAddAnimal) {
-    btnAddAnimal.style.display = 'inline-flex';
-    btnAddAnimal.onclick = () => {
-      openAnimalDialog(null, client.id);
-    };
-  }
-
-  // Récupérer et afficher les animaux associés à ce client
-  const animals = await getByIndex('animals', 'client_id', client.id);
-  portalAnimalsContainer.innerHTML = '';
-
-  if (animals.length === 0) {
-    portalAnimalsContainer.innerHTML = '<p class="empty-state">Aucun animal enregistré sur votre compte.</p>';
-  } else {
-    for (const an of animals) {
-      const portalToken = currentPortalClientToken || client.uuid || client.id;
-      const card = document.createElement('a');
-      card.className = 'animal-mini-card';
-      card.href = `#portal/${portalToken}/animals/${an.id}`;
-      
-      const avatarText = an.nom.substring(0, 2).toUpperCase();
-      const ageDisplay = calculateAge(an.date_naissance_ou_age, an.date_naissance_ou_age);
-      const locText = getAnimalLocationSummary(an);
-      const archiveBadge = an.archived_at ? `<span class="badge" style="background: rgba(217, 107, 39, 0.2); color: #f59e0b; border: 1px solid rgba(217, 107, 39, 0.4); font-size: 0.75rem; padding: 2px 7px; border-radius: 6px; font-weight: 600; margin-left: 8px;">Dossier clôturé</span>` : '';
-
-      card.innerHTML = `
-        <div class="animal-mini-info">
-          <div class="animal-avatar-mini">${avatarText}</div>
-          <div>
-            <span class="animal-mini-name">${an.nom} ${archiveBadge}</span>
-            <div class="animal-mini-details">${an.espece} &bull; ${an.race || 'Race inconnue'} &bull; ${ageDisplay}</div>
-            <div class="animal-mini-location" style="font-size:0.85rem; color:var(--text-sub); margin-top:2px;">📍 ${locText}</div>
-          </div>
-        </div>
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-      `;
-
-      portalAnimalsContainer.appendChild(card);
-    }
+    const pPhone = document.getElementById('portal-client-phone');
+    if (pPhone) pPhone.textContent = "-";
+    const pEmail = document.getElementById('portal-client-email');
+    if (pEmail) pEmail.textContent = "-";
+    const pAddress = document.getElementById('portal-client-address');
+    if (pAddress) pAddress.textContent = "-";
+    const pStable = document.getElementById('portal-client-stable');
+    if (pStable) pStable.textContent = "-";
   }
 }
