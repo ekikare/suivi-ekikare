@@ -86,28 +86,38 @@ let realtimeChannel = null;
 
 export function setupRealtimeSync() {
   if (!navigator.onLine) return;
-  const supabase = getSupabaseClient();
-  if (!supabase || realtimeChannel) return;
+  const supabaseClient = getSupabaseClient();
+  if (!supabaseClient) return;
+
+  if (realtimeChannel) {
+    try {
+      if (realtimeChannel.state === 'joined') return;
+      supabaseClient.removeChannel(realtimeChannel);
+    } catch (e) {
+      // Ignorer si déjà supprimé
+    }
+    realtimeChannel = null;
+  }
 
   try {
-    realtimeChannel = supabase
-      .channel('db-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'clients' },
-        async (payload) => {
-          console.log('Realtime update clients reçu:', payload);
-          await syncData({ silent: true });
-          if (typeof renderCurrentView === 'function') renderCurrentView();
-          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
+    realtimeChannel = supabaseClient
+      .channel('public:clients')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' }, async (payload) => {
+        console.log('Realtime update reçu:', payload);
+        if (typeof window.syncData === 'function') {
+          await window.syncData({ silent: true });
         }
-      )
+        if (typeof renderCurrentView === 'function') renderCurrentView();
+        else if (typeof refreshCurrentView === 'function') refreshCurrentView();
+      })
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'animals' },
         async (payload) => {
           console.log('Realtime update animals reçu:', payload);
-          await syncData({ silent: true });
+          if (typeof window.syncData === 'function') {
+            await window.syncData({ silent: true });
+          }
           if (typeof renderCurrentView === 'function') renderCurrentView();
           else if (typeof refreshCurrentView === 'function') refreshCurrentView();
         }
@@ -117,7 +127,9 @@ export function setupRealtimeSync() {
         { event: '*', schema: 'public', table: 'sessions' },
         async (payload) => {
           console.log('Realtime update sessions reçu:', payload);
-          await syncData({ silent: true });
+          if (typeof window.syncData === 'function') {
+            await window.syncData({ silent: true });
+          }
           if (typeof renderCurrentView === 'function') renderCurrentView();
           else if (typeof refreshCurrentView === 'function') refreshCurrentView();
         }
@@ -127,7 +139,9 @@ export function setupRealtimeSync() {
         { event: '*', schema: 'public', table: 'tasks' },
         async (payload) => {
           console.log('Realtime update tasks reçu:', payload);
-          await syncData({ silent: true });
+          if (typeof window.syncData === 'function') {
+            await window.syncData({ silent: true });
+          }
           if (typeof renderCurrentView === 'function') renderCurrentView();
           else if (typeof refreshCurrentView === 'function') refreshCurrentView();
         }
@@ -137,16 +151,22 @@ export function setupRealtimeSync() {
         { event: '*', schema: 'public', table: 'professionals' },
         async (payload) => {
           console.log('Realtime update professionals reçu:', payload);
-          await syncData({ silent: true });
+          if (typeof window.syncData === 'function') {
+            await window.syncData({ silent: true });
+          }
           if (typeof renderCurrentView === 'function') renderCurrentView();
           else if (typeof refreshCurrentView === 'function') refreshCurrentView();
         }
       )
       .subscribe((status) => {
-        console.log('Supabase Realtime status:', status);
+        console.log('Statut Realtime clients:', status);
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          realtimeChannel = null;
+        }
       });
   } catch (err) {
     console.warn('Erreur initialisation Supabase Realtime:', err);
+    realtimeChannel = null;
   }
 }
 window.setupRealtimeSync = setupRealtimeSync;
@@ -6072,7 +6092,7 @@ function openExternalSessionDialog(session = null, animalId = null) {
 }
 
 // 1. DIALOG CLIENT (AJOUTER / MODIFIER)
-function openClientDialog(client = null) {
+async function openClientDialog(client = null) {
   const dialog = document.getElementById('dialog-client');
   const form = document.getElementById('dialog-client-form');
   form.reset();
@@ -6080,16 +6100,33 @@ function openClientDialog(client = null) {
   const titleEl = document.getElementById('dialog-client-title');
   const idInput = document.getElementById('dialog-client-id');
 
-  if (client) {
+  let currentClient = client;
+  if (client && client.id) {
+    const fresh = await getById('clients', client.id);
+    if (fresh) currentClient = fresh;
+  }
+
+  // Mémoriser les valeurs initiales pour identifier précisément les champs modifiés par l'utilisateur
+  const initialValues = {
+    nom: (currentClient ? currentClient.nom : '') || '',
+    prenom: (currentClient ? currentClient.prenom : '') || '',
+    telephone: (currentClient ? currentClient.telephone : '') || '',
+    email: (currentClient ? currentClient.email : '') || '',
+    adresse: (currentClient ? currentClient.adresse : '') || '',
+    ecurie: (currentClient ? currentClient.ecurie : '') || '',
+    notes: (currentClient && currentClient.notes ? String(currentClient.notes).replace(/\[portal_token:[^\]]+\]/g, '').trim() : '') || ''
+  };
+
+  if (currentClient) {
     titleEl.textContent = 'Modifier le Client';
-    idInput.value = client.id;
-    document.getElementById('client-form-lastname').value = client.nom;
-    document.getElementById('client-form-firstname').value = client.prenom;
-    document.getElementById('client-form-phone').value = client.telephone;
-    document.getElementById('client-form-email').value = client.email || '';
-    document.getElementById('client-form-address').value = client.adresse || '';
-    document.getElementById('client-form-stable').value = client.ecurie || '';
-    document.getElementById('client-form-notes').value = client.notes ? String(client.notes).replace(/\[portal_token:[^\]]+\]/g, '').trim() : '';
+    idInput.value = currentClient.id;
+    document.getElementById('client-form-lastname').value = initialValues.nom;
+    document.getElementById('client-form-firstname').value = initialValues.prenom;
+    document.getElementById('client-form-phone').value = initialValues.telephone;
+    document.getElementById('client-form-email').value = initialValues.email;
+    document.getElementById('client-form-address').value = initialValues.adresse;
+    document.getElementById('client-form-stable').value = initialValues.ecurie;
+    document.getElementById('client-form-notes').value = initialValues.notes;
   } else {
     titleEl.textContent = 'Nouveau Client';
     idInput.value = '';
@@ -6115,7 +6152,7 @@ function openClientDialog(client = null) {
       }
     }
 
-    const clientData = {
+    const formValues = {
       nom: document.getElementById('client-form-lastname').value.trim(),
       prenom: document.getElementById('client-form-firstname').value.trim(),
       telephone: document.getElementById('client-form-phone').value.trim(),
@@ -6126,17 +6163,90 @@ function openClientDialog(client = null) {
     };
 
     if (idInput.value) {
-      clientData.id = Number(idInput.value);
-      if (client) {
-        clientData.uuid = client.uuid || generateUUID();
-        clientData.archived_at = client.archived_at || null;
-        clientData.archive_reason = client.archive_reason || null;
+      const clientId = Number(idInput.value);
+
+      // 1. Déterminer les champs effectivement modifiés par l'utilisateur
+      const modifiedFields = {};
+      for (const [key, val] of Object.entries(formValues)) {
+        if (val !== (initialValues[key] || '')) {
+          modifiedFields[key] = val;
+        }
       }
-      await update('clients', clientData);
+
+      // 2. Fusionner avec les dernières données disponibles (local + Supabase si en ligne)
+      let mergedClient = (await getById('clients', clientId)) || currentClient || {};
+
+      const supabase = getSupabaseClient();
+      if (navigator.onLine && supabase) {
+        try {
+          const { data: remoteData } = await supabase
+            .from('clients')
+            .select('*')
+            .eq('id', String(clientId))
+            .maybeSingle();
+          if (remoteData) {
+            const mappedRemote = mapSupabaseToLocal('clients', remoteData);
+            mergedClient = { ...mergedClient, ...mappedRemote };
+          }
+        } catch (pullErr) {
+          console.warn("Pull distant avant enregistrement client:", pullErr);
+        }
+      }
+
+      // 3. Appliquer uniquement les champs modifiés par l'utilisateur sur l'enregistrement fusionné
+      for (const [key, val] of Object.entries(modifiedFields)) {
+        mergedClient[key] = val;
+      }
+      mergedClient.id = clientId;
+      mergedClient.uuid = mergedClient.uuid || (currentClient && currentClient.uuid) || generateUUID();
+      mergedClient.archived_at = mergedClient.archived_at || (currentClient && currentClient.archived_at) || null;
+      mergedClient.archive_reason = mergedClient.archive_reason || (currentClient && currentClient.archive_reason) || null;
+
+      // 4. Si connecté et champs modifiés : envoyer un UPDATE ciblé (PATCH) avec uniquement les champs changés
+      if (navigator.onLine && supabase && Object.keys(modifiedFields).length > 0) {
+        const patchPayload = {};
+        if ('nom' in modifiedFields) patchPayload.last_name = modifiedFields.nom;
+        if ('prenom' in modifiedFields) patchPayload.first_name = modifiedFields.prenom;
+        if ('telephone' in modifiedFields) patchPayload.phone = modifiedFields.telephone;
+        if ('email' in modifiedFields) patchPayload.email = modifiedFields.email;
+        if ('adresse' in modifiedFields) patchPayload.address = modifiedFields.adresse;
+        if ('ecurie' in modifiedFields) patchPayload.main_stable = modifiedFields.ecurie;
+        if ('notes' in modifiedFields) patchPayload.notes = modifiedFields.notes;
+
+        patchPayload.updated_at = new Date().toISOString();
+        patchPayload.last_modified = patchPayload.updated_at;
+
+        try {
+          const { error: updateErr } = await supabase
+            .from('clients')
+            .update(patchPayload)
+            .eq('id', String(clientId));
+
+          if (!updateErr) {
+            mergedClient.synced = 1;
+            mergedClient.updated_at = patchPayload.updated_at;
+            mergedClient.last_modified = Date.now();
+            await updateLocal('clients', mergedClient);
+          } else {
+            console.warn("Erreur update ciblé Supabase, repli update classique:", updateErr);
+            await update('clients', mergedClient);
+          }
+        } catch (netErr) {
+          console.warn("Exception update ciblé Supabase:", netErr);
+          await update('clients', mergedClient);
+        }
+      } else if (Object.keys(modifiedFields).length > 0) {
+        // Hors ligne : enregistrement local avec synchronisation différée
+        await update('clients', mergedClient);
+      } else {
+        // Aucun champ modifié
+        await updateLocal('clients', mergedClient);
+      }
+
       showToast('Client modifié.');
     } else {
-      clientData.uuid = generateUUID();
-      await add('clients', clientData);
+      const newClient = { ...formValues, uuid: generateUUID() };
+      await add('clients', newClient);
       showToast('Client créé.');
     }
 
