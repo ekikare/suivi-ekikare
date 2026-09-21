@@ -13,7 +13,6 @@ import {
   importAllData,
   SYNCED_STORES,
   getSupabaseClient,
-  setupRealtimeClientsListener,
   addLocal,
   updateLocal,
   removeLocal,
@@ -36,6 +35,8 @@ import {
   restoreClient,
   unarchiveClient
 } from './db.js';
+
+import { SyncManager } from './sync-manager.js';
 
 // --- INITIALISATION SPEECH RECOGNITION ---
 let recognition = null;
@@ -60,87 +61,11 @@ let animalDetailsProvenance = null;
 let activeSpeechTarget = null;
 let activeSpeechBtn = null;
 
-// --- GESTION DU PULL DE SÉCURITÉ (Inactivité 15 min) ---
-window.lastSyncCheck = window.lastSyncCheck || Date.now();
-const INACTIVITY_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
-
-export async function checkAndSyncIfInactive() {
-  const now = Date.now();
-  if (now - window.lastSyncCheck >= INACTIVITY_COOLDOWN_MS) {
-    console.log('Cooldown 15min dépassé : lancement de la synchro de sécurité...');
-    window.lastSyncCheck = now;
-    try {
-      if (typeof syncData === 'function' && navigator.onLine) {
-        await syncData({ silent: true });
-        if (typeof renderCurrentView === 'function') renderCurrentView();
-        else if (typeof refreshCurrentView === 'function') refreshCurrentView();
-      }
-    } catch (err) {
-      console.warn('Erreur sync inactivité:', err);
-    }
-  }
+// Rétrocompatibilité
+export function checkAndSyncIfInactive() {
+  if (window.SyncManager) window.SyncManager.triggerSync({ silent: true });
 }
 window.checkAndSyncIfInactive = checkAndSyncIfInactive;
-
-// --- GESTIONNAIRE EVENEMENTS REALTIME ---
-window.handleRealtimeClientPayload = (payload) => {
-  if (!payload || !payload.new || !payload.new.id) return;
-  const updatedClient = mapSupabaseToLocal('clients', payload.new);
-  if (!updatedClient) return;
-
-  // Si nous sommes dans l'espace client (portail) et concerné :
-  if (currentPortalClientId && String(payload.new.id) === String(currentPortalClientId)) {
-    const ownerTitle = document.getElementById('portal-owner-title');
-    if (ownerTitle && (updatedClient.prenom || updatedClient.nom)) {
-      ownerTitle.textContent = `Espace Suivi de ${updatedClient.prenom || ''} ${(updatedClient.nom || '').toUpperCase()}`.trim();
-    }
-    const phoneEl = document.getElementById('portal-client-phone');
-    if (phoneEl) phoneEl.textContent = updatedClient.telephone || '-';
-    const emailEl = document.getElementById('portal-client-email');
-    if (emailEl) emailEl.textContent = updatedClient.email || '-';
-    const addressEl = document.getElementById('portal-client-address');
-    if (addressEl) addressEl.textContent = updatedClient.adresse || '-';
-    const stableEl = document.getElementById('portal-client-stable');
-    if (stableEl) stableEl.textContent = updatedClient.ecurie || '-';
-
-    if (updatedClient.archived_at && typeof renderPortalDetails === 'function') {
-      renderPortalDetails(currentPortalClientToken || currentPortalClientId);
-    }
-  }
-
-  // Si le dialogue client est ouvert pour ce client, synchroniser les champs du formulaire
-  const dialogClient = document.getElementById('dialog-client');
-  if (dialogClient && dialogClient.open) {
-    const idInput = document.getElementById('dialog-client-id');
-    if (idInput && String(idInput.value) === String(payload.new.id)) {
-      const phoneInput = document.getElementById('client-form-phone');
-      if (phoneInput && document.activeElement !== phoneInput) {
-        phoneInput.value = updatedClient.telephone || '';
-      }
-      const emailInput = document.getElementById('client-form-email');
-      if (emailInput && document.activeElement !== emailInput) {
-        emailInput.value = updatedClient.email || '';
-      }
-      const addressInput = document.getElementById('client-form-address');
-      if (addressInput && document.activeElement !== addressInput) {
-        addressInput.value = updatedClient.adresse || '';
-      }
-      const stableInput = document.getElementById('client-form-stable');
-      if (stableInput && document.activeElement !== stableInput) {
-        stableInput.value = updatedClient.ecurie || '';
-      }
-    }
-  }
-};
-
-export function setupRealtimeSync() {
-  if (!navigator.onLine) return;
-  const client = window.supabaseClient || getSupabaseClient();
-  if (client && typeof setupRealtimeClientsListener === 'function') {
-    setupRealtimeClientsListener(client);
-  }
-}
-window.setupRealtimeSync = setupRealtimeSync;
 
 // Motifs d'archivage par défaut
 const DEFAULT_CLIENT_ARCHIVE_REASONS = [
@@ -231,41 +156,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     await ensureClientsHaveUUID();
   }
 
-  // Enregistrer le callback de synchronisation pour les écritures locales
-  registerDatabaseChangeCallback(syncData);
-  
-  // Initialiser l'UI de statut de synchronisation
-  updateSyncStatusUI(navigator.onLine ? 'online' : 'offline');
-  
-  // Initialiser la souscription Supabase Realtime si connecté
-  if (navigator.onLine) {
-    setupRealtimeSync();
-  }
-  
-  // Écouteurs de connexion réseau
-  window.addEventListener('online', () => {
-    showToast("Connexion rétablie. Synchronisation des données...", "info");
-    setupRealtimeSync();
-    if (isPractitionerUnlocked()) {
-      syncData();
-    }
-  });
-  window.addEventListener('offline', () => {
-    showToast("Connexion perdue. Passage en mode hors-ligne.", "warning");
-    updateSyncStatusUI('offline');
-  });
-
-  // Écouteur de visibilité de l'onglet (réveil de l'application en arrière-plan)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && isPractitionerUnlocked()) {
-      checkAndSyncIfInactive();
-    }
+  // Initialisation du SyncManager modulaire (écouteurs autonomes, push/pull et statut UI)
+  SyncManager.init({
+    isUnlocked: isPractitionerUnlocked,
+    onSyncStatus: updateSyncStatusUI,
+    onDataChanged: refreshCurrentView
   });
 
   if (isPractitionerUnlocked()) {
     await checkAndInjectMockData();
     if (navigator.onLine) {
-      await syncData();
+      await SyncManager.triggerSync();
     }
   }
 
@@ -378,8 +279,7 @@ function setupPractitionerLock() {
         await checkAndInjectMockData();
         handleRouting();
         if (navigator.onLine) {
-          syncData();
-          setupRealtimeSync();
+          SyncManager.triggerSync();
         }
       } else {
         if (errorMsg) {
@@ -440,7 +340,6 @@ function setupPractitionerLock() {
 function setupNavigation() {
   document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
     item.addEventListener('click', () => {
-      checkAndSyncIfInactive();
       sessionStorage.removeItem('portalClientId');
       currentPortalClientId = null;
       document.body.classList.remove('is-client-portal');
@@ -529,7 +428,6 @@ async function checkPortalContext() {
 }
 
 async function handleRouting() {
-  checkAndSyncIfInactive();
   const hash = getNormalizedHash();
   previousRoute = currentRoute;
   currentRoute = hash;
@@ -7539,198 +7437,10 @@ export const renderCurrentView = refreshCurrentView;
 window.refreshCurrentView = refreshCurrentView;
 window.renderCurrentView = refreshCurrentView;
 
-async function syncData(options = {}) {
-  const isSilent = Boolean(options && options.silent);
-  if (isSyncing) return;
-  if (!navigator.onLine) {
-    if (!isSilent) updateSyncStatusUI('offline');
-    return;
-  }
-  if (!isPractitionerUnlocked()) {
-    // La synchronisation globale (toutes tables) est strictement réservée au praticien déverrouillé
-    return;
-  }
-
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    if (!isSilent) updateSyncStatusUI('offline');
-    return;
-  }
-
-  isSyncing = true;
-  if (!isSilent) updateSyncStatusUI('syncing');
-
-  try {
-    // 1. PUSH PENDING DELETIONS
-    const deletions = await getTrackedDeletions();
-    for (const del of deletions) {
-      const table = del.storeName === 'reminders' ? 'tasks' : del.storeName;
-      try {
-        const { error } = await supabase.from(table).delete().eq('id', String(del.recordId));
-        if (!error) {
-          await clearTrackedDeletion(del.id);
-        } else {
-          console.error("Erreur sync:", table, error.message || error);
-        }
-      } catch (err) {
-        console.error("Erreur sync:", table, err.message || err);
-      }
-    }
-
-    // 2. PUSH UNSYNCED LOCAL MODIFICATIONS (Priorité pour éviter tout rollback)
-    for (const storeName of SYNCED_STORES) {
-      try {
-        const table = storeName === 'reminders' ? 'tasks' : storeName;
-        const localRecords = await getAll(storeName);
-        const unsynced = localRecords.filter(r => r.synced === 0);
-        for (const record of unsynced) {
-          try {
-            let mapped = mapLocalToSupabase(storeName, record);
-            if (storeName === 'professionals') {
-              const profFullName = [record.prenom || record.first_name || '', record.nom || record.last_name || ''].filter(Boolean).join(' ').trim() || record.name || '';
-              mapped = {
-                id: String(record.id),
-                name: profFullName,
-                profession: record.profession || record.specialite || record.specialty || '',
-                phone: record.telephone || record.phone || '',
-                email: record.email || '',
-                notes: record.notes || '',
-                updated_at: new Date().toISOString(),
-                last_modified: new Date().toISOString()
-              };
-            }
-
-            let error = null;
-            if (storeName === 'clients' && record.id) {
-              const res = await supabase.from('clients').update(mapped).eq('id', record.id);
-              error = res.error;
-            } else {
-              const res = await supabase.from(table).upsert(mapped);
-              error = res.error;
-            }
-
-            if ((storeName === 'clients' || storeName === 'animals') && record.id) {
-              await supabase.from(table).update({
-                archived_at: record.archived_at || null,
-                archive_reason: record.archive_reason || null,
-                updated_at: new Date().toISOString()
-              }).eq('id', record.id);
-            }
-
-            if (!error) {
-              record.synced = 1;
-              await updateLocal(storeName, record);
-            } else {
-              console.warn("Sync push notice:", table, error.message || error);
-            }
-          } catch (err) {
-            console.warn("Sync push error on record:", table, err.message || err);
-          }
-        }
-      } catch (storeErr) {
-        console.warn("Sync push error on store:", storeName, storeErr.message || storeErr);
-      }
-    }
-
-    // 3. RECONCILE CLIENT UUIDS & ARCHIVES WITH SUPABASE
-    try {
-      await reconcileClientUUIDsFromSupabase();
-    } catch (recErr) {
-      console.warn("Erreur réconciliation UUIDs:", recErr.message || recErr);
-    }
-
-    // 4. PULL REMOTE MODIFICATIONS
-    for (const storeName of SYNCED_STORES) {
-      const table = storeName === 'reminders' ? 'tasks' : storeName;
-      try {
-        const { data: remoteRecords, error } = await supabase.from(table).select('*');
-        if (error) {
-          console.warn(`Sync pull notice (${table}):`, error.message || error);
-          continue;
-        }
-
-        if (remoteRecords) {
-          const mappedRemoteRecords = remoteRecords.map(r => mapSupabaseToLocal(storeName, r));
-          const remoteIds = new Set(mappedRemoteRecords.map(r => r.id));
-
-          // A. Mettre à jour ou insérer les enregistrements distants localement
-          for (const remoteRec of mappedRemoteRecords) {
-            const localRec = await getById(storeName, remoteRec.id);
-            if (!localRec) {
-              remoteRec.synced = 1;
-              await updateLocal(storeName, remoteRec);
-            } else {
-              // Réconciliation de l'archivage (clients & animaux)
-              if ((storeName === 'clients' || storeName === 'animals') && (remoteRec.archived_at || null) !== (localRec.archived_at || null)) {
-                if (localRec.synced === 0) {
-                  try {
-                    await supabase.from(table).update({
-                      archived_at: localRec.archived_at || null,
-                      archive_reason: localRec.archive_reason || null,
-                      updated_at: new Date().toISOString(),
-                      last_modified: new Date().toISOString()
-                    }).eq('id', localRec.id);
-                    localRec.synced = 1;
-                    await updateLocal(storeName, localRec);
-                  } catch (e) {
-                    console.warn("Erreur sync update Supabase archive:", e);
-                  }
-                } else {
-                  localRec.archived_at = remoteRec.archived_at || null;
-                  localRec.archive_reason = remoteRec.archive_reason || null;
-                  localRec.synced = 1;
-                  await updateLocal(storeName, localRec);
-                }
-              } else {
-                const localTime = new Date(localRec.updated_at || localRec.last_modified || 0).getTime();
-                const remoteTime = new Date(remoteRec.updated_at || remoteRec.last_modified || 0).getTime();
-                if (remoteTime >= localTime) {
-                  remoteRec.synced = 1;
-                  await updateLocal(storeName, remoteRec);
-                } else if (localRec.synced === 0) {
-                  try {
-                    const mappedLocal = mapLocalToSupabase(storeName, localRec);
-                    const { error: upsertErr } = await supabase.from(table).upsert(mappedLocal);
-                    if (!upsertErr) {
-                      localRec.synced = 1;
-                      await updateLocal(storeName, localRec);
-                    } else {
-                      console.warn("Sync pull upsert notice:", table, upsertErr.message || upsertErr);
-                    }
-                  } catch (err) {
-                    console.warn("Sync error:", table, err.message || err);
-                  }
-                }
-              }
-            }
-          }
-
-          // B. Supprimer localement ce qui a été supprimé à distance
-          const localRecords = await getAll(storeName);
-          for (const localRec of localRecords) {
-            if (localRec.synced === 1 && !remoteIds.has(localRec.id)) {
-              await removeLocal(storeName, localRec.id);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn("Erreur sync table:", table, err.message || err);
-      }
-    }
-
-    window.lastSyncCheck = Date.now();
-    if (!isSilent) updateSyncStatusUI('online');
-    await refreshCurrentView();
-
-  } catch (err) {
-    console.error("Erreur sync:", "global", err.message || err);
-    if (!isSilent) updateSyncStatusUI(navigator.onLine ? 'online' : 'offline');
-  } finally {
-    isSyncing = false;
-  }
+// Redirection globale vers le module autonome SyncManager
+export async function syncData(options = {}) {
+  return SyncManager.triggerSync(options);
 }
-
-// Exposition globale pour débogage et contrôles directs
 window.syncData = syncData;
 
 // --- MOCK DATA ---
