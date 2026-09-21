@@ -44,7 +44,6 @@ export function mapLocalToSupabase(storeName, item) {
   const isoTime = new Date().toISOString();
   const mapped = { 
     id: String(item.id),
-    last_modified: isoTime,
     updated_at: isoTime
   };
 
@@ -318,7 +317,14 @@ export async function syncUpsert(storeName, item) {
   if (client) {
     try {
       const mapped = mapLocalToSupabase(storeName, item);
-      const { error } = await client.from(table).upsert(mapped);
+      let error = null;
+      if (storeName === 'clients' && item.id) {
+        const updateRes = await client.from('clients').update(mapped).eq('id', item.id);
+        error = updateRes.error;
+      } else {
+        const upsertRes = await client.from(table).upsert(mapped);
+        error = upsertRes.error;
+      }
 
       // Si c'est un client ou animal, garantir la mise à jour explicite de archived_at / archive_reason
       if ((storeName === 'clients' || storeName === 'animals') && item.id) {

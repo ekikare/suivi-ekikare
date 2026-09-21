@@ -137,13 +137,14 @@ export function setupRealtimeSync() {
           }
         }
 
-        // Si nous sommes dans l'espace praticien (déverrouillé) : rafraîchissement complet
+        // Si nous sommes dans l'espace praticien (déverrouillé) : rafraîchissement immédiat de la vue courante
         if (isPractitionerUnlocked()) {
-          if (typeof window.syncData === 'function') {
-            await window.syncData({ silent: true });
+          console.log('Rafraîchissement automatique de la vue courante suite à Realtime');
+          if (typeof refreshCurrentView === 'function') {
+            await refreshCurrentView();
+          } else if (typeof renderCurrentView === 'function') {
+            await renderCurrentView();
           }
-          if (typeof renderCurrentView === 'function') renderCurrentView();
-          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
         }
       })
       .subscribe((status) => {
@@ -6173,16 +6174,16 @@ async function openClientDialog(client = null) {
         return;
       }
 
-      // 2. Préparer le patch ciblé pour Supabase (uniquement les champs modifiés valides)
-      const patchPayload = {};
-      if ('nom' in modifiedFields) patchPayload.last_name = modifiedFields.nom;
-      if ('prenom' in modifiedFields) patchPayload.first_name = modifiedFields.prenom;
-      if ('telephone' in modifiedFields) patchPayload.phone = modifiedFields.telephone;
-      if ('email' in modifiedFields) patchPayload.email = modifiedFields.email;
-      if ('adresse' in modifiedFields) patchPayload.address = modifiedFields.adresse;
-      if ('ecurie' in modifiedFields) patchPayload.main_stable = modifiedFields.ecurie;
-      if ('notes' in modifiedFields) patchPayload.notes = modifiedFields.notes;
-      patchPayload.updated_at = new Date().toISOString();
+      // 2. Préparer le payload contenant UNIQUEMENT les champs modifiés par l'utilisateur (PATCH partiel)
+      const fieldsToUpdate = {};
+      if ('nom' in modifiedFields) fieldsToUpdate.last_name = modifiedFields.nom;
+      if ('prenom' in modifiedFields) fieldsToUpdate.first_name = modifiedFields.prenom;
+      if ('telephone' in modifiedFields) fieldsToUpdate.phone = modifiedFields.telephone;
+      if ('email' in modifiedFields) fieldsToUpdate.email = modifiedFields.email;
+      if ('adresse' in modifiedFields) fieldsToUpdate.address = modifiedFields.adresse;
+      if ('ecurie' in modifiedFields) fieldsToUpdate.main_stable = modifiedFields.ecurie;
+      if ('notes' in modifiedFields) fieldsToUpdate.notes = modifiedFields.notes;
+      fieldsToUpdate.updated_at = new Date().toISOString();
 
       let updateSuccess = false;
       const supabase = getSupabaseClient();
@@ -6190,13 +6191,13 @@ async function openClientDialog(client = null) {
         try {
           let { error: updateErr } = await supabase
             .from('clients')
-            .update(patchPayload)
-            .eq('id', String(clientId));
+            .update(fieldsToUpdate)
+            .eq('id', clientId);
 
           if (updateErr && currentClient && currentClient.uuid) {
             const fallbackRes = await supabase
               .from('clients')
-              .update(patchPayload)
+              .update(fieldsToUpdate)
               .eq('uuid', currentClient.uuid);
             if (!fallbackRes.error) updateErr = null;
           }
@@ -6211,7 +6212,7 @@ async function openClientDialog(client = null) {
         }
       }
 
-      // 3. Mettre à jour l'enregistrement local avec les champs modifiés
+      // 3. Mettre à jour l'enregistrement local avec UNIQUEMENT les champs modifiés
       const current = (await getById('clients', clientId)) || currentClient || {};
       const updatedClient = {
         ...current,
@@ -6220,17 +6221,12 @@ async function openClientDialog(client = null) {
         uuid: current.uuid || (currentClient && currentClient.uuid) || generateUUID(),
         archived_at: current.archived_at || (currentClient && currentClient.archived_at) || null,
         archive_reason: current.archive_reason || (currentClient && currentClient.archive_reason) || null,
-        updated_at: patchPayload.updated_at,
+        updated_at: fieldsToUpdate.updated_at,
         last_modified: Date.now(),
         synced: updateSuccess ? 1 : 0
       };
 
       await updateLocal('clients', updatedClient);
-
-      // Si l'envoi direct a échoué (hors-ligne), programmer via update pour sync ultérieure
-      if (!updateSuccess) {
-        await update('clients', updatedClient);
-      }
 
       // 4. Mettre à jour immédiatement l'interface locale sans rechargement lourd
       if (currentPortalClientId) {
@@ -7617,7 +7613,14 @@ async function syncData(options = {}) {
               };
             }
 
-            const { error } = await supabase.from(table).upsert(mapped);
+            let error = null;
+            if (storeName === 'clients' && record.id) {
+              const res = await supabase.from('clients').update(mapped).eq('id', record.id);
+              error = res.error;
+            } else {
+              const res = await supabase.from(table).upsert(mapped);
+              error = res.error;
+            }
 
             if ((storeName === 'clients' || storeName === 'animals') && record.id) {
               await supabase.from(table).update({
@@ -7692,8 +7695,8 @@ async function syncData(options = {}) {
                   await updateLocal(storeName, localRec);
                 }
               } else {
-                const localTime = new Date(localRec.last_modified || 0).getTime();
-                const remoteTime = new Date(remoteRec.last_modified || 0).getTime();
+                const localTime = new Date(localRec.updated_at || localRec.last_modified || 0).getTime();
+                const remoteTime = new Date(remoteRec.updated_at || remoteRec.last_modified || 0).getTime();
                 if (remoteTime >= localTime) {
                   remoteRec.synced = 1;
                   await updateLocal(storeName, remoteRec);
