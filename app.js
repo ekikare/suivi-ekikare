@@ -105,50 +105,79 @@ export function setupRealtimeSync() {
   }
 
   try {
-    realtimeChannel = supabaseClient
-      .channel('public:clients')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' }, async (payload) => {
-        console.log('Realtime praticien reçu:', payload);
-        if (payload && payload.new && payload.new.id) {
-          const updatedClient = mapSupabaseToLocal('clients', payload.new);
-          updatedClient.synced = 1;
-          await updateLocal('clients', updatedClient);
+    const channel = supabaseClient
+      .channel('clients-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'clients'
+        },
+        async (payload) => {
+          console.log('>>> REALTIME EVENT REÇU <<<', payload);
+          if (payload && payload.new && payload.new.id) {
+            const updatedClient = mapSupabaseToLocal('clients', payload.new);
+            updatedClient.synced = 1;
+            await updateLocal('clients', updatedClient);
 
-          // Si nous sommes dans l'espace client et que la notification concerne ce client :
-          if (currentPortalClientId && String(payload.new.id) === String(currentPortalClientId)) {
-            const ownerTitle = document.getElementById('portal-owner-title');
-            if (ownerTitle && (updatedClient.prenom || updatedClient.nom)) {
-              ownerTitle.textContent = `Espace Suivi de ${updatedClient.prenom || ''} ${(updatedClient.nom || '').toUpperCase()}`.trim();
+            // Si nous sommes dans l'espace client (portail) et concerné :
+            if (currentPortalClientId && String(payload.new.id) === String(currentPortalClientId)) {
+              const ownerTitle = document.getElementById('portal-owner-title');
+              if (ownerTitle && (updatedClient.prenom || updatedClient.nom)) {
+                ownerTitle.textContent = `Espace Suivi de ${updatedClient.prenom || ''} ${(updatedClient.nom || '').toUpperCase()}`.trim();
+              }
+              const phoneEl = document.getElementById('portal-client-phone');
+              if (phoneEl) phoneEl.textContent = updatedClient.telephone || '-';
+              const emailEl = document.getElementById('portal-client-email');
+              if (emailEl) emailEl.textContent = updatedClient.email || '-';
+              const addressEl = document.getElementById('portal-client-address');
+              if (addressEl) addressEl.textContent = updatedClient.adresse || '-';
+              const stableEl = document.getElementById('portal-client-stable');
+              if (stableEl) stableEl.textContent = updatedClient.ecurie || '-';
+
+              if (updatedClient.archived_at && typeof renderPortalDetails === 'function') {
+                renderPortalDetails(currentPortalClientToken || currentPortalClientId);
+              }
             }
-            const phoneEl = document.getElementById('portal-client-phone');
-            if (phoneEl) phoneEl.textContent = updatedClient.telephone || '-';
-            const emailEl = document.getElementById('portal-client-email');
-            if (emailEl) emailEl.textContent = updatedClient.email || '-';
-            const addressEl = document.getElementById('portal-client-address');
-            if (addressEl) addressEl.textContent = updatedClient.adresse || '-';
-            const stableEl = document.getElementById('portal-client-stable');
-            if (stableEl) stableEl.textContent = updatedClient.ecurie || '-';
 
-            if (updatedClient.archived_at) {
-              if (typeof renderPortalDetails === 'function') {
-                await renderPortalDetails(currentPortalClientToken || currentPortalClientId);
+            // Si le dialogue client est ouvert pour ce client, synchroniser les champs du formulaire
+            const dialogClient = document.getElementById('dialog-client');
+            if (dialogClient && dialogClient.open) {
+              const idInput = document.getElementById('dialog-client-id');
+              if (idInput && String(idInput.value) === String(payload.new.id)) {
+                const phoneInput = document.getElementById('client-form-phone');
+                if (phoneInput && document.activeElement !== phoneInput) {
+                  phoneInput.value = updatedClient.telephone || '';
+                }
+                const emailInput = document.getElementById('client-form-email');
+                if (emailInput && document.activeElement !== emailInput) {
+                  emailInput.value = updatedClient.email || '';
+                }
+                const addressInput = document.getElementById('client-form-address');
+                if (addressInput && document.activeElement !== addressInput) {
+                  addressInput.value = updatedClient.adresse || '';
+                }
+                const stableInput = document.getElementById('client-form-stable');
+                if (stableInput && document.activeElement !== stableInput) {
+                  stableInput.value = updatedClient.ecurie || '';
+                }
               }
             }
           }
-        }
 
-        // Si nous sommes dans l'espace praticien (déverrouillé) : rafraîchissement immédiat de la vue courante
-        if (isPractitionerUnlocked()) {
-          console.log('Rafraîchissement automatique de la vue courante suite à Realtime');
-          if (typeof refreshCurrentView === 'function') {
-            await refreshCurrentView();
-          } else if (typeof renderCurrentView === 'function') {
-            await renderCurrentView();
+          // Recharger les données locales
+          if (typeof window.syncData === 'function') {
+            await window.syncData({ silent: true });
           }
+          // Forcer le rafraîchissement de la vue active
+          if (typeof renderCurrentView === 'function') renderCurrentView();
+          else if (typeof refreshCurrentView === 'function') refreshCurrentView();
         }
-      })
-      .subscribe((status) => {
-        console.log('Statut Realtime:', status);
+      )
+      .subscribe((status, err) => {
+        console.log('Statut Realtime canal:', status);
+        if (err) console.error('Erreur souscription Realtime:', err);
         if (status === 'SUBSCRIBED') {
           isRealtimeSubscribed = true;
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
@@ -156,6 +185,8 @@ export function setupRealtimeSync() {
           realtimeChannel = null;
         }
       });
+
+    realtimeChannel = channel;
   } catch (err) {
     console.warn('Erreur initialisation Supabase Realtime:', err);
     realtimeChannel = null;
@@ -6189,23 +6220,32 @@ async function openClientDialog(client = null) {
       const supabase = getSupabaseClient();
       if (navigator.onLine && supabase) {
         try {
-          let { error: updateErr } = await supabase
+          console.log("Envoi update ciblé Supabase clients:", fieldsToUpdate, "pour ID:", clientId);
+          let { error: updateErr, status } = await supabase
             .from('clients')
             .update(fieldsToUpdate)
             .eq('id', clientId);
 
           if (updateErr && currentClient && currentClient.uuid) {
+            console.warn("Échec update par ID, tentative par UUID:", currentClient.uuid);
             const fallbackRes = await supabase
               .from('clients')
               .update(fieldsToUpdate)
               .eq('uuid', currentClient.uuid);
-            if (!fallbackRes.error) updateErr = null;
+            if (!fallbackRes.error) {
+              updateErr = null;
+              status = fallbackRes.status;
+            }
           }
 
-          if (!updateErr) {
+          if (!updateErr && (status === 200 || status === 204)) {
             updateSuccess = true;
+            console.log("Mise à jour Supabase validée avec succès (status " + status + ")");
+          } else if (!updateErr) {
+            updateSuccess = true;
+            console.log("Mise à jour Supabase terminée (status " + status + ")");
           } else {
-            console.warn("Erreur update ciblé Supabase:", updateErr);
+            console.warn("Erreur update ciblé Supabase:", updateErr, "status:", status);
           }
         } catch (netErr) {
           console.warn("Exception update ciblé Supabase:", netErr);
