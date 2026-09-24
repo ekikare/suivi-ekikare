@@ -1047,6 +1047,10 @@ export async function fetchClientPortalData(portalUuid) {
             }
           }
 
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('clients-updated', { detail: { store: 'clients' } }));
+          }
+
           return localClient;
         }
       } catch (err) {

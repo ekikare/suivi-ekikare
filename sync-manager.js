@@ -21,7 +21,7 @@ import {
   mapSupabaseToLocal,
   reconcileClientUUIDsFromSupabase,
   registerDatabaseChangeCallback
-} from './db.js?v=1.5.7';
+} from './db.js?v=1.5.8';
 
 /**
  * Récupère le client Supabase actif (via window.supabaseClient ou getSupabaseClient)
@@ -262,6 +262,7 @@ export const SyncManager = {
 
     const lastSync = this.getLastSyncTimestamp();
     let hasChanges = false;
+    let clientsUpdated = false;
 
     for (const storeName of SYNCED_STORES) {
       const table = getTableName(storeName);
@@ -307,6 +308,7 @@ export const SyncManager = {
               mapped.synced = 1;
               await updateLocal(storeName, mapped);
               hasChanges = true;
+              if (storeName === 'clients') clientsUpdated = true;
             } else {
               // Enregistrement déjà existant en local : réconciliation
               const localTime = new Date(localRec.updated_at || localRec.last_modified || 0).getTime();
@@ -320,6 +322,7 @@ export const SyncManager = {
                 }
                 await updateLocal(storeName, mapped);
                 hasChanges = true;
+                if (storeName === 'clients') clientsUpdated = true;
               }
             }
           }
@@ -334,6 +337,16 @@ export const SyncManager = {
       await reconcileClientUUIDsFromSupabase();
     } catch (e) {
       // Ignorer si échec ponctuel
+    }
+
+    // Déclencher un événement global pour avertir les composants UI des modifications
+    const isClientSpace = typeof window !== 'undefined' && (
+      (window.location && window.location.hash && window.location.hash.startsWith('#portal')) ||
+      (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('portalClientId'))
+    );
+
+    if ((clientsUpdated || isClientSpace) && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('clients-updated', { detail: { store: 'clients' } }));
     }
 
     return hasChanges;
@@ -353,8 +366,12 @@ export const SyncManager = {
       return;
     }
 
-    // Vérification de sécurité : si praticien verrouillé, ne pas synchroniser les données complètes
-    if (typeof isUnlockedFn === 'function' && !isUnlockedFn()) {
+    // Vérification de sécurité : si praticien verrouillé (et hors espace client), ne pas synchroniser les données complètes
+    const isPortal = typeof window !== 'undefined' && (
+      (window.location && window.location.hash && window.location.hash.startsWith('#portal')) ||
+      (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('portalClientId'))
+    );
+    if (!isPortal && typeof isUnlockedFn === 'function' && !isUnlockedFn()) {
       return;
     }
 
@@ -380,9 +397,14 @@ export const SyncManager = {
       // 4. Mettre à jour le statut UI
       if (!isSilent && onSyncStatusCallback) onSyncStatusCallback('online');
 
-      // 5. Rafraîchir l'interface si des données ont changé
-      if (hasChanges && typeof onDataChangedCallback === 'function') {
-        await onDataChangedCallback();
+      // 5. Rafraîchir l'interface si des données ont changé ou dans l'espace client
+      if (hasChanges || isPortal) {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('clients-updated', { detail: { store: 'clients' } }));
+        }
+        if (hasChanges && typeof onDataChangedCallback === 'function') {
+          await onDataChangedCallback();
+        }
       }
     } catch (err) {
       console.error('[SyncManager] Erreur cycle de synchro:', err);

@@ -34,9 +34,9 @@ import {
   archiveClient,
   restoreClient,
   unarchiveClient
-} from './db.js?v=1.5.7';
+} from './db.js?v=1.5.8';
 
-import { SyncManager } from './sync-manager.js?v=1.5.7';
+import { SyncManager } from './sync-manager.js?v=1.5.8';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -8511,3 +8511,71 @@ async function renderPortalDetails(tokenOrId) {
     if (pStable) pStable.textContent = "-";
   }
 }
+
+// --- ACTUALISATION RÉACTIVE DU PROFIL CLIENT ---
+
+/**
+ * Recharge et affiche la fiche client / profil à l'écran depuis IndexedDB sans rechargement de page.
+ */
+export async function renderClient() {
+  const portalToken = currentPortalClientToken ||
+                      sessionStorage.getItem('portalClientToken') ||
+                      currentPortalClientId ||
+                      sessionStorage.getItem('portalClientId');
+
+  if (window.location.hash.startsWith('#portal') || portalToken) {
+    let tokenOrId = portalToken;
+    if (window.location.hash.startsWith('#portal/')) {
+      const parts = window.location.hash.replace(/^#\/?portal\//, '').split('/');
+      if (parts[0]) tokenOrId = parts[0];
+    }
+    if (tokenOrId && typeof renderPortalDetails === 'function') {
+      await renderPortalDetails(tokenOrId);
+    }
+  } else if (window.location.hash.startsWith('#clients/') && typeof currentClientId !== 'undefined' && currentClientId) {
+    if (typeof renderClientDetails === 'function') {
+      await renderClientDetails(currentClientId);
+    }
+  } else if (window.location.hash === '#clients' || window.location.hash.startsWith('#clients')) {
+    if (typeof renderClientsList === 'function') {
+      await renderClientsList();
+    }
+  }
+}
+window.renderClient = renderClient;
+
+/**
+ * Charge les données fraîches du client depuis IndexedDB.
+ */
+export async function loadClientData(clientIdOrToken = null) {
+  const token = clientIdOrToken ||
+                currentPortalClientToken ||
+                sessionStorage.getItem('portalClientToken') ||
+                currentPortalClientId ||
+                sessionStorage.getItem('portalClientId') ||
+                (typeof currentClientId !== 'undefined' ? currentClientId : null);
+  if (!token) return null;
+  let client = await getClientByUuid(token);
+  if (!client && !isNaN(Number(token))) {
+    client = await getById('clients', Number(token));
+  }
+  return client;
+}
+window.loadClientData = loadClientData;
+
+/**
+ * Réactualise la vue active dans l'interface sans rechargement lourd.
+ */
+export async function refreshUI() {
+  if (typeof refreshCurrentView === 'function') {
+    await refreshCurrentView();
+  }
+}
+window.refreshUI = refreshUI;
+
+// Écouter l'événement global pour actualiser la fiche client / profil en direct
+window.addEventListener('clients-updated', () => {
+  if (typeof renderClient === 'function') renderClient();
+  if (typeof loadClientData === 'function') loadClientData();
+  if (typeof refreshUI === 'function') refreshUI();
+});
