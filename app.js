@@ -34,9 +34,15 @@ import {
   archiveClient,
   restoreClient,
   unarchiveClient
-} from './db.js';
+} from './db.js?v=1.5.7';
 
-import { SyncManager } from './sync-manager.js';
+import { SyncManager } from './sync-manager.js?v=1.5.7';
+
+// Exposition immédiate du client Supabase pour tout le scope applicatif et la console
+const initialClient = getSupabaseClient();
+if (typeof window !== 'undefined' && initialClient) {
+  window.supabaseClient = initialClient;
+}
 
 // --- INITIALISATION SPEECH RECOGNITION ---
 let recognition = null;

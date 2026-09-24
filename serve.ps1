@@ -61,7 +61,9 @@ try {
                 $response.ContentType = $contentType
                 $response.ContentLength64 = $bytes.Length
                 $response.AddHeader("Access-Control-Allow-Origin", "*")
-                $response.AddHeader("Cache-Control", "no-cache, no-store, must-revalidate")
+                $response.AddHeader("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
+                $response.AddHeader("Pragma", "no-cache")
+                $response.AddHeader("Expires", "0")
                 
                 # Écriture de la réponse
                 $response.OutputStream.Write($bytes, 0, $bytes.Length)

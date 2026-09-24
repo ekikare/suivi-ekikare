@@ -20,17 +20,28 @@ export function getSupabaseClient() {
     }
     return supabaseClient;
   }
-  if (typeof window !== 'undefined' && window.supabase && typeof window.supabase.createClient === 'function') {
-    supabaseClient = window.supabase.createClient(
-      "https://vctunemarfbmoffvgjha.supabase.co",
-      "sb_publishable_qxlXJDcBhAP0j8zYbNAeBQ_cjLDYy3H"
-    );
-    // Exposer explicitement l'instance sur window pour le debug et l'accessibilité
-    window.supabaseClient = supabaseClient;
-  } else {
-    console.error("Supabase CDN non chargé.");
+  if (typeof window !== 'undefined') {
+    if (window.supabaseClient) {
+      supabaseClient = window.supabaseClient;
+      return supabaseClient;
+    }
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+      supabaseClient = window.supabase.createClient(
+        "https://vctunemarfbmoffvgjha.supabase.co",
+        "sb_publishable_qxlXJDcBhAP0j8zYbNAeBQ_cjLDYy3H"
+      );
+      window.supabaseClient = supabaseClient;
+    } else {
+      console.warn("Supabase CDN non chargé.");
+    }
   }
   return supabaseClient;
+}
+
+// Initialisation et exposition immédiate sur window
+const initialSupabaseClient = getSupabaseClient();
+if (typeof window !== 'undefined' && initialSupabaseClient) {
+  window.supabaseClient = initialSupabaseClient;
 }
 
 /**

@@ -21,7 +21,21 @@ import {
   mapSupabaseToLocal,
   reconcileClientUUIDsFromSupabase,
   registerDatabaseChangeCallback
-} from './db.js';
+} from './db.js?v=1.5.7';
+
+/**
+ * Récupère le client Supabase actif (via window.supabaseClient ou getSupabaseClient)
+ */
+export function getActiveSupabaseClient() {
+  if (typeof window !== 'undefined' && window.supabaseClient) {
+    return window.supabaseClient;
+  }
+  const client = getSupabaseClient();
+  if (typeof window !== 'undefined' && client) {
+    window.supabaseClient = client;
+  }
+  return client;
+}
 
 // Table mapping : IndexedDB store name -> Supabase remote table name
 export function getTableName(storeName) {
@@ -161,7 +175,7 @@ export const SyncManager = {
    * Règle d'or : Les mises à jour distantes se font exclusivement en PATCH partiel scalaire.
    */
   async pushPending() {
-    const supabase = getSupabaseClient();
+    const supabase = getActiveSupabaseClient();
     if (!supabase) return;
 
     // 1. Pousser les suppressions en attente
@@ -243,7 +257,7 @@ export const SyncManager = {
    * @returns {Promise<boolean>} true si au moins une donnée a changé localement
    */
   async pullChanges() {
-    const supabase = getSupabaseClient();
+    const supabase = getActiveSupabaseClient();
     if (!supabase) return false;
 
     const lastSync = this.getLastSyncTimestamp();
@@ -329,7 +343,7 @@ export const SyncManager = {
       return;
     }
 
-    const supabase = getSupabaseClient();
+    const supabase = getActiveSupabaseClient();
     if (!supabase) {
       if (!isSilent && onSyncStatusCallback) onSyncStatusCallback('offline');
       return;
