@@ -312,10 +312,9 @@ export const SyncManager = {
               const localTime = new Date(localRec.updated_at || localRec.last_modified || 0).getTime();
               const remoteTime = new Date(remoteRec.updated_at || remoteRec.last_modified || 0).getTime();
 
-              // Si le local est synchronisé OU si le distant est strictement plus récent
-              if (localRec.synced === 1 || remoteTime > localTime) {
+              // Accepter l'égalité seulement si localRec n'a pas de modif en attente (synced === 1)
+              if ((localRec.synced === 1 && remoteTime >= localTime) || remoteTime > localTime) {
                 mapped.synced = 1;
-                // Préserver le UUID local si absent du distant pour les clients
                 if (storeName === 'clients' && !mapped.uuid && localRec.uuid) {
                   mapped.uuid = localRec.uuid;
                 }
