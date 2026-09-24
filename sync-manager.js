@@ -284,6 +284,22 @@ export const SyncManager = {
             const mapped = mapSupabaseToLocal(storeName, remoteRec);
             if (!mapped || !mapped.id) continue;
 
+            // Conversion de la clé primaire en Number si numérique
+            if (remoteRec.id && !isNaN(Number(remoteRec.id))) {
+              mapped.id = Number(remoteRec.id);
+            }
+
+            // Conversion des clés étrangères associées si présentes
+            if (mapped.client_id && !isNaN(Number(mapped.client_id))) {
+              mapped.client_id = Number(mapped.client_id);
+            }
+            if (mapped.patient_id && !isNaN(Number(mapped.patient_id))) {
+              mapped.patient_id = Number(mapped.patient_id);
+            }
+            if (mapped.animal_id && !isNaN(Number(mapped.animal_id))) {
+              mapped.animal_id = Number(mapped.animal_id);
+            }
+
             const localRec = await getById(storeName, mapped.id);
 
             if (!localRec) {
