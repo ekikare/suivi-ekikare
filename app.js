@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.5';
+} from './db.js?v=1.6.6';
 
-import { SyncManager } from './sync-manager.js?v=1.6.5';
+import { SyncManager } from './sync-manager.js?v=1.6.6';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -60,7 +60,7 @@ let activeSpeechTarget = null;
 let activeSpeechBtn = null;
 
 // Rétrocompatibilité
-export function checkAndSyncIfInactive() {
+function checkAndSyncIfInactive() {
   if (window.SyncManager) window.SyncManager.triggerSync({ silent: true });
 }
 window.checkAndSyncIfInactive = checkAndSyncIfInactive;
@@ -68,7 +68,7 @@ window.checkAndSyncIfInactive = checkAndSyncIfInactive;
 // --- GESTIONNAIRE LOCAL DE PARAMÈTRES (SETTINGS STORE & CACHE) ---
 let settingsCache = {};
 
-export async function loadSettingsCache() {
+async function loadSettingsCache() {
   try {
     const all = await getAll('settings');
     if (Array.isArray(all)) {
@@ -82,8 +82,9 @@ export async function loadSettingsCache() {
     console.warn("Erreur chargement settingsCache:", e);
   }
 }
+window.loadSettingsCache = loadSettingsCache;
 
-export async function migrateLocalStorageToSettings() {
+async function migrateLocalStorageToSettings() {
   try {
     await loadSettingsCache();
 
@@ -126,6 +127,7 @@ export async function migrateLocalStorageToSettings() {
     console.warn("Erreur migration settings:", err);
   }
 }
+window.migrateLocalStorageToSettings = migrateLocalStorageToSettings;
 
 // Écouter les mises à jour distantes du store settings pour réactualiser le cache en temps réel
 window.addEventListener('settings-updated', async () => {
@@ -210,6 +212,7 @@ const PRACTITIONER_HOME = {
   coords: [48.8653, 1.7967],
   popupHtml: '<strong>📍 Mon domicile</strong><br>70 rue de la Porte Saint-Martin, 78770 Thoiry'
 };
+window.PRACTITIONER_HOME = PRACTITIONER_HOME;
 
 const QUESTIONNAIRE_CRITERES = [
   "Moral",
@@ -323,7 +326,7 @@ let pendingPinPromise = null;
  * @param {number} timeoutMs
  * @returns {Promise<string|null>}
  */
-export async function preloadPractitionerPin(timeoutMs = 3500) {
+async function preloadPractitionerPin(timeoutMs = 3500) {
   if (!navigator.onLine) return null;
   if (pendingPinPromise) return pendingPinPromise;
 
@@ -364,8 +367,9 @@ export async function preloadPractitionerPin(timeoutMs = 3500) {
 
   return pendingPinPromise;
 }
+window.preloadPractitionerPin = preloadPractitionerPin;
 
-export async function getPractitionerPin({ forceRemoteIfMissing = true } = {}) {
+async function getPractitionerPin({ forceRemoteIfMissing = true } = {}) {
   if (settingsCache['practitioner_pin']) {
     return settingsCache['practitioner_pin'];
   }
@@ -398,6 +402,7 @@ export async function getPractitionerPin({ forceRemoteIfMissing = true } = {}) {
 
   return '1234';
 }
+window.getPractitionerPin = getPractitionerPin;
 
 function showPractitionerLockOverlay() {
   const lockOverlay = document.getElementById('practitioner-lock-overlay');
@@ -7784,7 +7789,7 @@ function updateSyncStatusUI(status) {
   container.innerHTML = html;
 }
 
-export async function refreshCurrentView() {
+async function refreshCurrentView() {
   const hash = window.location.hash.substring(1) || 'dashboard';
   let routeBase = hash;
   let routeParam = null;
@@ -7799,12 +7804,12 @@ export async function refreshCurrentView() {
   }
   await loadViewData(routeBase, routeParam, subRoute, subParam);
 }
-export const renderCurrentView = refreshCurrentView;
+const renderCurrentView = refreshCurrentView;
 window.refreshCurrentView = refreshCurrentView;
 window.renderCurrentView = refreshCurrentView;
 
 // Redirection globale vers le module autonome SyncManager
-export async function syncData(options = {}) {
+async function syncData(options = {}) {
   return SyncManager.triggerSync(options);
 }
 window.syncData = syncData;
@@ -8883,7 +8888,7 @@ async function renderPortalDetails(tokenOrId) {
 /**
  * Recharge et affiche la fiche client / profil à l'écran depuis IndexedDB sans rechargement de page.
  */
-export async function renderClient() {
+async function renderClient() {
   const portalToken = currentPortalClientToken ||
                       sessionStorage.getItem('portalClientToken') ||
                       currentPortalClientId ||
@@ -8913,7 +8918,7 @@ window.renderClient = renderClient;
 /**
  * Charge les données fraîches du client depuis IndexedDB.
  */
-export async function loadClientData(clientIdOrToken = null) {
+async function loadClientData(clientIdOrToken = null) {
   const token = clientIdOrToken ||
                 currentPortalClientToken ||
                 sessionStorage.getItem('portalClientToken') ||
@@ -8932,7 +8937,7 @@ window.loadClientData = loadClientData;
 /**
  * Réactualise la vue active dans l'interface sans rechargement lourd.
  */
-export async function refreshUI() {
+async function refreshUI() {
   if (typeof refreshCurrentView === 'function') {
     await refreshCurrentView();
   }
