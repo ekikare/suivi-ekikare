@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.6';
+} from './db.js?v=1.6.7';
 
-import { SyncManager } from './sync-manager.js?v=1.6.6';
+import { SyncManager } from './sync-manager.js?v=1.6.7';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -2770,6 +2770,8 @@ async function renderTournee() {
         if (cardHeaderAction) cardHeaderAction.style.marginBottom = '0';
       }
     };
+  }
+
   // Initialize Leaflet Map
   const mapElement = document.getElementById('tours-map');
   if (mapElement && !toursMap) {
