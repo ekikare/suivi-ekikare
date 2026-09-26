@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.3';
+} from './db.js?v=1.6.4';
 
-import { SyncManager } from './sync-manager.js?v=1.6.3';
+import { SyncManager } from './sync-manager.js?v=1.6.4';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -6570,11 +6570,11 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
   if (animal) {
     titleEl.textContent = 'Modifier l\'Animal';
     idInput.value = animal.id;
-    document.getElementById('animal-form-name').value = animal.nom;
+    document.getElementById('animal-form-name').value = animal.nom || animal.name || '';
     ownerSelect.value = animal.client_id;
     const speciesSelect = document.getElementById('animal-form-species');
     const speciesOther = document.getElementById('animal-form-species-other');
-    const speciesVal = animal.espece || 'Cheval';
+    const speciesVal = animal.espece || animal.species || 'Cheval';
     if (['Cheval', 'Chien', 'Chat'].includes(speciesVal)) {
       speciesSelect.value = speciesVal;
       speciesOther.style.display = 'none';
@@ -6584,24 +6584,41 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       speciesOther.style.display = 'block';
       speciesOther.value = speciesVal;
     }
-    document.getElementById('animal-form-breed').value = animal.race || '';
-    document.getElementById('animal-form-robe').value = animal.robe || '';
-    let sexValue = animal.sexe || 'Inconnu';
+    document.getElementById('animal-form-breed').value = animal.race || animal.breed || '';
+
+    // Récupérer et parser custom_details pour les fallbacks éventuels
+    let custom = {};
+    if (animal.custom_details) {
+      if (typeof animal.custom_details === 'object' && animal.custom_details !== null) {
+        custom = animal.custom_details;
+      } else if (typeof animal.custom_details === 'string') {
+        try {
+          custom = JSON.parse(animal.custom_details);
+        } catch (e) {
+          console.warn('[openAnimalDialog] Erreur parsing custom_details:', e);
+        }
+      }
+    }
+
+    document.getElementById('animal-form-robe').value = animal.robe || custom.robe || '';
+    let sexValue = animal.sexe || animal.gender || 'Inconnu';
     if (sexValue === 'Mâle castré') sexValue = 'Mâle castré (Hongre)';
     if (sexValue === 'Femelle') sexValue = 'Femelle (Jument)';
     if (sexValue === 'Mâle') sexValue = 'Mâle entier';
     document.getElementById('animal-form-sex').value = sexValue;
+
     let birthdateVal = '';
     let ageEstVal = '';
-    if (animal.date_naissance_ou_age) {
-      const birthDate = new Date(animal.date_naissance_ou_age);
+    const rawBirthDate = animal.date_naissance_ou_age || animal.birth_date;
+    if (rawBirthDate) {
+      const birthDate = new Date(rawBirthDate);
       if (!isNaN(birthDate.getTime())) {
-        birthdateVal = animal.date_naissance_ou_age;
+        birthdateVal = rawBirthDate;
         const today = new Date();
         const years = today.getFullYear() - birthDate.getFullYear();
         ageEstVal = years >= 0 ? years : '';
       } else {
-        const match = animal.date_naissance_ou_age.match(/\b\d+\b/);
+        const match = String(rawBirthDate).match(/\b\d+\b/);
         if (match) {
           ageEstVal = parseInt(match[0], 10);
           const currentYear = new Date().getFullYear();
@@ -6613,9 +6630,10 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
     document.getElementById('animal-form-age-estimation').value = ageEstVal;
     
     // Photo load
-    if (animal.photo_data_url) {
-      photoDataInput.value = animal.photo_data_url;
-      previewImg.src = animal.photo_data_url;
+    const photoVal = animal.photo_data_url || animal.photo_blob || animal.photo || '';
+    if (photoVal) {
+      photoDataInput.value = photoVal;
+      previewImg.src = photoVal;
       previewImg.style.display = 'block';
       placeholder.style.display = 'none';
     } else {
@@ -6625,30 +6643,36 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       placeholder.style.display = 'block';
     }
 
-    // New location fields
-    let stableName = animal.stable_name || '';
-    let stableAddress = animal.stable_address || '';
-    let stableZip = animal.stable_zip || '';
-    let stableCity = animal.stable_city || '';
-    let stableDistance = animal.stable_distance || '';
+    // Écurie / pension
+    let stableName = animal.stable_name || custom.stable_name || animal.lieu_de_vie || animal.stable || '';
+    let stableAddress = animal.stable_address || custom.stable_address || '';
+    let stableZip = animal.stable_zip || custom.stable_zip || '';
+    let stableCity = animal.stable_city || custom.stable_city || '';
+    let stableDistance = (animal.stable_distance !== undefined && animal.stable_distance !== null && animal.stable_distance !== '')
+      ? animal.stable_distance
+      : ((animal.distance_km !== undefined && animal.distance_km !== null && animal.distance_km !== '')
+          ? animal.distance_km
+          : (custom.stable_distance !== undefined ? custom.stable_distance : ''));
 
-    // Fallback: if stable_address has content but zip and city are empty, try parsing
+    // Fallback: parsing d'adresse si besoin
     if (stableAddress && !stableZip && !stableCity) {
       const parsed = parseAddress(stableAddress);
       stableAddress = parsed.address;
       stableZip = parsed.zip;
       stableCity = parsed.city;
     }
-    // Fallback: if stableName is empty but lieu_de_vie is set, use it as fallback
-    if (!stableName && animal.lieu_de_vie && animal.lieu_de_vie !== 'Non spécifié') {
-      stableName = animal.lieu_de_vie;
-      const parsed = parseAddress(animal.lieu_de_vie);
+    if (!stableName && (animal.lieu_de_vie || animal.stable) && (animal.lieu_de_vie || animal.stable) !== 'Non spécifié') {
+      const fallbackLieu = animal.lieu_de_vie || animal.stable;
+      stableName = fallbackLieu;
+      const parsed = parseAddress(fallbackLieu);
       if (!stableAddress) stableAddress = parsed.address;
       if (!stableZip) stableZip = parsed.zip;
       if (!stableCity) stableCity = parsed.city;
     }
 
-    const atHome = !!animal.stable_at_home || stableName === 'Domicile';
+    const atHome = (animal.stable_at_home !== undefined)
+      ? Boolean(animal.stable_at_home)
+      : (custom.stable_at_home !== undefined ? Boolean(custom.stable_at_home) : stableName === 'Domicile');
     document.getElementById('animal-form-stable-at-home').checked = atHome;
     toggleLocationFields();
 
@@ -6658,31 +6682,75 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
     document.getElementById('animal-form-stable-city').value = stableCity;
     document.getElementById('animal-form-stable-distance').value = stableDistance;
 
-    // Housing & tracking
-    const hType = animal.housing_type || animal.housing_mode || 'Pré';
+    // Mode de vie & activité
+    const hType = animal.housing_type || animal.housing_mode || custom.housing_type || 'Pré';
     document.getElementById('animal-form-housing-type').value = hType;
     const hTypeOther = document.getElementById('animal-form-housing-type-other');
-    hTypeOther.value = animal.housing_type_other || animal.housing_mode_other || '';
+    hTypeOther.value = animal.housing_type_other || animal.housing_mode_other || custom.housing_type_other || '';
     hTypeOther.style.display = hType === 'Autre' ? 'block' : 'none';
 
-    document.getElementById('animal-form-social-type').value = animal.social_type || 'Individuel';
+    document.getElementById('animal-form-social-type').value = animal.social_type || animal.social_life || custom.social_type || 'Individuel';
     
-    trackingSelect.value = animal.tracking_mode || 'À la demande';
-    trackingOther.value = animal.tracking_mode_other || '';
-    trackingOther.style.display = animal.tracking_mode === 'Autre' ? 'block' : 'none';
+    // Suivi & alimentation
+    const trackMode = animal.tracking_mode || custom.tracking_mode || 'À la demande';
+    trackingSelect.value = trackMode;
+    trackingOther.value = animal.tracking_mode_other || custom.tracking_mode_other || '';
+    trackingOther.style.display = trackMode === 'Autre' ? 'block' : 'none';
 
     // Nutrition
-    document.getElementById('animal-form-nutritionist').checked = !!animal.nutritionist;
-    document.getElementById('animal-form-nutrition-details').value = animal.nutrition_details || '';
+    const hasNutri = (animal.nutritionist !== undefined)
+      ? Boolean(animal.nutritionist)
+      : (custom.nutritionist !== undefined ? Boolean(custom.nutritionist) : false);
+    document.getElementById('animal-form-nutritionist').checked = hasNutri;
+    document.getElementById('animal-form-nutrition-details').value = animal.nutrition_details || animal.diet || custom.nutrition_details || '';
 
-    // Work & problems
-    document.getElementById('animal-form-work-objective').value = animal.work_objective || '';
-    document.getElementById('animal-form-lifestyle-details').value = animal.lifestyle_details || '';
-    document.getElementById('animal-form-main-problems').value = animal.main_problems || '';
+    // Work & problems & lifestyle
+    document.getElementById('animal-form-work-objective').value = animal.work_objective || animal.work_goals || custom.work_objective || '';
+    document.getElementById('animal-form-lifestyle-details').value = animal.lifestyle_details || custom.lifestyle_details || '';
+    document.getElementById('animal-form-main-problems').value = animal.main_problems || animal.issues || custom.main_problems || '';
     updateSpeciesFields();
 
-    // Medical events
-    currentMedicalEvents = animal.medical_events ? [...animal.medical_events] : [];
+    // Antécédents / Événements médicaux
+    let rawEvents = animal.medical_events;
+    if (!rawEvents && custom.medical_events) {
+      rawEvents = custom.medical_events;
+    }
+    if (typeof rawEvents === 'string') {
+      try {
+        rawEvents = JSON.parse(rawEvents);
+      } catch (e) {
+        rawEvents = [];
+      }
+    }
+    if (Array.isArray(rawEvents) && rawEvents.length > 0) {
+      currentMedicalEvents = rawEvents.map(ev => ({
+        year: String(ev.year || ''),
+        month: String(ev.month || ''),
+        event: String(ev.event || '')
+      }));
+    } else if (animal.antecedents || animal.medical_history) {
+      const rawText = animal.antecedents || animal.medical_history || '';
+      currentMedicalEvents = [];
+      const parts = rawText.split(/[,;\n]+/).map(p => p.trim()).filter(Boolean);
+      parts.forEach(part => {
+        const match = part.match(/^(\d{4})\s*(?:-\s*([^:]+))?\s*:\s*(.+)$/);
+        if (match) {
+          currentMedicalEvents.push({
+            year: match[1],
+            month: (match[2] || '').trim(),
+            event: match[3].trim()
+          });
+        } else {
+          currentMedicalEvents.push({
+            year: '',
+            month: '',
+            event: part
+          });
+        }
+      });
+    } else {
+      currentMedicalEvents = [];
+    }
     renderFormMedicalEventsList();
   } else {
     titleEl.textContent = 'Nouvel Animal';
@@ -6818,8 +6886,42 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       }
     }
 
+    // Récupérer l'enregistrement existant le plus frais si modification
+    let freshAnimal = null;
+    const animalIdNum = idInput.value ? Number(idInput.value) : (animal && animal.id ? Number(animal.id) : null);
+    if (animalIdNum) {
+      freshAnimal = await getById('animals', animalIdNum);
+    }
+
+    // Si des valeurs ont été saisies dans les champs événement médical mais non encore validées par le bouton '+'
+    const pendingYear = (document.getElementById('animal-form-med-year')?.value || '').trim();
+    const pendingMonth = (document.getElementById('animal-form-med-month')?.value || '').trim();
+    const pendingEvent = (document.getElementById('animal-form-med-event')?.value || '').trim();
+    if (pendingYear && pendingEvent) {
+      currentMedicalEvents.push({ year: pendingYear, month: pendingMonth, event: pendingEvent });
+      const mIn = document.getElementById('animal-form-med-month');
+      const eIn = document.getElementById('animal-form-med-event');
+      const yIn = document.getElementById('animal-form-med-year');
+      if (mIn) mIn.value = '';
+      if (eIn) eIn.value = '';
+      if (yIn) yIn.value = '';
+    }
+
+    // Préserver les professionnels associés
+    let preservedProsAssocies = [];
+    if (freshAnimal && Array.isArray(freshAnimal.pros_associes_ids)) {
+      preservedProsAssocies = freshAnimal.pros_associes_ids;
+    } else if (animal && Array.isArray(animal.pros_associes_ids)) {
+      preservedProsAssocies = animal.pros_associes_ids;
+    } else if (animal && animal.custom_details) {
+      try {
+        const c = typeof animal.custom_details === 'string' ? JSON.parse(animal.custom_details) : animal.custom_details;
+        if (Array.isArray(c.pros_associes_ids)) preservedProsAssocies = c.pros_associes_ids;
+      } catch (e) {}
+    }
+
     const animalData = {
-      ...(animal || {}),
+      ...(freshAnimal || animal || {}),
       client_id: ownerId,
       nom: document.getElementById('animal-form-name').value.trim(),
       espece: (() => {
@@ -6834,7 +6936,7 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       sexe: document.getElementById('animal-form-sex').value,
       date_naissance_ou_age: birthdateStr,
       
-      // New pension/location fields
+      // Pension & écurie
       stable_name: stableName,
       stable_address: stableAddress,
       stable_zip: stableZip,
@@ -6842,7 +6944,7 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       stable_distance: stableDistance,
       stable_at_home: stableAtHome,
       
-      // Housing & tracking
+      // Mode de vie & activité
       housing_type: document.getElementById('animal-form-housing-type').value,
       housing_type_other: document.getElementById('animal-form-housing-type-other').value.trim(),
       social_type: document.getElementById('animal-form-social-type').value,
@@ -6853,7 +6955,7 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       housing_mode: document.getElementById('animal-form-housing-type').value,
       housing_mode_other: document.getElementById('animal-form-housing-type-other').value.trim(),
       
-      // Nutrition
+      // Suivi & alimentation
       nutritionist: document.getElementById('animal-form-nutritionist').checked,
       nutrition_details: document.getElementById('animal-form-nutrition-details').value.trim(),
       
@@ -6862,19 +6964,46 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       lifestyle_details: document.getElementById('animal-form-lifestyle-details').value.trim(),
       main_problems: document.getElementById('animal-form-main-problems').value.trim(),
       
-      // Medical events & Photo
-      medical_events: currentMedicalEvents,
-      photo_data_url: document.getElementById('animal-form-photo-data').value || (animal ? animal.photo_data_url : ''),
-      photo_blob: document.getElementById('animal-form-photo-data').value || (animal ? animal.photo_blob : null),
+      // Antécédents / Medical events & Photo
+      medical_events: [...currentMedicalEvents],
+      photo_data_url: document.getElementById('animal-form-photo-data').value || (freshAnimal ? freshAnimal.photo_data_url : (animal ? animal.photo_data_url : '')),
+      photo_blob: document.getElementById('animal-form-photo-data').value || (freshAnimal ? freshAnimal.photo_blob : (animal ? animal.photo_blob : null)),
       
       // Fallback fields for backwards compatibility
       lieu_de_vie: stableName || 'Non spécifié',
       antecedents: currentMedicalEvents.map(ev => `${ev.year}${ev.month ? ' - ' + ev.month : ''} : ${ev.event}`).join(', '),
       
-      pros_associes_ids: animal ? (animal.pros_associes_ids || []) : [],
-      archived_at: animal ? (animal.archived_at || null) : null,
-      archive_reason: animal ? (animal.archive_reason || null) : null
+      pros_associes_ids: preservedProsAssocies,
+      archived_at: (freshAnimal && freshAnimal.archived_at !== undefined) ? freshAnimal.archived_at : (animal ? animal.archived_at || null : null),
+      archive_reason: (freshAnimal && freshAnimal.archive_reason !== undefined) ? freshAnimal.archive_reason : (animal ? animal.archive_reason || null : null),
+      synced: 0
     };
+
+    // Reconstituer également custom_details sérialisé complet
+    const customPayload = {
+      robe: animalData.robe,
+      lifestyle_details: animalData.lifestyle_details,
+      stable_name: animalData.stable_name,
+      stable_address: animalData.stable_address,
+      stable_zip: animalData.stable_zip,
+      stable_city: animalData.stable_city,
+      stable_distance: animalData.stable_distance,
+      stable_at_home: animalData.stable_at_home,
+      housing_type: animalData.housing_type,
+      housing_type_other: animalData.housing_type_other,
+      social_type: animalData.social_type,
+      tracking_mode: animalData.tracking_mode,
+      tracking_mode_other: animalData.tracking_mode_other,
+      nutritionist: animalData.nutritionist,
+      nutrition_details: animalData.nutrition_details,
+      work_objective: animalData.work_objective,
+      main_problems: animalData.main_problems,
+      medical_events: animalData.medical_events,
+      pros_associes_ids: animalData.pros_associes_ids,
+      archived_at: animalData.archived_at,
+      archive_reason: animalData.archive_reason
+    };
+    animalData.custom_details = JSON.stringify(customPayload);
 
     if (idInput.value) {
       animalData.id = Number(idInput.value);
@@ -7393,10 +7522,16 @@ function openMedicalEventDialog(animal) {
       event: textVal
     };
 
-    if (!animal.medical_events) {
-      animal.medical_events = [];
+    let existingEvents = Array.isArray(animal.medical_events) ? animal.medical_events : [];
+    if (existingEvents.length === 0 && animal.custom_details) {
+      try {
+        const c = typeof animal.custom_details === 'string' ? JSON.parse(animal.custom_details) : animal.custom_details;
+        if (Array.isArray(c.medical_events)) existingEvents = c.medical_events;
+      } catch (e) {}
     }
-    animal.medical_events.push(newEvent);
+    animal.medical_events = [...existingEvents, newEvent];
+    animal.antecedents = animal.medical_events.map(ev => `${ev.year}${ev.month ? ' - ' + ev.month : ''} : ${ev.event}`).join(', ');
+    animal.synced = 0;
 
     await update('animals', animal);
     showToast('Événement médical enregistré.');

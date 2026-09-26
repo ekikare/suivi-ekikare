@@ -21,7 +21,7 @@ import {
   mapSupabaseToLocal,
   reconcileClientUUIDsFromSupabase,
   registerDatabaseChangeCallback
-} from './db.js?v=1.6.3';
+} from './db.js?v=1.6.4';
 
 /**
  * Récupère le client Supabase actif (via window.supabaseClient ou getSupabaseClient)
@@ -151,6 +151,15 @@ export function buildScalarPatch(storeName, record) {
       } else if (key === 'custom_details' && typeof val === 'object' && !Array.isArray(val)) {
         patch[key] = JSON.stringify(val);
       }
+    }
+  }
+
+  // Pour la table animals, s'assurer que custom_details utilise directement la sérialisation issue de mapLocalToSupabase
+  if (storeName === 'animals') {
+    if (mapped.custom_details !== undefined && mapped.custom_details !== null) {
+      patch.custom_details = typeof mapped.custom_details === 'string'
+        ? mapped.custom_details
+        : JSON.stringify(mapped.custom_details);
     }
   }
 
