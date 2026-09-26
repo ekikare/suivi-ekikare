@@ -6907,10 +6907,15 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       if (yIn) yIn.value = '';
     }
 
-    // Préserver les professionnels associés
+    // Préserver les professionnels associés (gérés exclusivement via dialog-associate-professionals)
     let preservedProsAssocies = [];
     if (freshAnimal && Array.isArray(freshAnimal.pros_associes_ids)) {
       preservedProsAssocies = freshAnimal.pros_associes_ids;
+    } else if (freshAnimal && freshAnimal.custom_details) {
+      try {
+        const c = typeof freshAnimal.custom_details === 'string' ? JSON.parse(freshAnimal.custom_details) : freshAnimal.custom_details;
+        if (Array.isArray(c.pros_associes_ids)) preservedProsAssocies = c.pros_associes_ids;
+      } catch (e) {}
     } else if (animal && Array.isArray(animal.pros_associes_ids)) {
       preservedProsAssocies = animal.pros_associes_ids;
     } else if (animal && animal.custom_details) {
