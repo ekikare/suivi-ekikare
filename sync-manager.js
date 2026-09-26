@@ -21,7 +21,7 @@ import {
   mapSupabaseToLocal,
   reconcileClientUUIDsFromSupabase,
   registerDatabaseChangeCallback
-} from './db.js?v=1.6.2';
+} from './db.js?v=1.6.3';
 
 /**
  * Récupère le client Supabase actif (via window.supabaseClient ou getSupabaseClient)
@@ -74,6 +74,7 @@ export const SCALAR_COLUMNS = {
     'medical_history',
     'issues',
     'notes',
+    'custom_details',
     'distance_km',
     'tracking_mode',
     'archived_at',
@@ -147,6 +148,8 @@ export function buildScalarPatch(storeName, record) {
         if (!Array.isArray(val)) {
           patch[key] = val;
         }
+      } else if (key === 'custom_details' && typeof val === 'object' && !Array.isArray(val)) {
+        patch[key] = JSON.stringify(val);
       }
     }
   }
