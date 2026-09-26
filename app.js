@@ -23,10 +23,12 @@ import {
   archiveRecordDirect,
   restoreRecordDirect,
   getSetting,
-  setSetting
-} from './db.js?v=1.6.0';
+  setSetting,
+  fetchRemoteSetting,
+  fetchRemoteSettings
+} from './db.js?v=1.6.1';
 
-import { SyncManager } from './sync-manager.js?v=1.6.0';
+import { SyncManager } from './sync-manager.js?v=1.6.1';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -301,7 +303,57 @@ function isPractitionerUnlocked() {
          sessionStorage.getItem('ekikare_practitioner_unlocked') === 'true';
 }
 
-export async function getPractitionerPin() {
+let pendingPinPromise = null;
+
+/**
+ * Précharge précocement le code PIN praticien et les réglages depuis Supabase (en tâche de fond).
+ * Met en cache mémoire (settingsCache) et persiste dans le store IndexedDB 'settings'.
+ * @param {number} timeoutMs
+ * @returns {Promise<string|null>}
+ */
+export async function preloadPractitionerPin(timeoutMs = 3500) {
+  if (!navigator.onLine) return null;
+  if (pendingPinPromise) return pendingPinPromise;
+
+  pendingPinPromise = (async () => {
+    try {
+      const fetchPromise = (async () => {
+        // 1. Tenter d'abord de charger tous les paramètres pour rafraîchir aussi les spécialités / motifs
+        const allRemote = await fetchRemoteSettings();
+        if (allRemote && Array.isArray(allRemote)) {
+          allRemote.forEach(item => {
+            if (item && item.key) {
+              settingsCache[item.key] = item.value;
+            }
+          });
+          if (settingsCache['practitioner_pin']) {
+            return settingsCache['practitioner_pin'];
+          }
+        }
+
+        // 2. Si non trouvé dans le lot, requête ciblée sur practitioner_pin
+        const remotePin = await fetchRemoteSetting('practitioner_pin');
+        if (remotePin) {
+          settingsCache['practitioner_pin'] = remotePin;
+          return remotePin;
+        }
+        return null;
+      })();
+
+      const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), timeoutMs));
+      return await Promise.race([fetchPromise, timeoutPromise]);
+    } catch (err) {
+      console.warn("[PractitionerLock] Erreur préchargement PIN:", err);
+      return null;
+    } finally {
+      pendingPinPromise = null;
+    }
+  })();
+
+  return pendingPinPromise;
+}
+
+export async function getPractitionerPin({ forceRemoteIfMissing = true } = {}) {
   if (settingsCache['practitioner_pin']) {
     return settingsCache['practitioner_pin'];
   }
@@ -312,9 +364,27 @@ export async function getPractitionerPin() {
       return val;
     }
   } catch (e) {
-    console.warn("Erreur getPractitionerPin:", e);
+    console.warn("Erreur getPractitionerPin (local):", e);
   }
-  return localStorage.getItem('ekikare_practitioner_pin') || '1234';
+
+  if (forceRemoteIfMissing && navigator.onLine) {
+    try {
+      const remoteVal = await preloadPractitionerPin();
+      if (remoteVal) {
+        return remoteVal;
+      }
+    } catch (e) {
+      console.warn("Erreur getPractitionerPin (distant):", e);
+    }
+  }
+
+  const legacyPin = localStorage.getItem('ekikare_practitioner_pin');
+  if (legacyPin) {
+    settingsCache['practitioner_pin'] = legacyPin;
+    return legacyPin;
+  }
+
+  return '1234';
 }
 
 function showPractitionerLockOverlay() {
@@ -326,6 +396,10 @@ function showPractitionerLockOverlay() {
     if (pinInput) {
       pinInput.value = '';
       setTimeout(() => pinInput.focus(), 80);
+    }
+
+    if (navigator.onLine) {
+      preloadPractitionerPin().catch(() => {});
     }
   }
 }
@@ -339,6 +413,10 @@ function hidePractitionerLockOverlay() {
 }
 
 function setupPractitionerLock() {
+  if (!isPractitionerUnlocked() && navigator.onLine) {
+    preloadPractitionerPin().catch(() => {});
+  }
+
   const form = document.getElementById('practitioner-lock-form');
   const pinInput = document.getElementById('practitioner-pin-input');
   const errorMsg = document.getElementById('lock-error-msg');
@@ -359,29 +437,46 @@ function setupPractitionerLock() {
     form.onsubmit = async (e) => {
       e.preventDefault();
       const enteredPin = pinInput.value.trim();
-      const correctPin = await getPractitionerPin();
+      if (!enteredPin) return;
 
-      if (enteredPin === correctPin) {
-        if (errorMsg) errorMsg.style.display = 'none';
-        if (rememberCheckbox && rememberCheckbox.checked) {
-          localStorage.setItem('ekikare_practitioner_unlocked', 'true');
+      const submitBtn = form.querySelector('button[type="submit"]');
+      const originalBtnHtml = submitBtn ? submitBtn.innerHTML : '';
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.style.opacity = '0.75';
+      }
+
+      try {
+        const correctPin = await getPractitionerPin({ forceRemoteIfMissing: true });
+
+        if (enteredPin === correctPin) {
+          if (errorMsg) errorMsg.style.display = 'none';
+          if (rememberCheckbox && rememberCheckbox.checked) {
+            localStorage.setItem('ekikare_practitioner_unlocked', 'true');
+          } else {
+            sessionStorage.setItem('ekikare_practitioner_unlocked', 'true');
+          }
+          hidePractitionerLockOverlay();
+          showToast('Espace Praticien déverrouillé avec succès !');
+          
+          await checkAndInjectMockData();
+          handleRouting();
+          if (navigator.onLine) {
+            SyncManager.triggerSync();
+          }
         } else {
-          sessionStorage.setItem('ekikare_practitioner_unlocked', 'true');
+          if (errorMsg) {
+            errorMsg.style.display = 'block';
+          }
+          pinInput.value = '';
+          pinInput.focus();
         }
-        hidePractitionerLockOverlay();
-        showToast('Espace Praticien déverrouillé avec succès !');
-        
-        await checkAndInjectMockData();
-        handleRouting();
-        if (navigator.onLine) {
-          SyncManager.triggerSync();
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.style.opacity = '';
+          submitBtn.innerHTML = originalBtnHtml;
         }
-      } else {
-        if (errorMsg) {
-          errorMsg.style.display = 'block';
-        }
-        pinInput.value = '';
-        pinInput.focus();
       }
     };
   }

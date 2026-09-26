@@ -601,6 +601,71 @@ export async function setSetting(key, value) {
 }
 
 /**
+ * Tente de récupérer un paramètre directement depuis Supabase et met à jour IndexedDB localement.
+ * @param {string} key 
+ * @returns {Promise<string|null>}
+ */
+export async function fetchRemoteSetting(key) {
+  if (!navigator.onLine) return null;
+  try {
+    const supabase = getSupabaseClient();
+    if (!supabase) return null;
+    const { data, error } = await supabase
+      .from('settings')
+      .select('key, value, updated_at')
+      .eq('key', String(key))
+      .maybeSingle();
+
+    if (!error && data && data.value !== undefined) {
+      await updateLocal('settings', {
+        key: String(data.key),
+        value: data.value,
+        updated_at: data.updated_at || new Date().toISOString(),
+        last_modified: data.updated_at ? new Date(data.updated_at).getTime() : Date.now(),
+        synced: 1
+      });
+      return data.value;
+    }
+  } catch (err) {
+    console.warn(`[db] Erreur fetchRemoteSetting (${key}):`, err);
+  }
+  return null;
+}
+
+/**
+ * Tente de récupérer l'ensemble des paramètres depuis Supabase et met à jour IndexedDB localement.
+ * @returns {Promise<Array<Object>|null>}
+ */
+export async function fetchRemoteSettings() {
+  if (!navigator.onLine) return null;
+  try {
+    const supabase = getSupabaseClient();
+    if (!supabase) return null;
+    const { data, error } = await supabase
+      .from('settings')
+      .select('key, value, updated_at');
+
+    if (!error && Array.isArray(data)) {
+      for (const item of data) {
+        if (item && item.key) {
+          await updateLocal('settings', {
+            key: String(item.key),
+            value: item.value,
+            updated_at: item.updated_at || new Date().toISOString(),
+            last_modified: item.updated_at ? new Date(item.updated_at).getTime() : Date.now(),
+            synced: 1
+          });
+        }
+      }
+      return data;
+    }
+  } catch (err) {
+    console.warn("[db] Erreur fetchRemoteSettings:", err);
+  }
+  return null;
+}
+
+/**
  * Met à jour un élément localement, puis tente de le synchroniser avec Supabase.
  * @param {string} storeName 
  * @param {Object} item 
