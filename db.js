@@ -327,70 +327,6 @@ export function mapSupabaseToLocal(storeName, item) {
 }
 
 /**
- * Synchronise une création ou modification vers Supabase via upsert (formaté).
- */
-export async function syncUpsert(storeName, item) {
-  const client = getSupabaseClient();
-  const table = storeName === 'reminders' ? 'tasks' : storeName;
-  if (client) {
-    try {
-      const mapped = mapLocalToSupabase(storeName, item);
-      let error = null;
-      if (storeName === 'clients' && item.id) {
-        const updateRes = await client.from('clients').update(mapped).eq('id', item.id);
-        error = updateRes.error;
-      } else {
-        const upsertRes = await client.from(table).upsert(mapped);
-        error = upsertRes.error;
-      }
-
-      // Si c'est un client ou animal, garantir la mise à jour explicite de archived_at / archive_reason
-      if ((storeName === 'clients' || storeName === 'animals') && item.id) {
-        await client.from(table).update({
-          archived_at: item.archived_at || null,
-          archive_reason: item.archive_reason || null,
-          updated_at: new Date().toISOString()
-        }).eq('id', item.id);
-      }
-
-      if (!error) {
-        item.synced = 1;
-        await updateLocal(storeName, item);
-      } else {
-        console.error("Erreur sync:", table, error.message || error);
-      }
-    } catch (e) {
-      console.error("Erreur sync:", table, e.message || e);
-    }
-  }
-}
-
-/**
- * Synchronise une suppression vers Supabase.
- */
-export async function syncDelete(storeName, id) {
-  const client = getSupabaseClient();
-  const table = storeName === 'reminders' ? 'tasks' : storeName;
-  if (client) {
-    try {
-      const { error } = await client.from(table).delete().eq('id', String(id));
-      if (!error) {
-        // Supprimer des suppressions en attente si présente
-        const deletions = await getTrackedDeletions();
-        const found = deletions.find(d => d.storeName === storeName && d.recordId === Number(id));
-        if (found) {
-          await clearTrackedDeletion(found.id);
-        }
-      } else {
-        console.error("Erreur sync:", table, error.message || error);
-      }
-    } catch (e) {
-      console.error("Erreur sync:", table, e.message || e);
-    }
-  }
-}
-
-/**
  * Initialise et connecte la base de données IndexedDB.
  * @returns {Promise<IDBDatabase>}
  */
@@ -573,14 +509,6 @@ export async function add(storeName, item) {
           console.error("Erreur callback sync:", err);
         }
       })();
-    } else {
-      (async () => {
-        try {
-          await syncUpsert(storeName, item);
-        } catch (err) {
-          console.error("Erreur Supabase:", err);
-        }
-      })();
     }
   }
   return id;
@@ -632,14 +560,6 @@ export async function update(storeName, item) {
           console.error("Erreur callback sync:", err);
         }
       })();
-    } else {
-      (async () => {
-        try {
-          await syncUpsert(storeName, item);
-        } catch (err) {
-          console.error("Erreur Supabase:", err);
-        }
-      })();
     }
   }
   return id;
@@ -673,25 +593,15 @@ export async function remove(storeName, id) {
     // Toujours tracer la suppression localement pour garantir la synchro
     await trackDeletion(storeName, id);
     
-    if (navigator.onLine) {
-      if (onDatabaseChangeCallback) {
-        // Déclenchement direct sans bloquer l'UI
-        (async () => {
-          try {
-            await onDatabaseChangeCallback();
-          } catch (err) {
-            console.error("Erreur callback sync:", err);
-          }
-        })();
-      } else {
-        (async () => {
-          try {
-            await syncDelete(storeName, id);
-          } catch (err) {
-            console.error("Erreur Supabase:", err);
-          }
-        })();
-      }
+    if (navigator.onLine && onDatabaseChangeCallback) {
+      // Déclenchement direct sans bloquer l'UI
+      (async () => {
+        try {
+          await onDatabaseChangeCallback();
+        } catch (err) {
+          console.error("Erreur callback sync:", err);
+        }
+      })();
     }
   }
 }
@@ -1256,24 +1166,6 @@ export async function restoreRecordDirect(storeName, id) {
   }
 
   return local;
-}
-
-/**
- * Archivage client direct avec persistance IndexedDB et Supabase immédiate.
- */
-export async function archiveClient(clientId, reason) {
-  return await archiveRecordDirect('clients', clientId, reason);
-}
-
-/**
- * Restauration / désarchivage client direct avec persistance IndexedDB et Supabase immédiate.
- */
-export async function restoreClient(clientId) {
-  return await restoreRecordDirect('clients', clientId);
-}
-
-export async function unarchiveClient(clientId) {
-  return await restoreRecordDirect('clients', clientId);
 }
 
 /**

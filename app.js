@@ -11,32 +11,20 @@ import {
   remove, 
   exportAllData, 
   importAllData,
-  SYNCED_STORES,
   getSupabaseClient,
-  addLocal,
   updateLocal,
-  removeLocal,
-  getTrackedDeletions,
-  clearTrackedDeletion,
-  mapLocalToSupabase,
   mapSupabaseToLocal,
-  registerDatabaseChangeCallback,
   generateUUID,
   getClientByUuid,
-  getClientByToken,
   ensureClientsHaveUUID,
-  reconcileClientUUIDsFromSupabase,
   fetchClientPortalData,
   deleteClientCascade,
   deleteAnimalCascade,
   archiveRecordDirect,
-  restoreRecordDirect,
-  archiveClient,
-  restoreClient,
-  unarchiveClient
-} from './db.js?v=1.5.8';
+  restoreRecordDirect
+} from './db.js?v=1.5.9';
 
-import { SyncManager } from './sync-manager.js?v=1.5.8';
+import { SyncManager } from './sync-manager.js?v=1.5.9';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -675,8 +663,6 @@ async function loadViewData(view, param, subRoute = null, subParam = null) {
         if (!client && navigator.onLine) {
           client = await fetchClientPortalData(param);
         }
-
-        console.log('[PORTAL GUARD] loadViewData Client:', client?.id, 'archived_at:', client?.archived_at);
 
         if (!client) {
           showToast("Espace client introuvable.", "error");
@@ -4938,20 +4924,6 @@ function generateClientSummaryReport() {
   showToast('Résumé de séance client généré avec succès.');
 }
 
-function collectSubIntensities(catName) {
-  // Collecte uniquement les éléments en Moyen ou Elevé pour les afficher à côté
-  const res = [];
-  const selects = document.querySelectorAll(`.tensegrite-category-box[data-category="${catName}"] .sub-intensity`);
-  selects.forEach(s => {
-    const val = s.value;
-    const name = s.closest('.tensegrite-sub-item').querySelector('.tensegrite-sub-name').textContent;
-    if (val === 'Moyen' || val === 'Élevé') {
-      res.push(`${name} : ${val}`);
-    }
-  });
-  return res;
-}
-
 // Enregistrer la séance
 async function saveSessionForm() {
   // COLLECTE ET VALIDATION DES RAPPELS DYNAMIQUES
@@ -5773,11 +5745,6 @@ function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
   }
 }
 
-// VIEW EXTERNAL SESSION ATTACHED FILE
-function openAttachedFile(fileData, fileType, fileName, extraInfo = {}) {
-  openDocumentViewerModal(fileData, fileType, fileName, extraInfo);
-}
-
 // SETUP STATIC LISTENERS FOR EXTERNAL SESSION DIALOG
 function setupExternalSessionListeners() {
   const fileInput = document.getElementById('ext-session-file');
@@ -6071,7 +6038,6 @@ async function openClientDialog(client = null) {
       const supabase = getSupabaseClient();
       if (navigator.onLine && supabase) {
         try {
-          console.log("Envoi update ciblé Supabase clients:", fieldsToUpdate, "pour ID:", clientId);
           let { error: updateErr, status } = await supabase
             .from('clients')
             .update(fieldsToUpdate)
@@ -6091,10 +6057,8 @@ async function openClientDialog(client = null) {
 
           if (!updateErr && (status === 200 || status === 204)) {
             updateSuccess = true;
-            console.log("Mise à jour Supabase validée avec succès (status " + status + ")");
           } else if (!updateErr) {
             updateSuccess = true;
-            console.log("Mise à jour Supabase terminée (status " + status + ")");
           } else {
             console.warn("Erreur update ciblé Supabase:", updateErr, "status:", status);
           }
