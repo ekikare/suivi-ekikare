@@ -3,11 +3,11 @@
  */
 
 const DB_NAME = 'eKiKareDB';
-const DB_VERSION = 2; // Version incremented to support deleted_records store
+const DB_VERSION = 3; // Version incremented to support settings store
 let dbInstance = null;
 
 // CONFIGURATION SYNCHRONISATION
-export const SYNCED_STORES = ['clients', 'professionals', 'animals', 'sessions', 'reminders'];
+export const SYNCED_STORES = ['clients', 'professionals', 'animals', 'sessions', 'reminders', 'settings'];
 let supabaseClient = null;
 
 /**
@@ -168,6 +168,12 @@ export function mapLocalToSupabase(storeName, item) {
         animal_id: String(item.relatedAnimalId || item.animal_id || '')
       };
       break;
+    case 'settings':
+      return {
+        key: String(item.key),
+        value: typeof item.value === 'object' && item.value !== null ? JSON.stringify(item.value) : String(item.value ?? ''),
+        updated_at: item.updated_at || isoTime
+      };
     default:
       return item;
   }
@@ -321,6 +327,15 @@ export function mapSupabaseToLocal(storeName, item) {
         notes: item.notes || '',
         delay: item.delay || ''
       };
+    case 'settings':
+      const timeValSettings = item.updated_at || item.last_modified;
+      return {
+        key: String(item.key),
+        value: item.value,
+        updated_at: item.updated_at || new Date().toISOString(),
+        last_modified: timeValSettings ? new Date(timeValSettings).getTime() : Date.now(),
+        synced: 1
+      };
     default:
       return item;
   }
@@ -376,6 +391,11 @@ export function getDB() {
       if (!db.objectStoreNames.contains('deleted_records')) {
         db.createObjectStore('deleted_records', { keyPath: 'id', autoIncrement: true });
       }
+
+      // Table settings pour les paramètres pérennes et synchronisés
+      if (!db.objectStoreNames.contains('settings')) {
+        db.createObjectStore('settings', { keyPath: 'key' });
+      }
     };
 
     request.onsuccess = (event) => {
@@ -418,7 +438,8 @@ export async function getById(storeName, id) {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(storeName, 'readonly');
     const store = transaction.objectStore(storeName);
-    const request = store.get(Number(id));
+    const key = (storeName === 'settings' || (typeof id === 'string' && isNaN(Number(id)))) ? id : (!isNaN(Number(id)) ? Number(id) : id);
+    const request = store.get(key);
 
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -523,7 +544,7 @@ export async function updateLocal(storeName, item) {
     const transaction = db.transaction(storeName, 'readwrite');
     const store = transaction.objectStore(storeName);
     
-    if (item.id) {
+    if (storeName !== 'settings' && item.id && !isNaN(Number(item.id))) {
       item.id = Number(item.id);
     }
     
@@ -532,6 +553,51 @@ export async function updateLocal(storeName, item) {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+}
+
+/**
+ * Récupère un paramètre depuis le store local 'settings'.
+ * @param {string} key 
+ * @returns {Promise<any>}
+ */
+export async function getSetting(key) {
+  const rec = await getById('settings', key);
+  if (!rec) return null;
+  return rec.value !== undefined ? rec.value : null;
+}
+
+/**
+ * Enregistre ou met à jour un paramètre dans le store local 'settings' avec marquage synced: 0 et déclenchement sync.
+ * @param {string} key 
+ * @param {any} value 
+ * @returns {Promise<Object>}
+ */
+export async function setSetting(key, value) {
+  const now = Date.now();
+  const iso = new Date(now).toISOString();
+  const strValue = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
+
+  const item = {
+    key: String(key),
+    value: strValue,
+    updated_at: iso,
+    last_modified: now,
+    synced: 0
+  };
+
+  await updateLocal('settings', item);
+
+  if (navigator.onLine && onDatabaseChangeCallback) {
+    (async () => {
+      try {
+        await onDatabaseChangeCallback();
+      } catch (err) {
+        console.error("Erreur callback sync setting:", err);
+      }
+    })();
+  }
+
+  return item;
 }
 
 /**
@@ -653,7 +719,7 @@ export async function clearTrackedDeletion(id) {
  * @returns {Promise<Object>}
  */
 export async function exportAllData() {
-  const stores = ['clients', 'professionals', 'animals', 'sessions', 'reminders'];
+  const stores = ['clients', 'professionals', 'animals', 'sessions', 'reminders', 'settings'];
   const exportData = {};
   
   for (const storeName of stores) {
@@ -670,7 +736,7 @@ export async function exportAllData() {
  */
 export async function importAllData(importData) {
   const db = await getDB();
-  const stores = ['clients', 'professionals', 'animals', 'sessions', 'reminders'];
+  const stores = ['clients', 'professionals', 'animals', 'sessions', 'reminders', 'settings'];
   
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(stores, 'readwrite');
@@ -685,7 +751,7 @@ export async function importAllData(importData) {
       const items = importData[storeName] || [];
       for (const item of items) {
         // Nettoyage et typage de l'ID si nécessaire
-        if (item.id) {
+        if (storeName !== 'settings' && item.id && !isNaN(Number(item.id))) {
           item.id = Number(item.id);
         }
         store.put(item);

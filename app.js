@@ -21,10 +21,12 @@ import {
   deleteClientCascade,
   deleteAnimalCascade,
   archiveRecordDirect,
-  restoreRecordDirect
-} from './db.js?v=1.5.9';
+  restoreRecordDirect,
+  getSetting,
+  setSetting
+} from './db.js?v=1.6.0';
 
-import { SyncManager } from './sync-manager.js?v=1.5.9';
+import { SyncManager } from './sync-manager.js?v=1.6.0';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -61,6 +63,76 @@ export function checkAndSyncIfInactive() {
 }
 window.checkAndSyncIfInactive = checkAndSyncIfInactive;
 
+// --- GESTIONNAIRE LOCAL DE PARAMÈTRES (SETTINGS STORE & CACHE) ---
+let settingsCache = {};
+
+export async function loadSettingsCache() {
+  try {
+    const all = await getAll('settings');
+    if (Array.isArray(all)) {
+      all.forEach(s => {
+        if (s && s.key) {
+          settingsCache[s.key] = s.value;
+        }
+      });
+    }
+  } catch (e) {
+    console.warn("Erreur chargement settingsCache:", e);
+  }
+}
+
+export async function migrateLocalStorageToSettings() {
+  try {
+    await loadSettingsCache();
+
+    // 1. Rétrocompatibilité : code PIN praticien
+    if (!settingsCache['practitioner_pin']) {
+      const pin = localStorage.getItem('ekikare_practitioner_pin');
+      if (pin) {
+        await setSetting('practitioner_pin', pin);
+        settingsCache['practitioner_pin'] = pin;
+      }
+    }
+
+    // 2. Rétrocompatibilité : spécialités personnalisées
+    if (!settingsCache['custom_specialties']) {
+      const specs = localStorage.getItem('custom_specialties');
+      if (specs) {
+        await setSetting('custom_specialties', specs);
+        settingsCache['custom_specialties'] = specs;
+      }
+    }
+
+    // 3. Rétrocompatibilité : motifs d'archivage clients
+    if (!settingsCache['archive_reasons_clients']) {
+      const arcClients = localStorage.getItem('ekikare_archive_reasons_clients');
+      if (arcClients) {
+        await setSetting('archive_reasons_clients', arcClients);
+        settingsCache['archive_reasons_clients'] = arcClients;
+      }
+    }
+
+    // 4. Rétrocompatibilité : motifs d'archivage animaux
+    if (!settingsCache['archive_reasons_animals']) {
+      const arcAnimals = localStorage.getItem('ekikare_archive_reasons_animals');
+      if (arcAnimals) {
+        await setSetting('archive_reasons_animals', arcAnimals);
+        settingsCache['archive_reasons_animals'] = arcAnimals;
+      }
+    }
+  } catch (err) {
+    console.warn("Erreur migration settings:", err);
+  }
+}
+
+// Écouter les mises à jour distantes du store settings pour réactualiser le cache en temps réel
+window.addEventListener('settings-updated', async () => {
+  await loadSettingsCache();
+  if (typeof populateSpecialtyDropdown === 'function') {
+    populateSpecialtyDropdown();
+  }
+});
+
 // Motifs d'archivage par défaut
 const DEFAULT_CLIENT_ARCHIVE_REASONS = [
   "Déménagement",
@@ -75,10 +147,18 @@ const DEFAULT_ANIMAL_ARCHIVE_REASONS = [
 ];
 
 function getArchiveReasons(type) {
-  const key = type === 'client' ? 'ekikare_archive_reasons_clients' : 'ekikare_archive_reasons_animals';
+  const settingKey = type === 'client' ? 'archive_reasons_clients' : 'archive_reasons_animals';
+  const legacyKey = type === 'client' ? 'ekikare_archive_reasons_clients' : 'ekikare_archive_reasons_animals';
   const defaults = type === 'client' ? DEFAULT_CLIENT_ARCHIVE_REASONS : DEFAULT_ANIMAL_ARCHIVE_REASONS;
   try {
-    const stored = localStorage.getItem(key);
+    const fromCache = settingsCache[settingKey] || settingsCache[legacyKey];
+    if (fromCache) {
+      const parsed = typeof fromCache === 'string' ? JSON.parse(fromCache) : (Array.isArray(fromCache) ? fromCache : []);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return [...new Set([...defaults, ...parsed])];
+      }
+    }
+    const stored = localStorage.getItem(settingKey) || localStorage.getItem(legacyKey);
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -91,17 +171,25 @@ function getArchiveReasons(type) {
   return [...defaults];
 }
 
-function saveArchiveReason(type, reason) {
+async function saveArchiveReason(type, reason) {
   if (!reason || !reason.trim()) return;
   const trimmed = reason.trim();
   const current = getArchiveReasons(type);
   if (!current.includes(trimmed)) {
     current.push(trimmed);
-    const key = type === 'client' ? 'ekikare_archive_reasons_clients' : 'ekikare_archive_reasons_animals';
+    const settingKey = type === 'client' ? 'archive_reasons_clients' : 'archive_reasons_animals';
+    const legacyKey = type === 'client' ? 'ekikare_archive_reasons_clients' : 'ekikare_archive_reasons_animals';
+    
+    settingsCache[settingKey] = JSON.stringify(current);
     try {
-      localStorage.setItem(key, JSON.stringify(current));
-    } catch (e) {
-      console.warn('Erreur sauvegarde motif archivage:', e);
+      localStorage.setItem(legacyKey, JSON.stringify(current));
+      localStorage.setItem(settingKey, JSON.stringify(current));
+    } catch (e) {}
+
+    await setSetting(settingKey, current);
+
+    if (navigator.onLine && window.SyncManager) {
+      SyncManager.triggerSync({ silent: true });
     }
   }
 }
@@ -140,6 +228,7 @@ const MAX_UNDO_STATES = 20;
 
 // --- INITIALISATION AU CHARGEMENT ---
 document.addEventListener('DOMContentLoaded', async () => {
+  await migrateLocalStorageToSettings();
   setupNavigation();
   setupPractitionerLock();
   populateSpecialtyDropdown();
@@ -212,7 +301,19 @@ function isPractitionerUnlocked() {
          sessionStorage.getItem('ekikare_practitioner_unlocked') === 'true';
 }
 
-function getPractitionerPin() {
+export async function getPractitionerPin() {
+  if (settingsCache['practitioner_pin']) {
+    return settingsCache['practitioner_pin'];
+  }
+  try {
+    const val = await getSetting('practitioner_pin');
+    if (val) {
+      settingsCache['practitioner_pin'] = val;
+      return val;
+    }
+  } catch (e) {
+    console.warn("Erreur getPractitionerPin:", e);
+  }
   return localStorage.getItem('ekikare_practitioner_pin') || '1234';
 }
 
@@ -258,7 +359,7 @@ function setupPractitionerLock() {
     form.onsubmit = async (e) => {
       e.preventDefault();
       const enteredPin = pinInput.value.trim();
-      const correctPin = getPractitionerPin();
+      const correctPin = await getPractitionerPin();
 
       if (enteredPin === correctPin) {
         if (errorMsg) errorMsg.style.display = 'none';
@@ -288,7 +389,7 @@ function setupPractitionerLock() {
   // Configuration dans les Paramètres
   const savePinBtn = document.getElementById('btn-save-pin');
   if (savePinBtn) {
-    savePinBtn.onclick = () => {
+    savePinBtn.onclick = async () => {
       const currentPinInput = document.getElementById('settings-current-pin');
       const newPinInput = document.getElementById('settings-new-pin');
       const confirmPinInput = document.getElementById('settings-confirm-pin');
@@ -297,7 +398,7 @@ function setupPractitionerLock() {
       const newPin = newPinInput ? newPinInput.value.trim() : '';
       const confirmPin = confirmPinInput ? confirmPinInput.value.trim() : '';
 
-      const actualPin = getPractitionerPin();
+      const actualPin = await getPractitionerPin();
       if (currentPin !== actualPin) {
         showToast('Code PIN actuel incorrect.', 'error');
         return;
@@ -311,7 +412,16 @@ function setupPractitionerLock() {
         return;
       }
 
-      localStorage.setItem('ekikare_practitioner_pin', newPin);
+      settingsCache['practitioner_pin'] = newPin;
+      try {
+        localStorage.setItem('ekikare_practitioner_pin', newPin);
+      } catch (e) {}
+
+      await setSetting('practitioner_pin', newPin);
+      if (window.SyncManager) {
+        SyncManager.triggerSync({ silent: true });
+      }
+
       showToast('Nouveau code PIN praticien enregistré !');
       if (currentPinInput) currentPinInput.value = '';
       if (newPinInput) newPinInput.value = '';
@@ -1118,7 +1228,7 @@ function openArchiveRecordDialog(type, record) {
         customInput.focus();
         return;
       }
-      saveArchiveReason(type, chosenReason);
+      await saveArchiveReason(type, chosenReason);
     }
 
     const storeName = type === 'client' ? 'clients' : 'animals';
@@ -6819,7 +6929,7 @@ async function openProfessionalDialog(prof = null) {
     })();
 
     if (specialtySelect.value === 'Autre') {
-      saveCustomSpecialty(spec);
+      await saveCustomSpecialty(spec);
       populateSpecialtyDropdown();
     }
 
@@ -7251,6 +7361,11 @@ const DEFAULT_SPECIALTIES = [
 
 function getCustomSpecialties() {
   try {
+    const fromCache = settingsCache['custom_specialties'];
+    if (fromCache) {
+      const parsed = typeof fromCache === 'string' ? JSON.parse(fromCache) : (Array.isArray(fromCache) ? fromCache : []);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
     const list = localStorage.getItem('custom_specialties');
     return list ? JSON.parse(list) : [];
   } catch (e) {
@@ -7258,7 +7373,7 @@ function getCustomSpecialties() {
   }
 }
 
-function saveCustomSpecialty(spec) {
+async function saveCustomSpecialty(spec) {
   if (!spec) return;
   const normalized = spec.trim();
   if (!normalized) return;
@@ -7267,7 +7382,17 @@ function saveCustomSpecialty(spec) {
   const customs = getCustomSpecialties();
   if (!customs.includes(normalized)) {
     customs.push(normalized);
-    localStorage.setItem('custom_specialties', JSON.stringify(customs));
+    const jsonVal = JSON.stringify(customs);
+    settingsCache['custom_specialties'] = jsonVal;
+    try {
+      localStorage.setItem('custom_specialties', jsonVal);
+    } catch (e) {}
+
+    await setSetting('custom_specialties', jsonVal);
+
+    if (navigator.onLine && window.SyncManager) {
+      SyncManager.triggerSync({ silent: true });
+    }
   }
 }
 

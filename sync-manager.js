@@ -21,7 +21,7 @@ import {
   mapSupabaseToLocal,
   reconcileClientUUIDsFromSupabase,
   registerDatabaseChangeCallback
-} from './db.js?v=1.5.9';
+} from './db.js?v=1.6.0';
 
 /**
  * Récupère le client Supabase actif (via window.supabaseClient ou getSupabaseClient)
@@ -113,6 +113,11 @@ export const SCALAR_COLUMNS = {
     'animal_id',
     'related_client_id',
     'related_animal_id',
+    'updated_at'
+  ],
+  settings: [
+    'key',
+    'value',
     'updated_at'
   ]
 };
@@ -207,11 +212,15 @@ export const SyncManager = {
 
         for (const record of unsynced) {
           try {
+            const isSettings = storeName === 'settings';
+            const keyCol = isSettings ? 'key' : 'id';
+            const keyValue = isSettings ? String(record.key) : String(record.id);
+
             // Vérifier si l'enregistrement existe déjà côté Supabase
             const { data: remoteExisting } = await supabase
               .from(table)
-              .select('id')
-              .eq('id', String(record.id))
+              .select(keyCol)
+              .eq(keyCol, keyValue)
               .maybeSingle();
 
             let error = null;
@@ -222,7 +231,7 @@ export const SyncManager = {
               const res = await supabase
                 .from(table)
                 .update(patchPayload)
-                .eq('id', String(record.id));
+                .eq(keyCol, keyValue);
               error = res.error;
             } else {
               // NOUVEL ENREGISTREMENT CRÉÉ HORS-LIGNE : Insertion / Upsert formaté
@@ -239,10 +248,10 @@ export const SyncManager = {
               record.synced = 1;
               await updateLocal(storeName, record);
             } else {
-              console.warn(`[SyncManager] Erreur push (${table} id=${record.id}):`, error.message || error);
+              console.warn(`[SyncManager] Erreur push (${table} ${keyCol}=${keyValue}):`, error.message || error);
             }
           } catch (recordErr) {
-            console.warn(`[SyncManager] Exception push (${table} id=${record.id}):`, recordErr);
+            console.warn(`[SyncManager] Exception push (${table}):`, recordErr);
           }
         }
       } catch (storeErr) {
@@ -283,7 +292,31 @@ export const SyncManager = {
         if (remoteRecords && remoteRecords.length > 0) {
           for (const remoteRec of remoteRecords) {
             const mapped = mapSupabaseToLocal(storeName, remoteRec);
-            if (!mapped || !mapped.id) continue;
+            if (!mapped) continue;
+
+            // Gestion spécifique du store 'settings' (clé primaire 'key')
+            if (storeName === 'settings') {
+              if (!mapped.key) continue;
+              const localRec = await getById('settings', mapped.key);
+
+              if (!localRec) {
+                mapped.synced = 1;
+                await updateLocal('settings', mapped);
+                hasChanges = true;
+              } else {
+                const localTime = new Date(localRec.updated_at || localRec.last_modified || 0).getTime();
+                const remoteTime = new Date(remoteRec.updated_at || remoteRec.last_modified || 0).getTime();
+
+                if ((localRec.synced === 1 && remoteTime >= localTime) || remoteTime > localTime) {
+                  mapped.synced = 1;
+                  await updateLocal('settings', mapped);
+                  hasChanges = true;
+                }
+              }
+              continue;
+            }
+
+            if (!mapped.id) continue;
 
             // Conversion de la clé primaire en Number si numérique
             if (remoteRec.id && !isNaN(Number(remoteRec.id))) {
@@ -347,6 +380,10 @@ export const SyncManager = {
 
     if ((clientsUpdated || isClientSpace) && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('clients-updated', { detail: { store: 'clients' } }));
+    }
+
+    if (hasChanges && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('settings-updated', { detail: { store: 'settings' } }));
     }
 
     return hasChanges;
