@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.4';
+} from './db.js?v=1.6.5';
 
-import { SyncManager } from './sync-manager.js?v=1.6.4';
+import { SyncManager } from './sync-manager.js?v=1.6.5';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -202,6 +202,14 @@ let currentAnimalId = null;
 let currentSessionId = null;
 let toursMap = null;
 let toursMarkers = [];
+let toursHomeMarker = null;
+
+// Point de départ / Domicile du praticien (Tournées & Lieux de vie)
+const PRACTITIONER_HOME = {
+  address: '70 rue de la Porte Saint-Martin, 78770 Thoiry',
+  coords: [48.8653, 1.7967],
+  popupHtml: '<strong>📍 Mon domicile</strong><br>70 rue de la Porte Saint-Martin, 78770 Thoiry'
+};
 
 const QUESTIONNAIRE_CRITERES = [
   "Moral",
@@ -2745,11 +2753,10 @@ async function renderTournee() {
         if (toursMap) {
           setTimeout(() => {
             toursMap.invalidateSize();
-            if (toursMarkers.length > 0) {
-              const coords = toursMarkers.map(m => m.getLatLng());
-              const bounds = L.latLngBounds(coords);
-              toursMap.fitBounds(bounds, { padding: [30, 30] });
-            }
+            const coords = toursMarkers.map(m => m.getLatLng());
+            coords.push(L.latLng(PRACTITIONER_HOME.coords));
+            const bounds = L.latLngBounds(coords);
+            toursMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
           }, 50);
         }
       } else {
@@ -2758,20 +2765,32 @@ async function renderTournee() {
         if (cardHeaderAction) cardHeaderAction.style.marginBottom = '0';
       }
     };
-  } else if (toggleBtn && mapContainer) {
-    // Reset to closed state on every view refresh/enter
-    mapContainer.style.display = 'none';
-    if (toggleText) toggleText.textContent = 'Afficher la carte des lieux de vie';
-    if (cardHeaderAction) cardHeaderAction.style.marginBottom = '0';
-  }
-
   // Initialize Leaflet Map
   const mapElement = document.getElementById('tours-map');
   if (mapElement && !toursMap) {
-    toursMap = L.map('tours-map').setView([46.603354, 1.888334], 6);
+    toursMap = L.map('tours-map').setView(PRACTITIONER_HOME.coords, 10);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(toursMap);
+  }
+
+  // Marqueur ponctuel unique distinctif pour le domicile du praticien
+  if (toursMap) {
+    if (!toursHomeMarker) {
+      toursHomeMarker = L.circleMarker(PRACTITIONER_HOME.coords, {
+        radius: 8,
+        fillColor: '#e63946',
+        color: '#ffffff',
+        weight: 2,
+        fillOpacity: 1
+      }).addTo(toursMap).bindPopup(PRACTITIONER_HOME.popupHtml);
+    } else {
+      toursHomeMarker.setLatLng(PRACTITIONER_HOME.coords);
+      toursHomeMarker.setPopupContent(PRACTITIONER_HOME.popupHtml);
+      if (!toursMap.hasLayer(toursHomeMarker)) {
+        toursHomeMarker.addTo(toursMap);
+      }
+    }
   }
 
   const searchInput = document.getElementById('tournee-search-input');
@@ -3127,11 +3146,13 @@ async function renderTournee() {
       toursMarkers.push(marker);
     }
 
-    if (markersCoords.length > 0 && mapContainer && mapContainer.style.display !== 'none') {
+    const allBoundsCoords = [...markersCoords, PRACTITIONER_HOME.coords];
+
+    if (mapContainer && mapContainer.style.display !== 'none') {
       setTimeout(() => {
         toursMap.invalidateSize();
-        const bounds = L.latLngBounds(markersCoords);
-        toursMap.fitBounds(bounds, { padding: [30, 30] });
+        const bounds = L.latLngBounds(allBoundsCoords);
+        toursMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
       }, 100);
     }
   }
