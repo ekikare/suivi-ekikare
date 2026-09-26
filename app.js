@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.1';
+} from './db.js?v=1.6.2';
 
-import { SyncManager } from './sync-manager.js?v=1.6.1';
+import { SyncManager } from './sync-manager.js?v=1.6.2';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -249,9 +249,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   if (isPractitionerUnlocked()) {
-    await checkAndInjectMockData();
     if (navigator.onLine) {
-      await SyncManager.triggerSync();
+      try {
+        await SyncManager.pullChanges();
+      } catch (err) {
+        console.warn("[Init] Erreur pull initial:", err);
+      }
+      await SyncManager.triggerSync({ silent: true });
     }
   }
 
@@ -459,10 +463,21 @@ function setupPractitionerLock() {
           hidePractitionerLockOverlay();
           showToast('Espace Praticien déverrouillé avec succès !');
           
-          await checkAndInjectMockData();
-          handleRouting();
+          // 1. Exécuter en priorité absolue le pull descendant depuis Supabase dès le déverrouillage
           if (navigator.onLine) {
-            SyncManager.triggerSync();
+            try {
+              await SyncManager.pullChanges();
+            } catch (err) {
+              console.warn("[PractitionerLock] Erreur pull initial:", err);
+            }
+          }
+
+          // 2. Mettre à jour l'affichage avec les données fraîches rapatriées
+          await handleRouting();
+
+          // 3. Déclencher ensuite la synchronisation bidirectionnelle globale
+          if (navigator.onLine) {
+            SyncManager.triggerSync({ silent: true });
           }
         } else {
           if (errorMsg) {
@@ -7633,8 +7648,13 @@ export async function syncData(options = {}) {
 }
 window.syncData = syncData;
 
-// --- MOCK DATA ---
-async function checkAndInjectMockData() {
+// --- MOCK DATA (Désactivé par défaut en production) ---
+async function checkAndInjectMockData({ force = false } = {}) {
+  // L'injection automatique de test est neutralisée en production pour ne jamais polluer la base.
+  // Elle ne s'exécute que sur demande explicite (ex: window.injectMockData()).
+  if (!force) {
+    return;
+  }
   const clients = await getAll('clients');
   if (clients.length === 0) {
     showToast('Base vide. Injection de données de test...', 'warning');
@@ -7776,6 +7796,7 @@ async function checkAndInjectMockData() {
     showToast('Données de test injectées.');
   }
 }
+window.injectMockData = (force = true) => checkAndInjectMockData({ force });
 
 // --- MODALE COMPTE-RENDU DE SÉANCE PORTAIL ---
 async function openPortalSessionModal(sessionOrId, animal = null) {
