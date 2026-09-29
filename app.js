@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.13';
+} from './db.js?v=1.6.14';
 
-import { SyncManager } from './sync-manager.js?v=1.6.13';
+import { SyncManager } from './sync-manager.js?v=1.6.14';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -714,15 +714,33 @@ function setupPractitionerLock() {
 
 // --- ROUTAGE & NAVIGATION ---
 function setupNavigation() {
-  document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
-    item.addEventListener('click', () => {
+  document.querySelectorAll('.sidebar-nav .nav-item, .sidebar-nav .nav-link, .sidebar-nav a').forEach(item => {
+    item.addEventListener('click', (e) => {
+      // 1. Retirer immédiatement la classe .expanded et fermer le menu mobile/tablette
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar) sidebar.classList.remove('expanded');
+      const backdrop = document.getElementById('sidebar-backdrop');
+      if (backdrop) backdrop.classList.remove('active');
+      const burgerBtn = document.getElementById('btn-header-burger');
+      if (burgerBtn) burgerBtn.setAttribute('aria-expanded', 'false');
+
+      // 2. Forcer le retrait du focus sur le lien cliqué pour éviter que :focus ou :focus-within ne maintiennent le menu ouvert
+      if (e.currentTarget && typeof e.currentTarget.blur === 'function') {
+        e.currentTarget.blur();
+      }
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+
       sessionStorage.removeItem('portalClientId');
       currentPortalClientId = null;
       document.body.classList.remove('is-client-portal');
       document.documentElement.classList.remove('portal-mode');
       document.body.classList.remove('portal-mode');
       const target = item.getAttribute('data-target');
-      window.location.hash = target;
+      if (target) {
+        window.location.hash = target;
+      }
     });
   });
 
@@ -4748,6 +4766,12 @@ function setupMobileSidebarListeners() {
       if (burgerBtn) burgerBtn.setAttribute('aria-expanded', 'false');
       if (backdrop) backdrop.classList.remove('active');
     }
+    // Retirer le focus de tout élément à l'intérieur de la sidebar pour couper :focus-within
+    if (document.activeElement && sidebar.contains(document.activeElement)) {
+      if (typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+    }
   };
 
   // 1. Bouton burger dans le header
@@ -4790,11 +4814,15 @@ function setupMobileSidebarListeners() {
     }
   });
 
-  // 5. Clic sur un lien de navigation referme la sidebar sur mobile
-  sidebar.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', () => {
-      if (window.innerWidth <= 992) {
-        closeSidebar();
+  // 5. Clic sur un lien de navigation referme la sidebar sur mobile et retire le focus
+  sidebar.querySelectorAll('.nav-item, .nav-link, a').forEach(item => {
+    item.addEventListener('click', (e) => {
+      closeSidebar();
+      if (e.currentTarget && typeof e.currentTarget.blur === 'function') {
+        e.currentTarget.blur();
+      }
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
       }
     });
   });
