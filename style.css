@@ -3287,6 +3287,11 @@ body.is-client-portal #btn-copy-client-portal-link {
   color: #D96B27;
 }
 
+.questionnaire-collapsible-header:hover .collapsible-icon {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #10b981 !important;
+}
+
 /* When collapsed: chevron rotates -90deg to point right (▶) */
 .collapsible-card.is-collapsed .collapsible-icon svg {
   transform: rotate(-90deg);

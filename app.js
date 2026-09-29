@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.15';
+} from './db.js?v=1.6.16';
 
-import { SyncManager } from './sync-manager.js?v=1.6.15';
+import { SyncManager } from './sync-manager.js?v=1.6.16';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -4273,6 +4273,14 @@ async function prepareSessionEditor(param) {
     const body = cb.closest('.protocol-accordion').querySelector('.protocol-body');
     if (body) body.style.display = 'none';
   });
+
+  // Réinitialiser le bloc Questionnaire Avant Séance à l'état ouvert par défaut
+  const cardQAvant = document.getElementById('card-q-avant-seance');
+  if (cardQAvant) {
+    cardQAvant.classList.remove('is-collapsed');
+    const qHeader = cardQAvant.querySelector('.collapsible-header');
+    if (qHeader) qHeader.setAttribute('aria-expanded', 'true');
+  }
 
   // Réinitialiser le calque transparent du Canvas
   clearTransparentCanvas();

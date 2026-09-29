@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.15">
+  <link rel="stylesheet" href="style.css?v=1.6.16">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -842,10 +842,19 @@
             <div id="session-prefill-banner-container"></div>
 
             <!-- 2. QUESTIONNAIRES DYNAMIQUES -->
-            <!-- A. Questionnaire Avant Séance -->
-            <h2 class="questionnaire-section-title">Questionnaire Avant Séance</h2>
-            <div class="question-grid" id="q-avant-seance-container">
-              <!-- Dynamique -->
+            <!-- A. Questionnaire Avant Séance (Repliable) -->
+            <div class="collapsible-card" id="card-q-avant-seance" style="margin-top: 25px; margin-bottom: 20px;">
+              <div class="collapsible-header questionnaire-collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid var(--color-primary); padding-bottom: 6px; cursor: pointer; user-select: none;">
+                <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--color-primary); margin: 0; padding: 0; border: none;">Questionnaire Avant Séance</h2>
+                <span class="collapsible-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </span>
+              </div>
+              <div class="collapsible-body" style="margin-top: 15px;">
+                <div class="question-grid" id="q-avant-seance-container">
+                  <!-- Dynamique -->
+                </div>
+              </div>
             </div>
 
             <!-- B. Questionnaire de suivi (à 3 semaines) -->
@@ -2684,6 +2693,6 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.15"></script>
+  <script type="module" src="app.js?v=1.6.16"></script>
 </body>
 </html>
