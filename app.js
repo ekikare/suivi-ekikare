@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.11';
+} from './db.js?v=1.6.12';
 
-import { SyncManager } from './sync-manager.js?v=1.6.11';
+import { SyncManager } from './sync-manager.js?v=1.6.12';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -426,6 +426,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupProtocolAccordionListeners();
   setupCranioCheckboxListeners();
   setupExternalSessionListeners();
+  setupCollapsibleCardListeners();
   
   // Charger la page initiale selon le hash ou défaut
   handleRouting();
@@ -4694,6 +4695,27 @@ function setupProtocolAccordionListeners() {
         body.style.display = 'none';
       }
     });
+  });
+}
+
+// --- LOGIQUE BLOCS REPLIABLES (ACCORDÉONS / COLLAPSIBLE CARDS) ---
+function setupCollapsibleCardListeners() {
+  document.addEventListener('click', (e) => {
+    const header = e.target.closest('.collapsible-header');
+    if (!header) return;
+
+    // Ne pas déclencher le pliage si le clic provient d'un bouton d'action, d'un lien ou d'un champ
+    if (e.target.closest('button, a, input, select, textarea, .btn, .btn-small')) {
+      return;
+    }
+
+    const card = header.closest('.collapsible-card');
+    if (!card) return;
+
+    e.preventDefault();
+    card.classList.toggle('is-collapsed');
+    const isCollapsed = card.classList.contains('is-collapsed');
+    header.setAttribute('aria-expanded', String(!isCollapsed));
   });
 }
 

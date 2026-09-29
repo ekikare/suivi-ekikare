@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.11">
+  <link rel="stylesheet" href="style.css?v=1.6.12">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -287,36 +287,50 @@
         <div id="client-archive-banner" class="archive-info-banner" style="display: none;"></div>
 
         <div class="detail-grid">
-          <div class="glass-card detail-card">
-            <h3>Informations & Contact</h3>
-            <div class="info-list">
-              <div class="info-item">
-                <span class="info-label">Téléphone</span>
-                <span class="info-value" id="detail-client-phone">-</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">E-mail</span>
-                <span class="info-value" id="detail-client-email">-</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Adresse</span>
-                <span class="info-value" id="detail-client-address">-</span>
-              </div>
-              <div class="info-item" id="client-detail-stable-row">
-                <span class="info-label">Écurie / Pension</span>
-                <span class="info-value" id="detail-client-stable">-</span>
-              </div>
-              <div class="info-item practitioner-only">
-                <span class="info-label">Notes et remarques</span>
-                <span class="info-value text-block" id="detail-client-notes">-</span>
+          <div class="glass-card detail-card collapsible-card">
+            <div class="collapsible-header" title="Cliquer pour replier/déplier">
+              <h3 class="collapsible-header-title">Informations & Contact</h3>
+              <span class="collapsible-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </span>
+            </div>
+            <div class="collapsible-body">
+              <div class="info-list">
+                <div class="info-item">
+                  <span class="info-label">Téléphone</span>
+                  <span class="info-value" id="detail-client-phone">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">E-mail</span>
+                  <span class="info-value" id="detail-client-email">-</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Adresse</span>
+                  <span class="info-value" id="detail-client-address">-</span>
+                </div>
+                <div class="info-item" id="client-detail-stable-row">
+                  <span class="info-label">Écurie / Pension</span>
+                  <span class="info-value" id="detail-client-stable">-</span>
+                </div>
+                <div class="info-item practitioner-only">
+                  <span class="info-label">Notes et remarques</span>
+                  <span class="info-value text-block" id="detail-client-notes">-</span>
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="glass-card detail-card">
-            <h3>Animaux associés</h3>
-            <div class="animal-cards-list" id="detail-client-animals">
-              <!-- Dynamique -->
+          <div class="glass-card detail-card collapsible-card">
+            <div class="collapsible-header" title="Cliquer pour replier/déplier">
+              <h3 class="collapsible-header-title">Animaux associés</h3>
+              <span class="collapsible-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </span>
+            </div>
+            <div class="collapsible-body">
+              <div class="animal-cards-list" id="detail-client-animals">
+                <!-- Dynamique -->
+              </div>
             </div>
           </div>
         </div>
@@ -362,36 +376,50 @@
 
             <div class="detail-grid">
               <!-- Contact & Info Card -->
-              <div class="glass-card detail-card">
-                <h3>Mes Coordonnées</h3>
-                <div class="info-list">
-                  <div class="info-item">
-                    <span class="info-label">Téléphone</span>
-                    <span class="info-value" id="portal-client-phone">-</span>
-                  </div>
-                  <div class="info-item">
-                    <span class="info-label">E-mail</span>
-                    <span class="info-value" id="portal-client-email">-</span>
-                  </div>
-                  <div class="info-item">
-                    <span class="info-label">Adresse</span>
-                    <span class="info-value" id="portal-client-address">-</span>
-                  </div>
-                  <div class="info-item" id="portal-client-stable-row">
-                    <span class="info-label">Écurie principale</span>
-                    <span class="info-value" id="portal-client-stable">-</span>
+              <div class="glass-card detail-card collapsible-card">
+                <div class="collapsible-header" title="Cliquer pour replier/déplier">
+                  <h3 class="collapsible-header-title">Mes Coordonnées</h3>
+                  <span class="collapsible-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </span>
+                </div>
+                <div class="collapsible-body">
+                  <div class="info-list">
+                    <div class="info-item">
+                      <span class="info-label">Téléphone</span>
+                      <span class="info-value" id="portal-client-phone">-</span>
+                    </div>
+                    <div class="info-item">
+                      <span class="info-label">E-mail</span>
+                      <span class="info-value" id="portal-client-email">-</span>
+                    </div>
+                    <div class="info-item">
+                      <span class="info-label">Adresse</span>
+                      <span class="info-value" id="portal-client-address">-</span>
+                    </div>
+                    <div class="info-item" id="portal-client-stable-row">
+                      <span class="info-label">Écurie principale</span>
+                      <span class="info-value" id="portal-client-stable">-</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <!-- Associated Animals Card -->
-              <div class="glass-card detail-card">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                  <h3 style="margin: 0;">Mes Animaux</h3>
+              <div class="glass-card detail-card collapsible-card">
+                <div class="card-header-action collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--glass-border); padding-bottom: 10px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <h3 style="margin: 0; border: none; padding: 0;">Mes Animaux</h3>
+                    <span class="collapsible-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </span>
+                  </div>
                   <button class="btn btn-primary btn-small" id="btn-portal-add-animal">+ Ajouter un animal</button>
                 </div>
-                <div class="animal-cards-list" id="portal-client-animals">
-                  <!-- Dynamique -->
+                <div class="collapsible-body">
+                  <div class="animal-cards-list" id="portal-client-animals">
+                    <!-- Dynamique -->
+                  </div>
                 </div>
               </div>
             </div>
@@ -524,121 +552,156 @@
         <div class="detail-grid">
           <!-- Infos et Pros -->
           <div class="detail-left-column">
-            <div class="glass-card detail-card">
+            <div class="glass-card detail-card collapsible-card">
               <!-- Profil Header avec Photo -->
-              <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--glass-border); padding-bottom: 15px;">
-                <div id="detail-animal-photo-container" style="width: 80px; height: 80px; border-radius: 50%; overflow: hidden; border: 2px solid #D96B27; background: rgba(217, 107, 39, 0.1); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                  <img id="detail-animal-photo" src="" alt="Photo Animal" style="width: 100%; height: 100%; object-fit: cover; display: none;">
-                  <span id="detail-animal-photo-placeholder" style="font-size: 2.2rem;">🐾</span>
+              <div class="collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--glass-border); padding-bottom: 15px;">
+                <div style="display: flex; gap: 20px; align-items: center;">
+                  <div id="detail-animal-photo-container" style="width: 80px; height: 80px; border-radius: 50%; overflow: hidden; border: 2px solid #D96B27; background: rgba(217, 107, 39, 0.1); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <img id="detail-animal-photo" src="" alt="Photo Animal" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+                    <span id="detail-animal-photo-placeholder" style="font-size: 2.2rem;">🐾</span>
+                  </div>
+                  <div>
+                    <h3 id="detail-card-animal-name" style="margin: 0; font-size: 1.25rem; color: #D96B27;">Fiche d'identité</h3>
+                    <p style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--color-primary); font-weight: 600;" id="detail-animal-tracking-mode-display" class="practitioner-only">-</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 id="detail-card-animal-name" style="margin: 0; font-size: 1.25rem; color: #D96B27;">Fiche d'identité</h3>
-                  <p style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--color-primary); font-weight: 600;" id="detail-animal-tracking-mode-display" class="practitioner-only">-</p>
-                </div>
+                <span class="collapsible-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </span>
               </div>
 
-              <div class="info-list">
-                <div class="info-item">
-                  <span class="info-label">Propriétaire</span>
-                  <span class="info-value" id="detail-animal-owner">-</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">Espèce / Race / Robe</span>
-                  <span class="info-value" id="detail-animal-identity">-</span>
-                </div>
-                <div class="info-item" id="detail-animal-id-number-row" style="display: none;">
-                  <span class="info-label">N° SIRE / Puce</span>
-                  <span class="info-value" id="detail-animal-id-number">-</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">Sexe</span>
-                  <span class="info-value" id="detail-animal-sex">-</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">Âge / Date de Naissance</span>
-                  <span class="info-value" id="detail-animal-age">-</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">Pension / Lieu de vie</span>
-                  <span class="info-value" id="detail-animal-lieu">-</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">Adresse lieu de vie</span>
-                  <span class="info-value" id="detail-animal-address">-</span>
-                </div>
-                <div class="info-item practitioner-only">
-                  <span class="info-label">Distance depuis domicile</span>
-                  <span class="info-value" id="detail-animal-distance">-</span>
-                </div>
-                <div class="info-item" id="detail-animal-housing-row">
-                  <span class="info-label">Mode de vie</span>
-                  <span class="info-value" id="detail-animal-housing">-</span>
-                </div>
-                <div class="info-item practitioner-only">
-                  <span class="info-label">Mode de suivi</span>
-                  <span class="info-value" id="detail-animal-tracking-mode">-</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">Suivi par une nutritionniste</span>
-                  <span class="info-value" id="detail-animal-nutritionist">-</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">Alimentation / Ration</span>
-                  <span class="info-value" id="detail-animal-nutrition-details">-</span>
-                </div>
-                <div class="info-item" id="detail-animal-work-row">
-                  <span class="info-label">Travail & Objectif</span>
-                  <span class="info-value" id="detail-animal-work">-</span>
-                </div>
-                <div class="info-item" id="detail-animal-lifestyle-row" style="display: none;">
-                  <span class="info-label">Précisions mode de vie / activité</span>
-                  <span class="info-value text-block" id="detail-animal-lifestyle">-</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">Problématiques principales</span>
-                  <span class="info-value text-block" id="detail-animal-problems">-</span>
+              <div class="collapsible-body">
+                <div class="info-list">
+                  <div class="info-item">
+                    <span class="info-label">Propriétaire</span>
+                    <span class="info-value" id="detail-animal-owner">-</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Espèce / Race / Robe</span>
+                    <span class="info-value" id="detail-animal-identity">-</span>
+                  </div>
+                  <div class="info-item" id="detail-animal-id-number-row" style="display: none;">
+                    <span class="info-label">N° SIRE / Puce</span>
+                    <span class="info-value" id="detail-animal-id-number">-</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Sexe</span>
+                    <span class="info-value" id="detail-animal-sex">-</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Âge / Date de Naissance</span>
+                    <span class="info-value" id="detail-animal-age">-</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Pension / Lieu de vie</span>
+                    <span class="info-value" id="detail-animal-lieu">-</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Adresse lieu de vie</span>
+                    <span class="info-value" id="detail-animal-address">-</span>
+                  </div>
+                  <div class="info-item practitioner-only">
+                    <span class="info-label">Distance depuis domicile</span>
+                    <span class="info-value" id="detail-animal-distance">-</span>
+                  </div>
+                  <div class="info-item" id="detail-animal-housing-row">
+                    <span class="info-label">Mode de vie</span>
+                    <span class="info-value" id="detail-animal-housing">-</span>
+                  </div>
+                  <div class="info-item practitioner-only">
+                    <span class="info-label">Mode de suivi</span>
+                    <span class="info-value" id="detail-animal-tracking-mode">-</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Suivi par une nutritionniste</span>
+                    <span class="info-value" id="detail-animal-nutritionist">-</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Alimentation / Ration</span>
+                    <span class="info-value" id="detail-animal-nutrition-details">-</span>
+                  </div>
+                  <div class="info-item" id="detail-animal-work-row">
+                    <span class="info-label">Travail & Objectif</span>
+                    <span class="info-value" id="detail-animal-work">-</span>
+                  </div>
+                  <div class="info-item" id="detail-animal-lifestyle-row" style="display: none;">
+                    <span class="info-label">Précisions mode de vie / activité</span>
+                    <span class="info-value text-block" id="detail-animal-lifestyle">-</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">Problématiques principales</span>
+                    <span class="info-value text-block" id="detail-animal-problems">-</span>
+                  </div>
                 </div>
               </div>
             </div>
 
             <!-- Historique Médical & Pathologique Card -->
-            <div class="glass-card detail-card">
-              <div class="card-header-action" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h3 style="margin: 0;">Historique Médical & Pathologies</h3>
+            <div class="glass-card detail-card collapsible-card">
+              <div class="card-header-action collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--glass-border); padding-bottom: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <h3 style="margin: 0; border: none; padding: 0;">Historique Médical & Pathologies</h3>
+                  <span class="collapsible-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </span>
+                </div>
                 <button class="btn btn-secondary btn-small" id="btn-add-medical-event">+ Ajouter un événement</button>
               </div>
-              <div id="detail-animal-medical-history" class="medical-history-list">
-                <!-- Rendu dynamique chronologique -->
+              <div class="collapsible-body">
+                <div id="detail-animal-medical-history" class="medical-history-list">
+                  <!-- Rendu dynamique chronologique -->
+                </div>
               </div>
             </div>
 
-            <div class="glass-card detail-card">
-              <div class="card-header-action">
-                <h3>Professionnels partenaires</h3>
+            <div class="glass-card detail-card collapsible-card">
+              <div class="card-header-action collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--glass-border); padding-bottom: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <h3 style="margin: 0; border: none; padding: 0;">Professionnels partenaires</h3>
+                  <span class="collapsible-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </span>
+                </div>
                 <button class="btn btn-secondary btn-small" id="btn-associate-prof">Gérer</button>
               </div>
-              <div class="prof-list" id="detail-animal-professionals">
-                <p class="empty-state">Aucun professionnel associé.</p>
+              <div class="collapsible-body">
+                <div class="prof-list" id="detail-animal-professionals">
+                  <p class="empty-state">Aucun professionnel associé.</p>
+                </div>
               </div>
             </div>
           </div>
 
           <!-- Historique et Rappels -->
           <div class="detail-right-column">
-            <div class="glass-card detail-card">
-              <h3>Historique des Séances</h3>
-              <div class="sessions-timeline" id="detail-animal-sessions">
-                <p class="empty-state">Aucune séance enregistrée pour le moment.</p>
+            <div class="glass-card detail-card collapsible-card">
+              <div class="collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--glass-border); padding-bottom: 10px;">
+                <h3 style="margin: 0; border: none; padding: 0;">Historique des Séances</h3>
+                <span class="collapsible-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </span>
+              </div>
+              <div class="collapsible-body">
+                <div class="sessions-timeline" id="detail-animal-sessions">
+                  <p class="empty-state">Aucune séance enregistrée pour le moment.</p>
+                </div>
               </div>
             </div>
 
-            <div class="glass-card detail-card">
-              <div class="card-header-action" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h3 style="margin: 0;">Suivis & Rappels Programmés</h3>
+            <div class="glass-card detail-card collapsible-card">
+              <div class="card-header-action collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--glass-border); padding-bottom: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <h3 style="margin: 0; border: none; padding: 0;">Suivis & Rappels Programmés</h3>
+                  <span class="collapsible-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </span>
+                </div>
                 <button class="btn btn-secondary btn-small" id="btn-add-reminder-for-animal">+ Ajouter un rappel</button>
               </div>
-              <div class="reminder-list" id="detail-animal-reminders">
-                <p class="empty-state">Aucun rappel programmé.</p>
+              <div class="collapsible-body">
+                <div class="reminder-list" id="detail-animal-reminders">
+                  <p class="empty-state">Aucun rappel programmé.</p>
+                </div>
               </div>
             </div>
           </div>
@@ -1445,29 +1508,57 @@
             <p class="print-text-block" id="print-session-objective">-</p>
           </div>
 
-          <div class="print-section" id="print-section-resume">
-            <h3 class="print-section-title">résumé de la séance</h3>
-            <p class="print-text-block" id="print-session-resume-content">-</p>
+          <div class="print-section collapsible-card" id="print-section-resume">
+            <div class="collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h3 class="print-section-title" style="margin: 0;">Résumé de la séance</h3>
+              <span class="collapsible-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </span>
+            </div>
+            <div class="collapsible-body">
+              <p class="print-text-block" id="print-session-resume-content">-</p>
+            </div>
           </div>
 
-          <div class="print-section" id="print-section-canvas" style="display: none;">
-            <h3 class="print-section-title">Schéma d'annotations</h3>
-            <div class="print-canvas-preview">
-              <img id="print-session-canvas-img" src="" alt="Schéma d'annotations de la séance">
+          <div class="print-section collapsible-card" id="print-section-canvas" style="display: none;">
+            <div class="collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h3 class="print-section-title" style="margin: 0;">Schéma d'annotations</h3>
+              <span class="collapsible-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </span>
+            </div>
+            <div class="collapsible-body">
+              <div class="print-canvas-preview">
+                <img id="print-session-canvas-img" src="" alt="Schéma d'annotations de la séance">
+              </div>
             </div>
           </div>
 
           <!-- Précisions générales de la séance (si renseignées) -->
-          <div class="print-section" id="print-section-precisions" style="display: none; margin-top: 20px;">
-            <h3 class="print-section-title">Précisions générales de la séance</h3>
-            <p class="print-text-block" id="print-session-precisions-content">-</p>
+          <div class="print-section collapsible-card" id="print-section-precisions" style="display: none; margin-top: 20px;">
+            <div class="collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h3 class="print-section-title" style="margin: 0;">Précisions générales de la séance</h3>
+              <span class="collapsible-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </span>
+            </div>
+            <div class="collapsible-body">
+              <p class="print-text-block" id="print-session-precisions-content">-</p>
+            </div>
           </div>
 
           <!-- Historique des séances de l'animal dans le compte-rendu imprimé -->
-          <div class="print-section" id="print-section-history" style="margin-top: 20px;">
-            <h3 class="print-section-title">Historique des séances de l'animal</h3>
-            <div id="print-session-history-list">
-              <!-- Rempli dynamiquement en JS -->
+          <div class="print-section collapsible-card" id="print-section-history" style="margin-top: 20px;">
+            <div class="collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h3 class="print-section-title" style="margin: 0;">Historique des séances de l'animal</h3>
+              <span class="collapsible-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </span>
+            </div>
+            <div class="collapsible-body">
+              <div id="print-session-history-list">
+                <!-- Rempli dynamiquement en JS -->
+              </div>
             </div>
           </div>
 
@@ -1478,17 +1569,24 @@
         </div>
 
         <!-- Zone réservée au praticien (non imprimée) -->
-        <div class="glass-card practitioner-box-area" style="margin-top: 25px; padding: 20px;">
-          <h3 style="margin-top: 0; margin-bottom: 15px; color: var(--color-secondary); font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-            🛡️ Espace Praticienne (Privé)
-          </h3>
-          <div class="button-group" style="display: flex; gap: 15px;">
-            <button class="btn btn-secondary" id="btn-toggle-cr-detaille">Afficher le CR métier (détaillé)</button>
-            <button class="btn btn-secondary" id="btn-complete-followup-q">Compléter le questionnaire de suivi</button>
+        <div class="glass-card practitioner-box-area collapsible-card" style="margin-top: 25px; padding: 20px;">
+          <div class="collapsible-header" title="Cliquer pour replier/déplier" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3 style="margin: 0; color: var(--color-secondary); font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+              🛡️ Espace Praticienne (Privé)
+            </h3>
+            <span class="collapsible-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </span>
           </div>
-          
-          <div id="practitioner-cr-detaille-content" class="glass-card" style="display: none; margin-top: 15px; padding: 15px; border-left: 3px solid var(--color-secondary);">
-            <!-- Rempli dynamiquement en JS -->
+          <div class="collapsible-body">
+            <div class="button-group" style="display: flex; gap: 15px; flex-wrap: wrap;">
+              <button class="btn btn-secondary" id="btn-toggle-cr-detaille">Afficher le CR métier (détaillé)</button>
+              <button class="btn btn-secondary" id="btn-complete-followup-q">Compléter le questionnaire de suivi</button>
+            </div>
+            
+            <div id="practitioner-cr-detaille-content" class="glass-card" style="display: none; margin-top: 15px; padding: 15px; border-left: 3px solid var(--color-secondary);">
+              <!-- Rempli dynamiquement en JS -->
+            </div>
           </div>
         </div>
       </section>
@@ -2574,6 +2672,6 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.11"></script>
+  <script type="module" src="app.js?v=1.6.12"></script>
 </body>
 </html>

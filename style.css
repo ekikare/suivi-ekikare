@@ -1725,6 +1725,7 @@ body {
 .canvas-container {
   position: relative;
   width: 600px;
+  max-width: 100%;
   height: 400px;
   background-color: #ffffff;
   border-radius: var(--border-radius-md);
@@ -3212,6 +3213,277 @@ body.is-client-portal #btn-new-session-for-animal,
 body.is-client-portal #btn-copy-animal-portal-link,
 body.is-client-portal #btn-copy-client-portal-link {
   display: none !important;
+}
+
+/* ==========================================================================
+   COLLAPSIBLE CARDS & SECTIONS (Mobile / Tablet / Desktop)
+   ========================================================================== */
+.collapsible-card {
+  position: relative;
+  transition: all 0.25s ease;
+}
+
+.collapsible-header {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+
+.collapsible-header:hover {
+  opacity: 0.92;
+}
+
+.collapsible-header-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 !important;
+  border: none !important;
+  padding: 0 !important;
+  flex-grow: 1;
+}
+
+.collapsible-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-primary);
+  transition: transform 0.25s ease, background-color 0.2s ease, color 0.2s ease;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.collapsible-icon svg {
+  transition: transform 0.25s ease;
+}
+
+.collapsible-header:hover .collapsible-icon {
+  background: rgba(217, 107, 39, 0.15);
+  color: #D96B27;
+}
+
+/* When collapsed: chevron rotates -90deg to point right (▶) */
+.collapsible-card.is-collapsed .collapsible-icon svg {
+  transform: rotate(-90deg);
+}
+
+.collapsible-body {
+  overflow: hidden;
+  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+  max-height: 5000px;
+  opacity: 1;
+}
+
+.collapsible-card.is-collapsed .collapsible-body {
+  max-height: 0 !important;
+  opacity: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  pointer-events: none;
+}
+
+/* Ensure collapsibles are ALWAYS fully visible when printing or exporting PDF */
+@media print {
+  .collapsible-body {
+    max-height: none !important;
+    opacity: 1 !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+  .collapsible-icon {
+    display: none !important;
+  }
+}
+body.is-printing .collapsible-body {
+  max-height: none !important;
+  opacity: 1 !important;
+  overflow: visible !important;
+  display: block !important;
+}
+body.is-printing .collapsible-icon {
+  display: none !important;
+}
+
+/* ==========================================================================
+   TABLET PORTRAIT & MOBILE OPTIMIZATIONS (@media (max-width: 992px))
+   ========================================================================== */
+@media (max-width: 992px) {
+  /* 1. Reset width & paddings, remove horizontal overflow */
+  .main-content {
+    padding: 16px !important;
+    gap: 20px !important;
+    max-width: 100vw !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  .view-section {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  /* 2. Fiches : Forcer 1 seule colonne pleine largeur */
+  /* Fiche Client & Fiche Animal */
+  .detail-grid {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+    width: 100% !important;
+  }
+
+  .detail-left-column,
+  .detail-right-column {
+    width: 100% !important;
+    max-width: 100% !important;
+    gap: 20px !important;
+  }
+
+  .detail-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Fiche Séance / CR & Document imprimable */
+  .print-grid-2,
+  .cr-document .print-grid-2,
+  #portal-cr-sheet .print-grid-2,
+  .official-a4-sheet .print-grid-2 {
+    grid-template-columns: 1fr !important;
+    gap: 15px !important;
+    width: 100% !important;
+  }
+
+  .cr-document .print-grid-2 > div,
+  #portal-cr-sheet .print-grid-2 > div,
+  .official-a4-sheet .print-grid-2 > div {
+    border-left: none !important;
+    padding-left: 0 !important;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 12px;
+  }
+
+  .cr-document .print-grid-2 > div:first-child,
+  #portal-cr-sheet .print-grid-2 > div:first-child,
+  .official-a4-sheet .print-grid-2 > div:first-child {
+    border-top: none !important;
+    padding-top: 0 !important;
+  }
+
+  .print-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+    width: 100% !important;
+  }
+
+  .print-header > div:last-child {
+    align-items: flex-start !important;
+  }
+
+  #session-print-area {
+    padding: 16px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Formulaire / Éditeur de Séance */
+  .form-grid-3,
+  .form-grid-2,
+  .question-grid,
+  .shiatsu-grid,
+  .tensegrite-grid,
+  .settings-grid,
+  .dashboard-details-grid {
+    grid-template-columns: 1fr !important;
+    gap: 15px !important;
+    width: 100% !important;
+  }
+
+  .question-card.full-width {
+    grid-column: span 1 !important;
+    width: 100% !important;
+  }
+
+  .form-container-large {
+    padding: 18px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* 3. Bandeaux d'en-tête et boutons d'action */
+  .section-header-actions {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 14px !important;
+    width: 100% !important;
+  }
+
+  .section-header-actions > div:first-child {
+    width: 100% !important;
+  }
+
+  .section-header-actions .button-group {
+    flex-wrap: wrap !important;
+    width: 100% !important;
+    gap: 8px !important;
+  }
+
+  .section-header-actions .button-group .btn:not(.btn-icon-only) {
+    flex-grow: 1 !important;
+    text-align: center !important;
+    justify-content: center !important;
+  }
+
+  /* 4. Canvas et outils anatomiques sans débordement horizontal */
+  .canvas-toolbar {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  .canvas-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 600 / 400 !important;
+    box-sizing: border-box !important;
+  }
+
+  .print-canvas-preview,
+  .session-canvas-preview {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 600 / 400 !important;
+  }
+
+  /* 5. Modales A4 / Fiche de liaison */
+  #dialog-portal-session-cr {
+    padding: 12px !important;
+    width: 98% !important;
+  }
+
+  #dialog-portal-session-cr .official-a4-sheet {
+    padding: 16px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
 }
 
 
