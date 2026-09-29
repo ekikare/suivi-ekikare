@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.12';
+} from './db.js?v=1.6.13';
 
-import { SyncManager } from './sync-manager.js?v=1.6.12';
+import { SyncManager } from './sync-manager.js?v=1.6.13';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -427,6 +427,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupCranioCheckboxListeners();
   setupExternalSessionListeners();
   setupCollapsibleCardListeners();
+  setupMobileSidebarListeners();
   
   // Charger la page initiale selon le hash ou défaut
   handleRouting();
@@ -4716,6 +4717,93 @@ function setupCollapsibleCardListeners() {
     card.classList.toggle('is-collapsed');
     const isCollapsed = card.classList.contains('is-collapsed');
     header.setAttribute('aria-expanded', String(!isCollapsed));
+  });
+}
+
+// --- LOGIQUE SIDEBAR COMPACTE ET RÉTRACTABLE (TABLETTE PORTRAIT & MOBILE <= 992px) ---
+function setupMobileSidebarListeners() {
+  const sidebar = document.querySelector('.sidebar');
+  const sidebarBrand = document.getElementById('sidebar-brand-toggle') || document.querySelector('.sidebar-brand');
+  const burgerBtn = document.getElementById('btn-header-burger');
+  const backdrop = document.getElementById('sidebar-backdrop');
+
+  if (!sidebar) return;
+
+  const toggleSidebar = (e) => {
+    if (window.innerWidth <= 992) {
+      if (e) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+      sidebar.classList.toggle('expanded');
+      const isExpanded = sidebar.classList.contains('expanded');
+      if (burgerBtn) burgerBtn.setAttribute('aria-expanded', String(isExpanded));
+      if (backdrop) backdrop.classList.toggle('active', isExpanded);
+    }
+  };
+
+  const closeSidebar = () => {
+    if (sidebar.classList.contains('expanded')) {
+      sidebar.classList.remove('expanded');
+      if (burgerBtn) burgerBtn.setAttribute('aria-expanded', 'false');
+      if (backdrop) backdrop.classList.remove('active');
+    }
+  };
+
+  // 1. Bouton burger dans le header
+  if (burgerBtn) {
+    burgerBtn.addEventListener('click', (e) => {
+      toggleSidebar(e);
+    });
+  }
+
+  // 2. Clic / tap sur l'en-tête ou logo de la sidebar
+  if (sidebarBrand) {
+    sidebarBrand.addEventListener('click', (e) => {
+      if (window.innerWidth <= 992) {
+        toggleSidebar(e);
+      }
+    });
+
+    sidebarBrand.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && window.innerWidth <= 992) {
+        e.preventDefault();
+        toggleSidebar(e);
+      }
+    });
+  }
+
+  // 3. Clic sur le backdrop referme le volet
+  if (backdrop) {
+    backdrop.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeSidebar();
+    });
+  }
+
+  // 4. Clic en dehors de la sidebar referme le volet s'il est ouvert
+  document.addEventListener('click', (e) => {
+    if (window.innerWidth <= 992 && sidebar.classList.contains('expanded')) {
+      if (!sidebar.contains(e.target) && !e.target.closest('#btn-header-burger')) {
+        closeSidebar();
+      }
+    }
+  });
+
+  // 5. Clic sur un lien de navigation referme la sidebar sur mobile
+  sidebar.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      if (window.innerWidth <= 992) {
+        closeSidebar();
+      }
+    });
+  });
+
+  // 6. Touche Échap pour refermer
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sidebar.classList.contains('expanded')) {
+      closeSidebar();
+    }
   });
 }
 
