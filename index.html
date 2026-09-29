@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.7">
+  <link rel="stylesheet" href="style.css?v=1.6.8">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -545,6 +545,10 @@
                 <div class="info-item">
                   <span class="info-label">Espèce / Race / Robe</span>
                   <span class="info-value" id="detail-animal-identity">-</span>
+                </div>
+                <div class="info-item" id="detail-animal-id-number-row" style="display: none;">
+                  <span class="info-label">N° SIRE / Puce</span>
+                  <span class="info-value" id="detail-animal-id-number">-</span>
                 </div>
                 <div class="info-item">
                   <span class="info-label">Sexe</span>
@@ -1770,6 +1774,13 @@
           </div>
         </div>
       </div>
+
+      <!-- Identification SIRE / Puce -->
+      <div class="form-group">
+        <label for="animal-form-id-number">Numéro d'identification (SIRE, puce, transpondeur)</label>
+        <input type="text" id="animal-form-id-number" placeholder="Ex: 250269600123456 ou 12345678A">
+      </div>
+
       <!-- Option: Vit au domicile -->
       <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px; margin-top: 15px;">
         <input type="checkbox" id="animal-form-stable-at-home" style="width: 20px; height: 20px; cursor: pointer;">
@@ -2561,6 +2572,6 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.7"></script>
+  <script type="module" src="app.js?v=1.6.8"></script>
 </body>
 </html>

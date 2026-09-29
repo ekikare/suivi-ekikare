@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.7';
+} from './db.js?v=1.6.8';
 
-import { SyncManager } from './sync-manager.js?v=1.6.7';
+import { SyncManager } from './sync-manager.js?v=1.6.8';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -136,6 +136,138 @@ window.addEventListener('settings-updated', async () => {
     populateSpecialtyDropdown();
   }
 });
+
+// --- UTILITAIRE DE NORMALISATION DES ENTRÉES (FORM SANITIZER) ---
+const FormSanitizer = {
+  /**
+   * Téléphones : nettoie les indicatifs (+33, 0033) et reformate systématiquement en "XX XX XX XX XX".
+   * @param {string} val
+   * @returns {string}
+   */
+  formatPhone(val) {
+    if (!val) return '';
+    let str = String(val).trim();
+    if (!str) return '';
+
+    // Nettoyer les indicatifs internationaux français (+33, 0033, +33(0), etc.)
+    str = str.replace(/^(?:\+33|0033)\s*(?:\(0\)\s*)?/, '0');
+    let digits = str.replace(/\D/g, '');
+
+    // Si commence par 33 et compte 11 chiffres (ex: 33612345678)
+    if (digits.startsWith('33') && digits.length === 11) {
+      digits = '0' + digits.slice(2);
+    }
+    // Si 9 chiffres (omission du 0 initial)
+    if (digits.length === 9) {
+      digits = '0' + digits;
+    }
+
+    // Format standard français à 10 chiffres : XX XX XX XX XX
+    if (digits.length === 10) {
+      return digits.replace(/(\d{2})(?=\d)/g, '$1 ').trim();
+    }
+
+    // Si autre longueur de chiffres, regrouper par paires de chiffres
+    if (digits.length > 0) {
+      return digits.replace(/(\d{2})(?=\d)/g, '$1 ').trim();
+    }
+
+    return str;
+  },
+
+  /**
+   * Noms de famille et Villes : convertit en MAJUSCULES avec trim().
+   * @param {string} val
+   * @returns {string}
+   */
+  formatUpperCase(val) {
+    if (!val) return '';
+    return String(val).trim().toUpperCase();
+  },
+
+  /**
+   * Prénoms et Noms d'animaux : majuscule initiale (Capitalize) et trim().
+   * Gère les prénoms et noms composés (espaces, tirets, apostrophes).
+   * @param {string} val
+   * @returns {string}
+   */
+  formatCapitalize(val) {
+    if (!val) return '';
+    const trimmed = String(val).trim();
+    if (!trimmed) return '';
+    return trimmed.toLowerCase().replace(/(^|[\s\-'’(])([a-zà-ÿ\u00C0-\u017F])/g, (match, prefix, char) => {
+      return prefix + char.toUpperCase();
+    });
+  },
+
+  /**
+   * Codes postaux : force 5 chiffres numériques.
+   * @param {string} val
+   * @returns {string}
+   */
+  formatZipCode(val) {
+    if (!val) return '';
+    const digits = String(val).replace(/\D/g, '');
+    return digits.slice(0, 5);
+  },
+
+  /**
+   * Numéros d'identification (SIRE, puce, transpondeur) :
+   * retire les espaces et caractères non alphanumériques.
+   * @param {string} val
+   * @returns {string}
+   */
+  formatIdNumber(val) {
+    if (!val) return '';
+    return String(val).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  },
+
+  /**
+   * Attache un écouteur de blur pour formater la valeur à la perte de focus.
+   * @param {HTMLInputElement|HTMLTextAreaElement|string} inputOrId
+   * @param {Function} formatFn
+   */
+  attachBlur(inputOrId, formatFn) {
+    const el = typeof inputOrId === 'string' ? document.getElementById(inputOrId) : inputOrId;
+    if (!el || el.dataset.sanitizerAttached === 'true') return;
+    el.dataset.sanitizerAttached = 'true';
+    el.addEventListener('blur', () => {
+      if (el.value) {
+        el.value = formatFn(el.value);
+      }
+    });
+  },
+
+  /**
+   * Initialise les écouteurs de blur sur tous les champs cibles des formulaires clients, animaux, professionnels.
+   */
+  initBlurListeners() {
+    // Formulaire Client
+    this.attachBlur('client-form-lastname', this.formatUpperCase);
+    this.attachBlur('client-form-firstname', this.formatCapitalize);
+    this.attachBlur('client-form-phone', this.formatPhone);
+    this.attachBlur('client-form-address', (val) => {
+      if (!val) return '';
+      const parsed = parseAddress(val);
+      if (parsed.zip && parsed.city) {
+        return `${parsed.address ? parsed.address + ', ' : ''}${parsed.zip} ${parsed.city}`;
+      }
+      return val.trim();
+    });
+
+    // Formulaire Animal
+    this.attachBlur('animal-form-name', this.formatCapitalize);
+    this.attachBlur('animal-form-stable-city', this.formatUpperCase);
+    this.attachBlur('animal-form-stable-zip', this.formatZipCode);
+    this.attachBlur('animal-form-id-number', this.formatIdNumber);
+
+    // Formulaire Professionnel
+    this.attachBlur('prof-form-lastname', this.formatUpperCase);
+    this.attachBlur('prof-form-firstname', this.formatCapitalize);
+    this.attachBlur('prof-form-phone', this.formatPhone);
+  }
+};
+window.FormSanitizer = FormSanitizer;
 
 // Motifs d'archivage par défaut
 const DEFAULT_CLIENT_ARCHIVE_REASONS = [
@@ -246,6 +378,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupPractitionerLock();
   populateSpecialtyDropdown();
   setupDateHeader();
+  FormSanitizer.initBlurListeners();
   
   // Migration automatique des UUIDs pour les clients existants (réservée au praticien)
   if (isPractitionerUnlocked()) {
@@ -2154,6 +2287,19 @@ async function renderAnimalDetails(animalId) {
     : ownerName;
 
   document.getElementById('detail-animal-identity').textContent = `${animal.espece} • ${animal.race || 'Race inconnue'} ${animal.robe ? '('+animal.robe+')' : ''}`;
+  
+  const idNumberRow = document.getElementById('detail-animal-id-number-row');
+  const idNumberEl = document.getElementById('detail-animal-id-number');
+  if (idNumberRow && idNumberEl) {
+    if (animal.id_number) {
+      idNumberRow.style.display = 'flex';
+      idNumberEl.textContent = animal.id_number;
+    } else {
+      idNumberRow.style.display = 'none';
+      idNumberEl.textContent = '-';
+    }
+  }
+
   document.getElementById('detail-animal-sex').textContent = animal.sexe || 'Non précisé';
   
   const birthdateStr = animal.date_naissance_ou_age || '';
@@ -6188,6 +6334,7 @@ async function openClientDialog(client = null) {
   const dialog = document.getElementById('dialog-client');
   const form = document.getElementById('dialog-client-form');
   form.reset();
+  FormSanitizer.initBlurListeners();
 
   const titleEl = document.getElementById('dialog-client-title');
   const idInput = document.getElementById('dialog-client-id');
@@ -6202,7 +6349,7 @@ async function openClientDialog(client = null) {
   const initialValues = {
     nom: (currentClient ? currentClient.nom : '') || '',
     prenom: (currentClient ? currentClient.prenom : '') || '',
-    telephone: (currentClient ? currentClient.telephone : '') || '',
+    telephone: FormSanitizer.formatPhone((currentClient ? currentClient.telephone : '') || ''),
     email: (currentClient ? currentClient.email : '') || '',
     adresse: (currentClient ? currentClient.adresse : '') || '',
     ecurie: (currentClient ? currentClient.ecurie : '') || '',
@@ -6244,12 +6391,31 @@ async function openClientDialog(client = null) {
       }
     }
 
+    // Normalisation des champs avant sauvegarde
+    const cleanLastname = FormSanitizer.formatUpperCase(document.getElementById('client-form-lastname').value);
+    const cleanFirstname = FormSanitizer.formatCapitalize(document.getElementById('client-form-firstname').value);
+    const cleanPhone = FormSanitizer.formatPhone(document.getElementById('client-form-phone').value);
+
+    let cleanAddress = document.getElementById('client-form-address').value.trim();
+    if (cleanAddress) {
+      const parsed = parseAddress(cleanAddress);
+      if (parsed.zip && parsed.city) {
+        cleanAddress = `${parsed.address ? parsed.address + ', ' : ''}${parsed.zip} ${parsed.city}`;
+      }
+    }
+
+    // Répercussion immédiate sur l'interface du formulaire
+    document.getElementById('client-form-lastname').value = cleanLastname;
+    document.getElementById('client-form-firstname').value = cleanFirstname;
+    document.getElementById('client-form-phone').value = cleanPhone;
+    document.getElementById('client-form-address').value = cleanAddress;
+
     const formValues = {
-      nom: document.getElementById('client-form-lastname').value.trim(),
-      prenom: document.getElementById('client-form-firstname').value.trim(),
-      telephone: document.getElementById('client-form-phone').value.trim(),
+      nom: cleanLastname,
+      prenom: cleanFirstname,
+      telephone: cleanPhone,
       email: document.getElementById('client-form-email').value.trim(),
-      adresse: document.getElementById('client-form-address').value.trim(),
+      adresse: cleanAddress,
       ecurie: document.getElementById('client-form-stable').value.trim(),
       notes: document.getElementById('client-form-notes').value.trim()
     };
@@ -6407,6 +6573,7 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
   const dialog = document.getElementById('dialog-animal');
   const form = document.getElementById('dialog-animal-form');
   form.reset();
+  FormSanitizer.initBlurListeners();
 
   const atHomeCheckbox = document.getElementById('animal-form-stable-at-home');
   const locGrid1 = document.getElementById('animal-form-location-grid-1');
@@ -6629,6 +6796,10 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
     }
 
     document.getElementById('animal-form-robe').value = animal.robe || custom.robe || '';
+    const idNumEl = document.getElementById('animal-form-id-number');
+    if (idNumEl) {
+      idNumEl.value = animal.id_number || custom.id_number || animal.sire || animal.puce || '';
+    }
     let sexValue = animal.sexe || animal.gender || 'Inconnu';
     if (sexValue === 'Mâle castré') sexValue = 'Mâle castré (Hongre)';
     if (sexValue === 'Femelle') sexValue = 'Femelle (Jument)';
@@ -6802,6 +6973,8 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
     // Reset date fields
     document.getElementById('animal-form-birthdate').value = '';
     document.getElementById('animal-form-age-estimation').value = '';
+    const idNumEl = document.getElementById('animal-form-id-number');
+    if (idNumEl) idNumEl.value = '';
 
     // Reset selects
     document.getElementById('animal-form-species').value = 'Cheval';
@@ -6892,9 +7065,12 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
     } else {
       stableName = document.getElementById('animal-form-stable-name').value.trim();
       stableAddress = document.getElementById('animal-form-stable-address').value.trim();
-      stableZip = document.getElementById('animal-form-stable-zip').value.trim();
-      stableCity = document.getElementById('animal-form-stable-city').value.trim();
+      stableZip = FormSanitizer.formatZipCode(document.getElementById('animal-form-stable-zip').value);
+      stableCity = FormSanitizer.formatUpperCase(document.getElementById('animal-form-stable-city').value);
       stableDistance = parseFloat(document.getElementById('animal-form-stable-distance').value) || 0;
+
+      document.getElementById('animal-form-stable-zip').value = stableZip;
+      document.getElementById('animal-form-stable-city').value = stableCity;
 
       // À l'inverse, si une adresse déjà associée à une écurie connue est saisie, associer/remplir automatiquement le nom de l'écurie
       if (!stableName && stableAddress && stableZip && stableCity) {
@@ -6953,10 +7129,21 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       } catch (e) {}
     }
 
+    // Normalisation du nom et du numéro d'identification
+    const cleanAnimalName = FormSanitizer.formatCapitalize(document.getElementById('animal-form-name').value);
+    document.getElementById('animal-form-name').value = cleanAnimalName;
+
+    const rawIdNumber = document.getElementById('animal-form-id-number')?.value || '';
+    const cleanIdNumber = FormSanitizer.formatIdNumber(rawIdNumber);
+    if (document.getElementById('animal-form-id-number')) {
+      document.getElementById('animal-form-id-number').value = cleanIdNumber;
+    }
+
     const animalData = {
       ...(freshAnimal || animal || {}),
       client_id: ownerId,
-      nom: document.getElementById('animal-form-name').value.trim(),
+      nom: cleanAnimalName,
+      id_number: cleanIdNumber,
       espece: (() => {
         const val = document.getElementById('animal-form-species').value;
         if (val === 'Autre') {
@@ -7070,6 +7257,7 @@ async function openProfessionalDialog(prof = null) {
   const dialog = document.getElementById('dialog-professional');
   const form = document.getElementById('dialog-professional-form');
   form.reset();
+  FormSanitizer.initBlurListeners();
   populateSpecialtyDropdown();
 
   const titleEl = document.getElementById('dialog-professional-title');
@@ -7168,7 +7356,7 @@ async function openProfessionalDialog(prof = null) {
       specialtyOther.style.display = 'block';
     }
 
-    document.getElementById('prof-form-phone').value = prof.telephone || '';
+    document.getElementById('prof-form-phone').value = FormSanitizer.formatPhone(prof.telephone || '');
     document.getElementById('prof-form-notes').value = prof.notes || '';
   } else {
     titleEl.textContent = 'Nouveau Professionnel';
@@ -7205,11 +7393,20 @@ async function openProfessionalDialog(prof = null) {
       populateSpecialtyDropdown();
     }
 
+    // Normalisation avant enregistrement
+    const cleanLastname = FormSanitizer.formatUpperCase(document.getElementById('prof-form-lastname').value);
+    const cleanFirstname = FormSanitizer.formatCapitalize(document.getElementById('prof-form-firstname').value);
+    const cleanPhone = FormSanitizer.formatPhone(document.getElementById('prof-form-phone').value);
+
+    document.getElementById('prof-form-lastname').value = cleanLastname;
+    document.getElementById('prof-form-firstname').value = cleanFirstname;
+    document.getElementById('prof-form-phone').value = cleanPhone;
+
     const profData = {
-      nom: document.getElementById('prof-form-lastname').value.trim(),
-      prenom: document.getElementById('prof-form-firstname').value.trim(),
+      nom: cleanLastname,
+      prenom: cleanFirstname,
       specialite: spec,
-      telephone: document.getElementById('prof-form-phone').value.trim(),
+      telephone: cleanPhone,
       notes: document.getElementById('prof-form-notes').value.trim()
     };
 
@@ -7729,10 +7926,11 @@ function parseAddress(fullAddress) {
   if (!fullAddress) return { address: '', zip: '', city: '' };
   const zipMatch = fullAddress.match(/\b\d{5}\b/);
   if (zipMatch) {
-    const zip = zipMatch[0];
-    const zipIndex = fullAddress.indexOf(zip);
+    const zip = FormSanitizer.formatZipCode(zipMatch[0]);
+    const zipIndex = fullAddress.indexOf(zipMatch[0]);
     const address = fullAddress.substring(0, zipIndex).replace(/,\s*$/, '').trim();
-    const city = fullAddress.substring(zipIndex + 5).replace(/^\s*,\s*/, '').trim();
+    const rawCity = fullAddress.substring(zipIndex + 5).replace(/^\s*,\s*/, '').trim();
+    const city = FormSanitizer.formatUpperCase(rawCity);
     return { address, zip, city };
   }
   return { address: fullAddress, zip: '', city: '' };
@@ -8433,6 +8631,7 @@ async function openAnimalDossierPreviewModal(animal, options) {
                   <h4 style="font-size: 0.88rem; font-weight: 700; color: #334155; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px;">Signalement & Mode de vie</h4>
                   <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
                     <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Nom :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.nom}</td></tr>
+                    ${animal.id_number ? `<tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">SIRE / Puce :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.id_number}</td></tr>` : ''}
                     <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Espèce / Race :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.espece} • ${animal.race || 'Non précisée'}</td></tr>
                     <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Robe / Sexe :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.robe || '-'} • ${animal.sexe || 'Non précisé'}</td></tr>
                     <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Âge / Naissance :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${birthDisplay}</td></tr>

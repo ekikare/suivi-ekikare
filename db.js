@@ -113,6 +113,7 @@ export function mapLocalToSupabase(storeName, item) {
       }
 
       const customPayload = {
+        id_number: item.id_number !== undefined ? item.id_number : (existingCustom.id_number || ''),
         robe: item.robe !== undefined ? item.robe : (existingCustom.robe || ''),
         lifestyle_details: item.lifestyle_details !== undefined ? item.lifestyle_details : (existingCustom.lifestyle_details || ''),
         stable_name: item.stable_name || item.lieu_de_vie || item.stable || existingCustom.stable_name || '',
@@ -279,6 +280,7 @@ export function mapSupabaseToLocal(storeName, item) {
         ...local,
         client_id: item.client_id ? Number(item.client_id) : null,
         nom: item.name || '',
+        id_number: parsedCustom.id_number || item.id_number || '',
         espece: item.species || 'Cheval',
         race: item.breed || '',
         robe: item.robe || parsedCustom.robe || '',
