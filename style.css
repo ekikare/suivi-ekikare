@@ -1740,6 +1740,7 @@ body {
   border-radius: var(--border-radius-md);
   overflow: hidden;
   border: 1px solid var(--glass-border);
+  touch-action: none;
 }
 
 .canvas-bg-img {
@@ -1762,6 +1763,10 @@ body {
   height: 100%;
   cursor: crosshair;
   z-index: 2;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* TOUR GROUPINGS (Lieux de vie) */

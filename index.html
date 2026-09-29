@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.14">
+  <link rel="stylesheet" href="style.css?v=1.6.15">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1382,7 +1382,7 @@
             <div class="canvas-wrapper">
               <div class="canvas-toolbar">
                 <div class="color-palette">
-                  <button type="button" class="color-btn active" style="background-color: #ef4444;" data-color="#ef4444" title="Tension / Douleur (Rouge)"></button>
+                  <button type="button" class="color-btn active" style="background-color: #dc2626;" data-color="#dc2626" title="Tension / Douleur (Rouge)"></button>
                   <button type="button" class="color-btn" style="background-color: #3b82f6;" data-color="#3b82f6" title="Froid / Vide (Bleu)"></button>
                   <button type="button" class="color-btn" style="background-color: #10b981;" data-color="#10b981" title="Libération / Soin (Vert)"></button>
                   <button type="button" class="color-btn" style="background-color: #1e293b;" data-color="#1e293b" title="Notes / Autre (Noir)"></button>
@@ -1403,7 +1403,7 @@
                 <!-- Image de fond squelette équin -->
                 <img src="horse_skeleton.png" id="canvas-skeleton-img" class="canvas-bg-img" alt="Squelette cheval">
                 <!-- Calque transparent de dessin -->
-                <canvas id="annotation-canvas" class="canvas-drawing" width="600" height="400"></canvas>
+                <canvas id="annotation-canvas" class="canvas-drawing" width="600" height="400" style="touch-action: none;"></canvas>
               </div>
             </div>
 
@@ -2684,6 +2684,6 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.14"></script>
+  <script type="module" src="app.js?v=1.6.15"></script>
 </body>
 </html>

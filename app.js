@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.14';
+} from './db.js?v=1.6.15';
 
-import { SyncManager } from './sync-manager.js?v=1.6.14';
+import { SyncManager } from './sync-manager.js?v=1.6.15';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -380,7 +380,7 @@ let canvasCtx = null;
 let isDrawing = false;
 let lastX = 0;
 let lastY = 0;
-let currentDrawingColor = '#ef4444'; // default red
+let currentDrawingColor = '#dc2626'; // default red (#dc2626)
 let currentBrushSize = 2;
 let canvasUndoHistory = []; // stores transparent states
 const MAX_UNDO_STATES = 20;
@@ -4904,36 +4904,46 @@ function setupCanvasListeners() {
   
   canvasCtx = canvasElement.getContext('2d');
   
-  // Activer les événements tactiles et souris
-  canvasElement.addEventListener('mousedown', startDrawingEvent);
-  canvasElement.addEventListener('mousemove', drawEvent);
-  canvasElement.addEventListener('mouseup', stopDrawingEvent);
-  canvasElement.addEventListener('mouseleave', stopDrawingEvent);
-  
-  canvasElement.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const mouseEvent = new MouseEvent('mousedown', {
-      clientX: touch.clientX,
-      clientY: touch.clientY
+  // Activer les événements unifiés PointerEvents (stylet, tactile, souris) avec capture précise
+  if (window.PointerEvent) {
+    canvasElement.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      try { canvasElement.setPointerCapture(e.pointerId); } catch (err) {}
+      startDrawingEvent(e);
     });
-    canvasElement.dispatchEvent(mouseEvent);
-  }, { passive: false });
-  
-  canvasElement.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const mouseEvent = new MouseEvent('mousemove', {
-      clientX: touch.clientX,
-      clientY: touch.clientY
+    canvasElement.addEventListener('pointermove', (e) => {
+      if (!isDrawing) return;
+      e.preventDefault();
+      drawEvent(e);
     });
-    canvasElement.dispatchEvent(mouseEvent);
-  }, { passive: false });
+    canvasElement.addEventListener('pointerup', (e) => {
+      try { canvasElement.releasePointerCapture(e.pointerId); } catch (err) {}
+      stopDrawingEvent();
+    });
+    canvasElement.addEventListener('pointercancel', (e) => {
+      try { canvasElement.releasePointerCapture(e.pointerId); } catch (err) {}
+      stopDrawingEvent();
+    });
+    canvasElement.addEventListener('pointerleave', stopDrawingEvent);
+  } else {
+    // Fallback pour anciens navigateurs sans PointerEvents
+    canvasElement.addEventListener('mousedown', startDrawingEvent);
+    canvasElement.addEventListener('mousemove', drawEvent);
+    canvasElement.addEventListener('mouseup', stopDrawingEvent);
+    canvasElement.addEventListener('mouseleave', stopDrawingEvent);
+    
+    canvasElement.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      startDrawingEvent(e);
+    }, { passive: false });
+    
+    canvasElement.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      drawEvent(e);
+    }, { passive: false });
 
-  canvasElement.addEventListener('touchend', (e) => {
-    const mouseEvent = new MouseEvent('mouseup', {});
-    canvasElement.dispatchEvent(mouseEvent);
-  });
+    canvasElement.addEventListener('touchend', stopDrawingEvent);
+  }
 
   // Palette de couleur
   const colorBtns = document.querySelectorAll('.color-btn');
@@ -5028,18 +5038,43 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+// Calcul précis des coordonnées compensées de l'échelle du canvas (stylet / tactile / souris)
+function getCanvasCoordinates(e) {
+  if (!canvasElement) return { x: 0, y: 0 };
+  const rect = canvasElement.getBoundingClientRect();
+  const scaleX = rect.width ? (canvasElement.width / rect.width) : 1;
+  const scaleY = rect.height ? (canvasElement.height / rect.height) : 1;
+
+  let clientX = e.clientX;
+  let clientY = e.clientY;
+
+  // Prise en charge des événements tactiles directs touchstart / touchmove
+  if (clientX === undefined && e.touches && e.touches.length > 0) {
+    clientX = e.touches[0].clientX;
+    clientY = e.touches[0].clientY;
+  } else if (clientX === undefined && e.changedTouches && e.changedTouches.length > 0) {
+    clientX = e.changedTouches[0].clientX;
+    clientY = e.changedTouches[0].clientY;
+  }
+
+  return {
+    x: (clientX - rect.left) * scaleX,
+    y: (clientY - rect.top) * scaleY
+  };
+}
+
 function startDrawingEvent(e) {
   isDrawing = true;
-  const rect = canvasElement.getBoundingClientRect();
-  lastX = e.clientX - rect.left;
-  lastY = e.clientY - rect.top;
+  const coords = getCanvasCoordinates(e);
+  lastX = coords.x;
+  lastY = coords.y;
 }
 
 function drawEvent(e) {
   if (!isDrawing) return;
-  const rect = canvasElement.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
+  const coords = getCanvasCoordinates(e);
+  const x = coords.x;
+  const y = coords.y;
   
   canvasCtx.beginPath();
   canvasCtx.moveTo(lastX, lastY);
@@ -5053,8 +5088,17 @@ function drawEvent(e) {
     canvasCtx.strokeStyle = currentDrawingColor;
     canvasCtx.globalAlpha = 1.0;
   } else {
-    canvasCtx.strokeStyle = currentDrawingColor.startsWith('#') ? hexToRgba(currentDrawingColor, 0.5) : currentDrawingColor;
-    canvasCtx.globalAlpha = 0.5;
+    // Tracé rouge franc et couvrant (opacité >= 85% à 100%)
+    if (currentDrawingColor === '#dc2626' || currentDrawingColor === '#ef4444') {
+      canvasCtx.strokeStyle = 'rgba(220, 38, 38, 0.90)';
+      canvasCtx.globalAlpha = 1.0;
+    } else if (currentDrawingColor.startsWith('#')) {
+      canvasCtx.strokeStyle = hexToRgba(currentDrawingColor, 0.85);
+      canvasCtx.globalAlpha = 1.0;
+    } else {
+      canvasCtx.strokeStyle = currentDrawingColor;
+      canvasCtx.globalAlpha = 0.85;
+    }
   }
   
   canvasCtx.stroke();
