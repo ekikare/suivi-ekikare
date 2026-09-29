@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.9';
+} from './db.js?v=1.6.10';
 
-import { SyncManager } from './sync-manager.js?v=1.6.9';
+import { SyncManager } from './sync-manager.js?v=1.6.10';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -4182,36 +4182,11 @@ async function prepareSessionEditor(param) {
   form.reset();
   syncCranioParentCheckboxes();
 
-  const animalSelect = document.getElementById('session-form-animal');
-  animalSelect.innerHTML = '<option value="">-- Choisir un animal... --</option>';
-
-  const animals = await getAll('animals');
-  const clients = await getAll('clients');
-
-  const selectableAnimals = animals.filter(an => !an.archived_at || (session && session.animal_id === an.id));
-  for (const an of selectableAnimals) {
-    const client = clients.find(c => c.id === an.client_id);
-    const ownerName = client ? `${client.prenom} ${client.nom}` : 'Propriétaire inconnu';
-    const opt = document.createElement('option');
-    opt.value = an.id;
-    opt.textContent = `${an.nom} (${an.espece} - Propriétaire : ${ownerName})${an.archived_at ? ' [Archivé]' : ''}`;
-    animalSelect.appendChild(opt);
-  }
-
-  // Charger les rappels multiples
-  const remindersContainer = document.getElementById('reminders-dynamic-list');
-  if (remindersContainer) {
-    remindersContainer.innerHTML = '';
-  }
-  
-  // Date par défaut aujourd'hui
-  document.getElementById('session-form-date').value = new Date().toISOString().split('T')[0];
-
   // Réinitialiser les accordions de protocoles
   document.querySelectorAll('.protocol-checkbox').forEach(cb => {
     cb.checked = false;
     const body = cb.closest('.protocol-accordion').querySelector('.protocol-body');
-    body.style.display = 'none';
+    if (body) body.style.display = 'none';
   });
 
   // Réinitialiser le calque transparent du Canvas
@@ -4224,42 +4199,137 @@ async function prepareSessionEditor(param) {
   let isEditing = false;
   let targetSession = null;
   let targetAnimalId = null;
+  let targetClientId = null;
 
   if (param) {
     if (typeof param === 'string' && param.startsWith('animal-')) {
       targetAnimalId = Number(param.replace('animal-', ''));
+    } else if (typeof param === 'string' && param.startsWith('client-')) {
+      targetClientId = Number(param.replace('client-', ''));
     } else {
-      const ses = await getById('sessions', Number(param));
-      if (ses) {
-        isEditing = true;
-        targetSession = ses;
-        targetAnimalId = ses.animal_id;
-        currentSessionId = ses.id;
-      } else {
-        targetAnimalId = Number(param);
+      const numParam = Number(param);
+      if (!isNaN(numParam) && numParam > 0) {
+        const ses = await getById('sessions', numParam);
+        if (ses) {
+          isEditing = true;
+          targetSession = ses;
+          targetAnimalId = ses.animal_id || ses.animalId;
+          currentSessionId = ses.id;
+        } else {
+          const an = await getById('animals', numParam);
+          if (an) {
+            targetAnimalId = an.id;
+          } else {
+            const cl = await getById('clients', numParam);
+            if (cl) {
+              targetClientId = cl.id;
+            }
+          }
+        }
       }
     }
   }
 
-  // Configurer le sélecteur d'animal
-  if (targetAnimalId) {
-    animalSelect.value = targetAnimalId;
+  // Déduction contextuelle si aucun paramètre explicite n'a été fourni
+  if (!targetAnimalId && !targetClientId) {
+    if (previousRoute && previousRoute.startsWith('animals/')) {
+      const pAnimalId = Number(previousRoute.replace('animals/', ''));
+      if (pAnimalId) targetAnimalId = pAnimalId;
+    } else if (previousRoute && previousRoute.startsWith('clients/')) {
+      const pClientId = Number(previousRoute.replace('clients/', ''));
+      if (pClientId) targetClientId = pClientId;
+    } else if (typeof currentAnimalId !== 'undefined' && currentAnimalId && previousRoute === 'animals') {
+      targetAnimalId = currentAnimalId;
+    } else if (typeof currentClientId !== 'undefined' && currentClientId && previousRoute === 'clients') {
+      targetClientId = currentClientId;
+    }
   }
 
-  // --- LOGIQUE DE PRÉ-REMPLISSAGE INTELLIGENT < 2 MOIS ---
-  const prefillContainer = document.getElementById('session-prefill-banner-container');
-  prefillContainer.innerHTML = '';
+  const animals = await getAll('animals');
+  const clients = await getAll('clients');
 
-  if (!isEditing && targetAnimalId) {
+  // Si on a un targetAnimalId, identifier son client
+  if (targetAnimalId && !targetClientId) {
+    const directAnimal = animals.find(a => a.id === targetAnimalId);
+    if (directAnimal) {
+      targetClientId = directAnimal.client_id;
+    }
+  }
+
+  // 1. Filtrer les animaux sélectionnables : tous les actifs + l'animal de la séance (même s'il est archivé)
+  const selectableAnimals = animals.filter(an => {
+    if (!an) return false;
+    if (!an.archived_at) return true;
+    if (targetSession && (targetSession.animal_id === an.id || targetSession.animalId === an.id)) return true;
+    if (targetAnimalId && targetAnimalId === an.id) return true;
+    return false;
+  });
+
+  // 2. Si un client est ciblé mais pas d'animal spécifique, pré-sélectionner son animal unique s'il n'en a qu'un
+  if (targetClientId && !targetAnimalId) {
+    const clientAnimals = selectableAnimals.filter(an => an.client_id === targetClientId);
+    if (clientAnimals.length === 1) {
+      targetAnimalId = clientAnimals[0].id;
+    }
+  }
+
+  // Si l'utilisateur n'arrive d'aucun contexte et qu'il n'y a qu'un seul animal dans toute l'application
+  if (!targetAnimalId && selectableAnimals.length === 1) {
+    targetAnimalId = selectableAnimals[0].id;
+  }
+
+  // 3. Trier la liste des animaux : si un client est identifié, mettre ses animaux en priorité en haut de liste
+  selectableAnimals.sort((a, b) => {
+    if (targetClientId) {
+      const aBelongs = a.client_id === targetClientId;
+      const bBelongs = b.client_id === targetClientId;
+      if (aBelongs && !bBelongs) return -1;
+      if (!aBelongs && bBelongs) return 1;
+    }
+    return (a.nom || '').localeCompare(b.nom || '');
+  });
+
+  // 4. Remplir le sélecteur d'animaux
+  const animalSelect = document.getElementById('session-form-animal');
+  animalSelect.innerHTML = '<option value="">-- Choisir un animal... --</option>';
+  for (const an of selectableAnimals) {
+    const client = clients.find(c => c.id === an.client_id);
+    const ownerName = client ? `${client.prenom} ${client.nom}` : 'Propriétaire inconnu';
+    const opt = document.createElement('option');
+    opt.value = String(an.id);
+    opt.textContent = `${an.nom} (${an.espece} - Propriétaire : ${ownerName})${an.archived_at ? ' [Archivé]' : ''}`;
+    animalSelect.appendChild(opt);
+  }
+
+  // 5. Pré-sélectionner l'animal dans le DOM
+  if (targetAnimalId) {
+    animalSelect.value = String(targetAnimalId);
+  }
+
+  // Charger les rappels multiples
+  const remindersContainer = document.getElementById('reminders-dynamic-list');
+  if (remindersContainer) {
+    remindersContainer.innerHTML = '';
+  }
+  
+  // Date par défaut aujourd'hui
+  document.getElementById('session-form-date').value = new Date().toISOString().split('T')[0];
+
+  // --- LOGIQUE DE PRÉ-REMPLISSAGE INTELLIGENT < 2 MOIS ---
+  const updatePrefillBannerForAnimal = async (animalId) => {
+    const prefillContainer = document.getElementById('session-prefill-banner-container');
+    if (!prefillContainer) return;
+    prefillContainer.innerHTML = '';
+
+    if (isEditing || !animalId) return;
+
     const allSessions = await getAll('sessions');
-    const animalSessions = allSessions.filter(s => s.animal_id === targetAnimalId);
+    const animalSessions = allSessions.filter(s => Number(s.animal_id) === Number(animalId));
     
     if (animalSessions.length > 0) {
-      // Récupérer la dernière séance
-      animalSessions.sort((a,b) => new Date(b.date_seance) - new Date(a.date_seance));
+      animalSessions.sort((a, b) => new Date(b.date_seance) - new Date(a.date_seance));
       const lastSession = animalSessions[0];
 
-      // Vérifier le délai de moins de 2 mois (60 jours)
       const diffTime = new Date() - new Date(lastSession.date_seance);
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -4286,6 +4356,17 @@ async function prepareSessionEditor(param) {
         prefillContainer.appendChild(banner);
       }
     }
+  };
+
+  animalSelect.onchange = () => {
+    const currentVal = Number(animalSelect.value);
+    if (!isEditing) {
+      updatePrefillBannerForAnimal(currentVal);
+    }
+  };
+
+  if (!isEditing && targetAnimalId) {
+    await updatePrefillBannerForAnimal(targetAnimalId);
   }
 
   // Charger les structures des Questionnaires
@@ -4528,6 +4609,7 @@ async function prepareSessionEditor(param) {
     updateTensegriteTitles();
   }
 }
+window.prepareSessionEditor = prepareSessionEditor;
 
 function setSelectedValue(selector, value) {
   const el = document.querySelector(selector);
