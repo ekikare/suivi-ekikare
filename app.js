@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.8';
+} from './db.js?v=1.6.9';
 
-import { SyncManager } from './sync-manager.js?v=1.6.8';
+import { SyncManager } from './sync-manager.js?v=1.6.9';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -153,8 +153,9 @@ const FormSanitizer = {
     str = str.replace(/^(?:\+33|0033)\s*(?:\(0\)\s*)?/, '0');
     let digits = str.replace(/\D/g, '');
 
-    // Si commence par 33 et compte 11 chiffres (ex: 33612345678)
-    if (digits.startsWith('33') && digits.length === 11) {
+    if (digits.startsWith('0033')) {
+      digits = '0' + digits.slice(4);
+    } else if (digits.startsWith('33')) {
       digits = '0' + digits.slice(2);
     }
     // Si 9 chiffres (omission du 0 initial)
@@ -162,17 +163,10 @@ const FormSanitizer = {
       digits = '0' + digits;
     }
 
-    // Format standard français à 10 chiffres : XX XX XX XX XX
-    if (digits.length === 10) {
-      return digits.replace(/(\d{2})(?=\d)/g, '$1 ').trim();
-    }
+    // Tronquer à 10 chiffres maximum
+    digits = digits.slice(0, 10);
 
-    // Si autre longueur de chiffres, regrouper par paires de chiffres
-    if (digits.length > 0) {
-      return digits.replace(/(\d{2})(?=\d)/g, '$1 ').trim();
-    }
-
-    return str;
+    return digits.replace(/(\d{2})(?=\d)/g, '$1 ').trim();
   },
 
   /**
@@ -239,9 +233,29 @@ const FormSanitizer = {
   },
 
   /**
-   * Initialise les écouteurs de blur sur tous les champs cibles des formulaires clients, animaux, professionnels.
+   * Attache un écouteur sur l'événement 'input' qui formate le téléphone à la volée.
+   * @param {HTMLInputElement|string} inputOrId
+   */
+  attachPhoneInput(inputOrId) {
+    const el = typeof inputOrId === 'string' ? document.getElementById(inputOrId) : inputOrId;
+    if (!el || el.dataset.phoneInputAttached === 'true') return;
+    el.dataset.phoneInputAttached = 'true';
+    el.addEventListener('input', (e) => {
+      let digits = e.target.value.replace(/\D/g, '');
+      if (digits.startsWith('33')) digits = '0' + digits.slice(2);
+      digits = digits.slice(0, 10);
+      e.target.value = digits.replace(/(\d{2})(?=\d)/g, '$1 ');
+    });
+  },
+
+  /**
+   * Initialise les écouteurs de blur et input sur tous les champs cibles des formulaires clients, animaux, professionnels.
    */
   initBlurListeners() {
+    // Saisie téléphone à la volée (clients et professionnels)
+    this.attachPhoneInput('client-form-phone');
+    this.attachPhoneInput('prof-form-phone');
+
     // Formulaire Client
     this.attachBlur('client-form-lastname', this.formatUpperCase);
     this.attachBlur('client-form-firstname', this.formatCapitalize);
