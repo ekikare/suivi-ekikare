@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.10">
+  <link rel="stylesheet" href="style.css?v=1.6.11">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1396,6 +1396,7 @@
             </div>
             <h1 id="session-detail-main-title">Compte-rendu de séance</h1>
             <p id="session-detail-subtitle" style="margin: 4px 0 0 0; font-size: 0.95rem; color: var(--color-primary); font-weight: 600;">-</p>
+            <p id="session-detail-motif" style="margin: 4px 0 0 0; font-size: 0.9rem; color: #94a3b8; font-weight: 500; display: none;"></p>
           </div>
           <div class="button-group">
             <button class="btn btn-secondary" id="btn-edit-session-detail">Modifier</button>
@@ -2220,6 +2221,7 @@
         <div>
           <h2 id="portal-cr-dialog-title" style="margin: 0; font-size: 1.15rem; color: #fff;">Compte-Rendu Officiel</h2>
           <p id="portal-cr-dialog-subtitle" style="margin: 2px 0 0 0; font-size: 0.8rem; color: var(--text-sub);">-</p>
+          <p id="portal-cr-dialog-motif" style="margin: 2px 0 0 0; font-size: 0.82rem; color: var(--color-primary); font-weight: 500; display: none;"></p>
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 10px;">
@@ -2572,6 +2574,6 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.10"></script>
+  <script type="module" src="app.js?v=1.6.11"></script>
 </body>
 </html>

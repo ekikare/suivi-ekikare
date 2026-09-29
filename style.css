@@ -989,6 +989,10 @@ body {
   color: #96A5BA !important;
 }
 
+.timeline-motif {
+  white-space: pre-line !important;
+}
+
 .timeline-preview {
   font-size: 0.82rem;
   color: #96A5BA !important;
@@ -1000,7 +1004,7 @@ body {
   margin: 0;
   padding: 0;
   text-indent: 0 !important;
-  white-space: normal;
+  white-space: pre-line !important;
   word-break: break-word;
 }
 
@@ -2185,7 +2189,7 @@ body {
   font-size: 0.95rem;
   line-height: 1.5;
   color: var(--text-main);
-  white-space: pre-line;
+  white-space: pre-line !important;
   background-color: rgba(255, 255, 255, 0.01);
   padding: 12px;
   border-radius: var(--border-radius-sm);
@@ -2294,6 +2298,7 @@ body.is-printing .print-container .print-text-block {
   background: #f8fafc !important;
   border: 1px solid #e2e8f0 !important;
   color: #1e293b !important;
+  white-space: pre-line !important;
 }
 
 body:not(.is-printing) #view-sessions-details #session-print-area {
@@ -2374,6 +2379,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
     background: transparent !important;
     border: 1px solid #cbd5e1 !important;
     color: black !important;
+    white-space: pre-line !important;
   }
   
   .print-canvas-preview img {
@@ -2651,7 +2657,7 @@ body.is-client-portal footer.portal-only {
   background: #f8fafc !important;
   border: 1px solid #e2e8f0 !important;
   color: #1f2937 !important;
-  white-space: normal;
+  white-space: pre-line !important;
 }
 
 #dialog-portal-session-cr .official-a4-sheet .print-canvas-preview img,

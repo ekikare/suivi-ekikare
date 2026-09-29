@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.10';
+} from './db.js?v=1.6.11';
 
-import { SyncManager } from './sync-manager.js?v=1.6.10';
+import { SyncManager } from './sync-manager.js?v=1.6.11';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -2496,8 +2496,8 @@ async function renderAnimalDetails(animalId) {
             </div>
             <span class="badge-external" style="font-size:0.72rem; padding: 2px 8px; margin:0;">${formatDate(s.date_seance)}</span>
           </div>
-          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; margin-bottom:2px; line-height:1.35; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
-          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0; white-space:normal;"><strong>Résumé :</strong> <span style="white-space:pre-wrap; color:#96A5BA;">${cleanSummary}</span></div>
+          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; margin-bottom:2px; line-height:1.35; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0; white-space:pre-line;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0; white-space:pre-line;"><strong>Résumé :</strong> <span style="white-space:pre-line; color:#96A5BA;">${cleanSummary}</span></div>
           <div class="timeline-actions-ext" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px;">
             ${(!animal.archived_at) ? `
               <button type="button" class="btn btn-secondary btn-small btn-edit-ext-session" style="padding: 2px 8px; font-size: 0.78rem;">Modifier</button>
@@ -2566,8 +2566,8 @@ async function renderAnimalDetails(animalId) {
               <span class="timeline-n-session" style="font-size:0.72rem; padding:1px 6px; color:#96A5BA;">Séance ${s.n_seance_annee || 1}</span>
             </div>
           </div>
-          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; color:#96A5BA; margin-bottom:2px; line-height:1.35; text-indent:0; margin-left:0; padding-left:0;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
-          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0; white-space:normal;"><strong>Résumé :</strong> <span style="white-space:pre-wrap; color:#96A5BA;">${cleanSummary}</span></div>
+          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; color:#96A5BA; margin-bottom:2px; line-height:1.35; text-indent:0; margin-left:0; padding-left:0; white-space:pre-line;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0; white-space:pre-line;"><strong>Résumé :</strong> <span style="white-space:pre-line; color:#96A5BA;">${cleanSummary}</span></div>
           <div style="margin-top:6px; display:flex; gap:6px; align-items:center;">
             <button class="btn btn-secondary btn-small btn-print-direct" style="display:inline-flex; align-items:center; gap:4px; padding:2px 8px; font-size:0.78rem;">📄 Voir le CR</button>
           </div>
@@ -3331,6 +3331,54 @@ if (tourneeGroupingSelect) {
   tourneeGroupingSelect.addEventListener('change', renderTournee);
 }
 
+// --- HELPERS D'ÉCHAPPEMENT ET PROTOCOLES ---
+function escapeHtml(text) {
+  if (text == null) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatMultilineText(text) {
+  if (!text) return '';
+  return escapeHtml(text).replace(/\r?\n/g, '<br>');
+}
+
+function getActiveProtocolsList(session) {
+  if (!session) return [];
+  if (session.isExternal || session.type_evenement === 'externe') {
+    return [session.profession || 'Séance externe'];
+  }
+  let protos = session.protocoles_realises;
+  if (typeof protos === 'string') {
+    try { protos = JSON.parse(protos); } catch (e) { protos = {}; }
+  }
+  protos = protos || {};
+  const activeProtocols = [];
+  if (protos.shiatsu && protos.shiatsu.checked) activeProtocols.push('Shiatsu');
+  if (protos.manuelles && protos.manuelles.checked) activeProtocols.push('Techniques manuelles');
+  if (protos.tensegrite && protos.tensegrite.checked) activeProtocols.push('Tenségrité');
+  if (protos.cranio && protos.cranio.checked) activeProtocols.push('Cranio-Sacrée');
+  if (protos.kinesiologie && protos.kinesiologie.checked) activeProtocols.push('Kinésiologie');
+  if (protos.aura && protos.aura.checked) activeProtocols.push('Aura');
+
+  // Si aucun protocole n'est explicité dans l'objet, déduire depuis resume_client_genere si présent
+  if (activeProtocols.length === 0 && session.resume_client_genere) {
+    const raw = session.resume_client_genere;
+    if (/\bshiatsu\b/i.test(raw)) activeProtocols.push('Shiatsu');
+    if (/manuelles/i.test(raw)) activeProtocols.push('Techniques manuelles');
+    if (/tens[eé]grit[eé]/i.test(raw)) activeProtocols.push('Tenségrité');
+    if (/cranio/i.test(raw)) activeProtocols.push('Cranio-Sacrée');
+    if (/kin[eé]siologie/i.test(raw)) activeProtocols.push('Kinésiologie');
+    if (/\baura\b/i.test(raw)) activeProtocols.push('Aura');
+  }
+
+  return activeProtocols;
+}
+
 // --- RENDU : LISTE DES SEANCES ---
 async function renderSessionsList() {
   const sessions = await getAll('sessions');
@@ -3360,8 +3408,9 @@ async function renderSessionsList() {
     const animalName = animal ? animal.nom.toLowerCase() : '';
     const ownerName = client ? `${client.prenom} ${client.nom}`.toLowerCase() : '';
     const motifText = s.motif ? s.motif.toLowerCase() : '';
+    const protosText = getActiveProtocolsList(s).join(' ').toLowerCase();
     
-    return animalName.includes(filterVal) || ownerName.includes(filterVal) || motifText.includes(filterVal);
+    return animalName.includes(filterVal) || ownerName.includes(filterVal) || motifText.includes(filterVal) || protosText.includes(filterVal);
   });
 
   if (filtered.length === 0) {
@@ -3374,17 +3423,18 @@ async function renderSessionsList() {
       const animalName = animal ? animal.nom : 'Animal supprimé';
       const ownerName = client ? `${client.prenom} ${client.nom}` : '-';
 
-      const resumePreview = s.resume_client_genere 
-        ? (s.resume_client_genere.length > 50 ? s.resume_client_genere.substring(0, 50) + '...' : s.resume_client_genere) 
-        : '<span class="text-muted" style="font-style:italic;">Aucun résumé</span>';
+      const activeProtocols = getActiveProtocolsList(s);
+      const resumePreview = activeProtocols.length > 0 
+        ? escapeHtml(activeProtocols.join(', ')) 
+        : (s.resume_client_genere ? 'Séance réalisée' : '<span class="text-muted" style="font-style:italic;">Aucun protocole</span>');
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${formatDate(s.date_seance)}</strong></td>
-        <td>${animalName}</td>
-        <td>${ownerName}</td>
-        <td>${s.motif}</td>
-        <td class="text-sub" style="font-size: 0.85rem;">${resumePreview}</td>
+        <td>${escapeHtml(animalName)}</td>
+        <td>${escapeHtml(ownerName)}</td>
+        <td style="white-space: pre-line;">${escapeHtml(s.motif || '-')}</td>
+        <td class="text-sub" style="font-size: 0.85rem; font-weight: 500;">${resumePreview}</td>
         <td>${s.n_seance_annee || 1}</td>
         <td class="actions-column">
           <button class="btn btn-secondary btn-small btn-view-session" data-id="${s.id}">Consulter</button>
@@ -3822,6 +3872,16 @@ async function renderSessionDetails(sessionId) {
     const ownerStr = client ? ` • Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
     subtitleEl.textContent = `Séance du ${dateStr}${ownerStr}`;
   }
+  const detailMotifEl = document.getElementById('session-detail-motif');
+  if (detailMotifEl) {
+    if (session.motif && session.motif.trim()) {
+      detailMotifEl.textContent = `Motif : ${session.motif}`;
+      detailMotifEl.style.display = 'block';
+    } else {
+      detailMotifEl.textContent = '';
+      detailMotifEl.style.display = 'none';
+    }
+  }
 
   document.getElementById('print-session-date').textContent = `Séance du : ${formatDate(session.date_seance)}`;
   
@@ -3837,7 +3897,10 @@ async function renderSessionDetails(sessionId) {
     document.getElementById('print-animal-living').textContent = `Lieu de vie : ${animal.stable_name || animal.lieu_de_vie || '-'}`;
   }
 
-  document.getElementById('print-session-objective').textContent = session.motif;
+  const printObjEl = document.getElementById('print-session-objective');
+  if (printObjEl) {
+    printObjEl.innerHTML = formatMultilineText(session.motif || '-');
+  }
   document.getElementById('print-session-resume-content').innerHTML = interpretMarkdownToHtml(session.resume_client_genere || 'Aucun résumé rédigé.');
   document.getElementById('print-generation-date').textContent = new Date().toLocaleDateString('fr-FR');
 
@@ -3845,10 +3908,11 @@ async function renderSessionDetails(sessionId) {
   const precisionsSection = document.getElementById('print-section-precisions');
   const precisionsContent = document.getElementById('print-session-precisions-content');
   if (precisionsContent) {
-    if (session.precisions) {
-      precisionsContent.textContent = session.precisions;
+    if (session.precisions && session.precisions.trim()) {
+      precisionsContent.innerHTML = formatMultilineText(session.precisions);
       if (precisionsSection) precisionsSection.style.display = 'block';
     } else {
+      precisionsContent.innerHTML = '';
       if (precisionsSection) precisionsSection.style.display = 'none';
     }
   }
@@ -3873,15 +3937,16 @@ async function renderSessionDetails(sessionId) {
   const animalSessions = await getByIndex('sessions', 'animal_id', session.animal_id);
   animalSessions.sort((a, b) => new Date(b.date_seance) - new Date(a.date_seance));
   
-  let historyHtml = '<table class="print-history-table" style="width:100%; border-collapse:collapse; margin-top:10px;"><thead><tr style="border-bottom:1px solid #cbd5e1; text-align:left; font-size:0.85rem;"><th style="padding:6px 0;">Date</th><th style="padding:6px 0;">Motif</th><th style="padding:6px 0;">Résumé</th></tr></thead><tbody>';
+  let historyHtml = '<table class="print-history-table" style="width:100%; border-collapse:collapse; margin-top:10px;"><thead><tr style="border-bottom:1px solid #cbd5e1; text-align:left; font-size:0.85rem;"><th style="padding:6px 0;">Date</th><th style="padding:6px 0;">Motif</th><th style="padding:6px 0;">Résumé / Protocoles</th></tr></thead><tbody>';
   animalSessions.forEach(s => {
-    const resumePreview = s.resume_client_genere 
-      ? (s.resume_client_genere.length > 80 ? s.resume_client_genere.substring(0, 80) + '...' : s.resume_client_genere) 
-      : 'Aucun résumé';
+    const protos = getActiveProtocolsList(s);
+    const resumePreview = protos.length > 0 
+      ? escapeHtml(protos.join(', ')) 
+      : (s.resume_client_genere ? 'Séance réalisée' : 'Aucun protocole');
     const isCurrent = s.id === session.id;
     historyHtml += `<tr style="border-bottom:1px solid #e2e8f0; font-size:0.8rem; ${isCurrent ? 'font-weight:bold; background-color:rgba(255,255,255,0.05);' : ''}">
       <td style="padding:6px 0;">${formatDate(s.date_seance)} ${isCurrent ? '(Séance actuelle)' : ''}</td>
-      <td style="padding:6px 0;">${s.motif}</td>
+      <td style="padding:6px 0; white-space:pre-line;">${escapeHtml(s.motif || '-')}</td>
       <td style="padding:6px 0; color:var(--text-sub);">${resumePreview}</td>
     </tr>`;
   });
@@ -8299,7 +8364,18 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
 
   const subtitleEl = document.getElementById('portal-cr-dialog-subtitle');
   if (subtitleEl) {
-    subtitleEl.textContent = `Séance du ${formatDate(session.date_seance)} • ${animal.nom} (${animal.espece})`;
+    const ownerStr = client ? ` • Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
+    subtitleEl.textContent = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
+  }
+  const portalMotifEl = document.getElementById('portal-cr-dialog-motif');
+  if (portalMotifEl) {
+    if (session.motif && session.motif.trim()) {
+      portalMotifEl.textContent = `Motif : ${session.motif}`;
+      portalMotifEl.style.display = 'block';
+    } else {
+      portalMotifEl.textContent = '';
+      portalMotifEl.style.display = 'none';
+    }
   }
 
   // Logo officiel
@@ -8354,9 +8430,12 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
   const motifEl = document.getElementById('portal-cr-session-objective');
   if (motifEl) {
     if (session.isExternal) {
-      motifEl.innerHTML = `<strong>${session.profession || 'Intervention externe'} - <em>${session.practitionerName || 'Praticien tiers'}</em></strong><br>${session.motif || 'Séance de suivi'}`;
+      const prof = escapeHtml(session.profession || 'Intervention externe');
+      const pract = escapeHtml(session.practitionerName || 'Praticien tiers');
+      const mot = formatMultilineText(session.motif || 'Séance de suivi');
+      motifEl.innerHTML = `<strong>${prof} - <em>${pract}</em></strong><br>${mot}`;
     } else {
-      motifEl.textContent = session.motif || 'Séance de suivi';
+      motifEl.innerHTML = formatMultilineText(session.motif || 'Séance de suivi');
     }
   }
 
@@ -8847,15 +8926,7 @@ async function openAnimalDossierPreviewModal(animal, options) {
             cardTitle = `${s.profession || 'Intervention'}${s.practitionerName ? ' - ' + s.practitionerName : ''}`;
             rawSummary = s.summary || '-';
           } else {
-            const protos = s.protocoles_realises || {};
-            const activeProtocols = [];
-            if (protos.shiatsu && protos.shiatsu.checked) activeProtocols.push('Shiatsu');
-            if (protos.manuelles && protos.manuelles.checked) activeProtocols.push('Techniques manuelles');
-            if (protos.tensegrite && protos.tensegrite.checked) activeProtocols.push('Tenségrité');
-            if (protos.cranio && protos.cranio.checked) activeProtocols.push('Cranio-Sacrée');
-            if (protos.kinesiologie && protos.kinesiologie.checked) activeProtocols.push('Kinésiologie');
-            if (protos.aura && protos.aura.checked) activeProtocols.push('Aura');
-
+            const activeProtocols = getActiveProtocolsList(s);
             cardTitle = activeProtocols.length > 0 ? activeProtocols.join(' + ') : (s.motif || `Séance du ${formatDate(s.date_seance)}`);
             rawSummary = s.resume_client_genere || 'Aucun résumé client rédigé.';
           }
@@ -8866,12 +8937,12 @@ async function openAnimalDossierPreviewModal(animal, options) {
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; page-break-inside: avoid; break-inside: avoid;">
               <table style="width: 100%; border-collapse: collapse; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
                 <tr>
-                  <td style="text-align: left; font-weight: 700; color: #0f172a; font-size: 0.88rem; padding: 0 0 4px 0;">${cardTitle}</td>
+                  <td style="text-align: left; font-weight: 700; color: #0f172a; font-size: 0.88rem; padding: 0 0 4px 0;">${escapeHtml(cardTitle)}</td>
                   <td style="text-align: right; font-size: 0.8rem; font-weight: 600; color: #D96B27; white-space: nowrap; padding: 0 0 4px 0;">${formatDate(s.date_seance)}</td>
                 </tr>
               </table>
-              ${s.motif ? `<div style="font-size: 0.82rem; color: #475569; margin-bottom: 4px; line-height: 1.35;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
-              <div style="font-size: 0.82rem; color: #334155; line-height: 1.4; margin: 0; word-break: break-word;">
+              ${s.motif ? `<div style="font-size: 0.82rem; color: #475569; margin-bottom: 4px; line-height: 1.35; white-space: pre-line;"><strong>Motif :</strong> ${formatMultilineText(s.motif)}</div>` : ''}
+              <div style="font-size: 0.82rem; color: #334155; line-height: 1.4; margin: 0; word-break: break-word; white-space: pre-line;">
                 <strong style="color: #0f172a;">Résumé :</strong> <span>${cleanSummaryHtml}</span>
               </div>
             </div>
