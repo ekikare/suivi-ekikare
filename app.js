@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.16';
+} from './db.js?v=1.6.17';
 
-import { SyncManager } from './sync-manager.js?v=1.6.16';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.17';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -390,6 +390,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await migrateLocalStorageToSettings();
   setupNavigation();
   setupPractitionerLock();
+  setupCgvRgpdModal();
   populateSpecialtyDropdown();
   setupDateHeader();
   FormSanitizer.initBlurListeners();
@@ -1108,6 +1109,11 @@ async function loadViewData(view, param, subRoute = null, subParam = null) {
             showToast("Accès refusé : cet animal n'appartient pas à votre espace.", "error");
             window.location.hash = `portal/${client.uuid || client.id}`;
             return;
+          }
+
+          // Vérification de l'acceptation CGV & RGPD pour l'accès direct aux animaux
+          if (!client.cgv_rgpd_accepted) {
+            openCgvRgpdDialog(client, true);
           }
 
           currentAnimalId = animal.id;
@@ -1865,9 +1871,13 @@ async function renderClientsList() {
         `;
       }
 
+      const cgvBadge = c.cgv_rgpd_accepted 
+        ? `<span class="badge-cgv-check" title="CGV & RGPD validés" style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: #10b981; color: white; font-size: 11px; font-weight: bold; margin-left: 6px; vertical-align: middle; box-shadow: 0 1px 3px rgba(16,185,129,0.35);">✓</span>` 
+        : '';
+
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><strong>${c.nom.toUpperCase()}</strong> ${c.prenom}</td>
+        <td><strong>${c.nom.toUpperCase()}</strong> ${c.prenom} ${cgvBadge}</td>
         <td>${c.telephone}</td>
         <td>${c.email || '-'}</td>
         <td>${animalsHtml || '<span class="empty-state">-</span>'}</td>
@@ -1897,12 +1907,75 @@ async function renderClientDetails(clientId) {
     return;
   }
 
-  document.getElementById('detail-client-name').textContent = `${client.prenom} ${client.nom.toUpperCase()}`;
+  const clientNameEl = document.getElementById('detail-client-name');
+  if (clientNameEl) {
+    clientNameEl.innerHTML = `Fiche Client &mdash; ${client.prenom} ${client.nom.toUpperCase()} <span id="detail-client-cgv-badge" style="display: none;"></span>`;
+  }
+  const badgeEl = document.getElementById('detail-client-cgv-badge');
+  if (badgeEl) {
+    if (client.cgv_rgpd_accepted) {
+      badgeEl.innerHTML = `<span class="badge-cgv-check" title="CGV & RGPD validés" style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #10b981; color: white; font-size: 13px; font-weight: bold; margin-left: 8px; vertical-align: middle; box-shadow: 0 2px 6px rgba(16,185,129,0.35);">✓</span>`;
+      badgeEl.style.display = 'inline-flex';
+    } else {
+      badgeEl.style.display = 'none';
+    }
+  }
+
+  // Case à cocher praticienne : validation manuelle (accord direct / papier)
+  const cgvCheckbox = document.getElementById('detail-client-cgv-checkbox');
+  const cgvText = document.getElementById('detail-client-cgv-status-text');
+  if (cgvCheckbox) {
+    cgvCheckbox.checked = !!client.cgv_rgpd_accepted;
+    if (cgvText) {
+      cgvText.textContent = client.cgv_rgpd_accepted ? "Validé (en ligne ou accord papier)" : "En attente de validation";
+      cgvText.style.color = client.cgv_rgpd_accepted ? "#10b981" : "#94a3b8";
+    }
+    cgvCheckbox.onchange = async () => {
+      const isChecked = cgvCheckbox.checked;
+      client.cgv_rgpd_accepted = isChecked;
+      client.cgv_rgpd_accepted_at = isChecked ? new Date().toISOString() : null;
+      client.cgv_rgpd_version = isChecked ? 'v1.0' : null;
+      client.updated_at = new Date().toISOString();
+      client.last_modified = Date.now();
+      client.synced = 0;
+      await updateLocal('clients', client);
+      
+      if (badgeEl) {
+        if (isChecked) {
+          badgeEl.innerHTML = `<span class="badge-cgv-check" title="CGV & RGPD validés" style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #10b981; color: white; font-size: 13px; font-weight: bold; margin-left: 8px; vertical-align: middle; box-shadow: 0 2px 6px rgba(16,185,129,0.35);">✓</span>`;
+          badgeEl.style.display = 'inline-flex';
+        } else {
+          badgeEl.style.display = 'none';
+        }
+      }
+      if (cgvText) {
+        cgvText.textContent = isChecked ? "Validé (en ligne ou accord papier)" : "En attente de validation";
+        cgvText.style.color = isChecked ? "#10b981" : "#94a3b8";
+      }
+      
+      // Synchronisation Supabase immédiate si connecté
+      if (navigator.onLine) {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          try {
+            const patch = buildScalarPatch('clients', client);
+            const targetCol = client.uuid ? 'uuid' : 'id';
+            const targetVal = client.uuid || String(client.id);
+            await supabase.from('clients').update(patch).eq(targetCol, targetVal);
+          } catch (e) {
+            console.warn("Erreur sync manuelle CGV praticienne:", e);
+          }
+        }
+      }
+      showToast(isChecked ? "Acceptation CGV & RGPD validée." : "Acceptation CGV & RGPD révoquée.");
+    };
+  }
+
   document.getElementById('detail-client-phone').textContent = client.telephone;
   document.getElementById('detail-client-email').textContent = client.email || '-';
   document.getElementById('detail-client-address').textContent = client.adresse || '-';
   document.getElementById('detail-client-stable').textContent = client.ecurie || '-';
-  document.getElementById('detail-client-notes').textContent = client.notes ? String(client.notes).replace(/\[portal_token:[^\]]+\]/g, '').trim() : 'Aucune note enregistrée.';
+  document.getElementById('detail-client-notes').textContent = client.notes ? String(client.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim() : 'Aucune note enregistrée.';
 
   // Gestion de l'archivage & des boutons d'actions
   const archiveBanner = document.getElementById('client-archive-banner');
@@ -6717,10 +6790,14 @@ async function openClientDialog(client = null) {
     document.getElementById('client-form-address').value = initialValues.adresse;
     document.getElementById('client-form-stable').value = initialValues.ecurie;
     document.getElementById('client-form-notes').value = initialValues.notes;
+    const clientFormCgv = document.getElementById('client-form-cgv-accepted');
+    if (clientFormCgv) clientFormCgv.checked = !!(currentClient && currentClient.cgv_rgpd_accepted);
   } else {
     titleEl.textContent = 'Nouveau Client';
     idInput.value = '';
     document.getElementById('client-form-stable').value = '';
+    const clientFormCgv = document.getElementById('client-form-cgv-accepted');
+    if (clientFormCgv) clientFormCgv.checked = false;
   }
 
   // Cancel buttons
@@ -6834,6 +6911,11 @@ async function openClientDialog(client = null) {
 
       // 3. Mettre à jour l'enregistrement local avec UNIQUEMENT les champs modifiés
       const current = (await getById('clients', clientId)) || currentClient || {};
+      const clientFormCgv = document.getElementById('client-form-cgv-accepted');
+      const isCgvChecked = clientFormCgv ? clientFormCgv.checked : !!(current && current.cgv_rgpd_accepted);
+      const cgvAcceptedAt = isCgvChecked ? (current.cgv_rgpd_accepted_at || new Date().toISOString()) : null;
+      const cgvVersion = isCgvChecked ? (current.cgv_rgpd_version || 'v1.0') : null;
+
       const updatedClient = {
         ...current,
         ...modifiedFields,
@@ -6841,6 +6923,9 @@ async function openClientDialog(client = null) {
         uuid: current.uuid || (currentClient && currentClient.uuid) || generateUUID(),
         archived_at: current.archived_at || (currentClient && currentClient.archived_at) || null,
         archive_reason: current.archive_reason || (currentClient && currentClient.archive_reason) || null,
+        cgv_rgpd_accepted: isCgvChecked,
+        cgv_rgpd_accepted_at: cgvAcceptedAt,
+        cgv_rgpd_version: cgvVersion,
         updated_at: fieldsToUpdate.updated_at,
         last_modified: Date.now(),
         synced: updateSuccess ? 1 : 0
@@ -6866,7 +6951,16 @@ async function openClientDialog(client = null) {
 
       showToast('Client modifié.');
     } else {
-      const newClient = { ...formValues, uuid: generateUUID() };
+      const clientFormCgv = document.getElementById('client-form-cgv-accepted');
+      const isCgvChecked = Boolean(clientFormCgv && clientFormCgv.checked);
+      const newClient = {
+        ...formValues,
+        uuid: generateUUID(),
+        cgv_rgpd_accepted: isCgvChecked,
+        cgv_rgpd_accepted_at: isCgvChecked ? new Date().toISOString() : null,
+        cgv_rgpd_version: isCgvChecked ? 'v1.0' : null,
+        synced: 0
+      };
       await add('clients', newClient);
       showToast('Client créé.');
     }
@@ -9286,6 +9380,198 @@ async function openAnimalDossierPreviewModal(animal, options) {
   }
 }
 
+// --- MODULE CGV & RGPD (ACCEPTATION BLOQUANTE & CONSULTATION) ---
+let isCgvBlocking = false;
+let currentCgvClient = null;
+
+function setupCgvRgpdModal() {
+  const dialog = document.getElementById('dialog-cgv-rgpd');
+  if (!dialog || dialog.dataset.initialized === 'true') return;
+  dialog.dataset.initialized = 'true';
+
+  const closeBtn = document.getElementById('btn-close-cgv-dialog');
+  const consultationCloseBtn = document.getElementById('btn-close-cgv-consultation-footer');
+  const tabCgvBtn = document.getElementById('tab-cgv-btn');
+  const tabRgpdBtn = document.getElementById('tab-rgpd-btn');
+  const panelCgv = document.getElementById('panel-cgv');
+  const panelRgpd = document.getElementById('panel-rgpd');
+  const checkCgv = document.getElementById('cgv-consent-cgv');
+  const checkRgpd = document.getElementById('cgv-consent-rgpd');
+  const submitBtn = document.getElementById('btn-submit-cgv-rgpd');
+
+  const switchTab = (tab) => {
+    if (tab === 'cgv') {
+      if (tabCgvBtn) tabCgvBtn.classList.add('active');
+      if (tabRgpdBtn) tabRgpdBtn.classList.remove('active');
+      if (panelCgv) panelCgv.style.display = 'block';
+      if (panelRgpd) panelRgpd.style.display = 'none';
+    } else {
+      if (tabCgvBtn) tabCgvBtn.classList.remove('active');
+      if (tabRgpdBtn) tabRgpdBtn.classList.add('active');
+      if (panelCgv) panelCgv.style.display = 'none';
+      if (panelRgpd) panelRgpd.style.display = 'block';
+    }
+  };
+
+  if (tabCgvBtn) tabCgvBtn.onclick = () => switchTab('cgv');
+  if (tabRgpdBtn) tabRgpdBtn.onclick = () => switchTab('rgpd');
+
+  const closeConsultation = () => {
+    if (!isCgvBlocking) {
+      dialog.close();
+    }
+  };
+  if (closeBtn) closeBtn.onclick = closeConsultation;
+  if (consultationCloseBtn) consultationCloseBtn.onclick = closeConsultation;
+
+  // Empêcher l'annulation (Echap) en mode bloquant
+  dialog.addEventListener('cancel', (e) => {
+    if (isCgvBlocking) {
+      e.preventDefault();
+    }
+  });
+
+  // Empêcher la fermeture par clic en dehors en mode bloquant
+  dialog.addEventListener('click', (e) => {
+    if (isCgvBlocking) return;
+    const rect = dialog.getBoundingClientRect();
+    if (
+      e.clientX < rect.left ||
+      e.clientX > rect.right ||
+      e.clientY < rect.top ||
+      e.clientY > rect.bottom
+    ) {
+      dialog.close();
+    }
+  });
+
+  // Validation des deux cases à cocher obligatoires
+  const checkValidation = () => {
+    if (!submitBtn) return;
+    const isValid = Boolean(checkCgv && checkCgv.checked && checkRgpd && checkRgpd.checked);
+    submitBtn.disabled = !isValid;
+    submitBtn.style.opacity = isValid ? '1' : '0.5';
+    submitBtn.style.cursor = isValid ? 'pointer' : 'not-allowed';
+  };
+
+  if (checkCgv) checkCgv.onchange = checkValidation;
+  if (checkRgpd) checkRgpd.onchange = checkValidation;
+
+  // Validation et enregistrement de l'acceptation
+  if (submitBtn) {
+    submitBtn.onclick = async () => {
+      if (!currentCgvClient) {
+        dialog.close();
+        return;
+      }
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Validation en cours...";
+
+      try {
+        const nowIso = new Date().toISOString();
+        currentCgvClient.cgv_rgpd_accepted = true;
+        currentCgvClient.cgv_rgpd_accepted_at = nowIso;
+        currentCgvClient.cgv_rgpd_version = 'v1.0';
+        currentCgvClient.updated_at = nowIso;
+        currentCgvClient.last_modified = Date.now();
+        currentCgvClient.synced = 0;
+
+        await updateLocal('clients', currentCgvClient);
+
+        // Synchronisation immédiate avec Supabase si connecté
+        if (navigator.onLine) {
+          const supabase = getSupabaseClient();
+          if (supabase) {
+            try {
+              const patch = buildScalarPatch('clients', currentCgvClient);
+              const targetCol = currentCgvClient.uuid ? 'uuid' : 'id';
+              const targetVal = currentCgvClient.uuid || String(currentCgvClient.id);
+              await supabase.from('clients').update(patch).eq(targetCol, targetVal);
+            } catch (errSync) {
+              console.warn("Sync immédiate CGV/RGPD client:", errSync);
+            }
+          }
+        }
+
+        isCgvBlocking = false;
+        dialog.close();
+        showToast("Conditions acceptées. Bienvenue sur votre espace de suivi !");
+      } catch (err) {
+        console.error("Erreur enregistrement validation CGV/RGPD:", err);
+        showToast("Erreur lors de la validation. Veuillez réessayer.", "error");
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Accepter et accéder à mon espace";
+      }
+    };
+  }
+
+  // Écouteur global pour les boutons d'ouverture en consultation
+  document.querySelectorAll('.btn-open-cgv-modal').forEach(btn => {
+    btn.onclick = async () => {
+      let clientToView = currentCgvClient;
+      if (!clientToView && currentPortalClientId) {
+        clientToView = await getById('clients', currentPortalClientId);
+      }
+      openCgvRgpdDialog(clientToView, false);
+    };
+  });
+}
+
+async function openCgvRgpdDialog(client, isBlocking = false) {
+  setupCgvRgpdModal();
+  const dialog = document.getElementById('dialog-cgv-rgpd');
+  if (!dialog) return;
+
+  isCgvBlocking = Boolean(isBlocking);
+  currentCgvClient = client;
+
+  const closeBtn = document.getElementById('btn-close-cgv-dialog');
+  const blockingFooter = document.getElementById('cgv-blocking-footer');
+  const consultationFooter = document.getElementById('cgv-consultation-footer');
+  const checkCgv = document.getElementById('cgv-consent-cgv');
+  const checkRgpd = document.getElementById('cgv-consent-rgpd');
+  const submitBtn = document.getElementById('btn-submit-cgv-rgpd');
+  const subtitle = document.getElementById('cgv-dialog-subtitle');
+
+  // Remettre sur l'onglet CGV par défaut
+  const tabCgvBtn = document.getElementById('tab-cgv-btn');
+  const tabRgpdBtn = document.getElementById('tab-rgpd-btn');
+  const panelCgv = document.getElementById('panel-cgv');
+  const panelRgpd = document.getElementById('panel-rgpd');
+  if (tabCgvBtn) tabCgvBtn.classList.add('active');
+  if (tabRgpdBtn) tabRgpdBtn.classList.remove('active');
+  if (panelCgv) panelCgv.style.display = 'block';
+  if (panelRgpd) panelRgpd.style.display = 'none';
+
+  if (isCgvBlocking) {
+    if (closeBtn) closeBtn.style.display = 'none';
+    if (blockingFooter) blockingFooter.style.display = 'block';
+    if (consultationFooter) consultationFooter.style.display = 'none';
+    if (subtitle) subtitle.textContent = "Validation obligatoire avant accès à l'espace de suivi";
+    if (checkCgv) checkCgv.checked = false;
+    if (checkRgpd) checkRgpd.checked = false;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.5';
+      submitBtn.style.cursor = 'not-allowed';
+    }
+  } else {
+    if (closeBtn) closeBtn.style.display = 'block';
+    if (blockingFooter) blockingFooter.style.display = 'none';
+    if (consultationFooter) consultationFooter.style.display = 'flex';
+    if (subtitle) subtitle.textContent = "Consultation des Conditions Générales et de la Politique RGPD";
+  }
+
+  if (typeof dialog.showModal === 'function') {
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+  } else {
+    dialog.style.display = 'flex';
+  }
+}
+
 // --- PORTAIL CLIENT ---
 async function renderPortalDetails(tokenOrId) {
   hidePractitionerLockOverlay();
@@ -9329,6 +9615,11 @@ async function renderPortalDetails(tokenOrId) {
 
     if (closedView) closedView.style.display = 'none';
     if (activeView) activeView.style.display = 'block';
+
+    // 2. Espace Client : Blocage si CGV & RGPD non acceptés
+    if (!c.cgv_rgpd_accepted) {
+      openCgvRgpdDialog(c, true);
+    }
 
     if (ownerTitle) ownerTitle.textContent = `Espace Suivi de ${c.prenom || ''} ${(c.nom || '').toUpperCase()}`.trim();
     const phoneEl = document.getElementById('portal-client-phone');
@@ -9508,3 +9799,5 @@ window.addEventListener('clients-updated', () => {
   if (typeof loadClientData === 'function') loadClientData();
   if (typeof refreshUI === 'function') refreshUI();
 });
+
+window.openCgvRgpdDialog = openCgvRgpdDialog;

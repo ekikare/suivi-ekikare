@@ -3804,6 +3804,73 @@ body.is-printing .collapsible-icon {
   }
 }
 
+/* ==========================================================================
+   MODULE CGV & RGPD (ACCEPTATION, CONSULTATION & STATUT)
+   ========================================================================== */
+.btn-portal-cgv-link {
+  background: transparent;
+  border: none;
+  color: var(--color-primary, #D96B27);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  opacity: 0.85;
+  transition: opacity 0.2s, color 0.2s;
+  padding: 4px 8px;
+}
 
+.btn-portal-cgv-link:hover {
+  opacity: 1;
+  color: #f59e0b;
+}
 
+.badge-cgv-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #10b981;
+  color: white;
+  font-weight: bold;
+  vertical-align: middle;
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.35);
+  flex-shrink: 0;
+}
 
+.cgv-tab-btn {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  color: var(--text-sub) !important;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.cgv-tab-btn:hover {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.cgv-tab-btn.active#tab-cgv-btn {
+  color: #D96B27 !important;
+  border-bottom: 2px solid #D96B27 !important;
+  background: rgba(217, 107, 39, 0.1) !important;
+  font-weight: 600;
+}
+
+.cgv-tab-btn.active#tab-rgpd-btn {
+  color: #10b981 !important;
+  border-bottom: 2px solid #10b981 !important;
+  background: rgba(16, 185, 129, 0.1) !important;
+  font-weight: 600;
+}
+
+.cgv-article {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 12px 14px;
+}

@@ -68,7 +68,15 @@ export function mapLocalToSupabase(storeName, item) {
   let specificFields = {};
   switch (storeName) {
     case 'clients':
-      let cleanNotes = item.notes ? String(item.notes).replace(/\[portal_token:[^\]]+\]/g, '').trim() : '';
+      let cleanNotes = item.notes ? String(item.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim() : '';
+      if (item.cgv_rgpd_accepted) {
+        const cgvPayload = JSON.stringify({
+          accepted: true,
+          accepted_at: item.cgv_rgpd_accepted_at || isoTime,
+          version: item.cgv_rgpd_version || 'v1.0'
+        });
+        cleanNotes = cleanNotes ? `${cleanNotes}\n[cgv_rgpd:${cgvPayload}]` : `[cgv_rgpd:${cgvPayload}]`;
+      }
       specificFields = {
         first_name: item.prenom || item.first_name || '',
         last_name: item.nom || item.last_name || '',
@@ -248,8 +256,23 @@ export function mapSupabaseToLocal(storeName, item) {
 
   switch (storeName) {
     case 'clients':
-      let cleanNotesFromDb = item.notes ? String(item.notes).replace(/\[portal_token:[^\]]+\]/g, '').trim() : '';
+      let rawNotes = item.notes ? String(item.notes) : '';
+      let cgvMeta = null;
+      const cgvMatch = rawNotes.match(/\[cgv_rgpd:(.*?)\]/);
+      if (cgvMatch) {
+        try {
+          cgvMeta = JSON.parse(cgvMatch[1]);
+        } catch (e) {
+          console.warn("Erreur parsing cgv_rgpd tag:", e);
+        }
+      }
+      let cleanNotesFromDb = rawNotes.replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
       const clientUuid = item.uuid || (item.id ? String(item.id) : null);
+      
+      const isAccepted = cgvMeta ? Boolean(cgvMeta.accepted) : (item.cgv_rgpd_accepted !== undefined ? Boolean(item.cgv_rgpd_accepted) : false);
+      const acceptedAt = cgvMeta?.accepted_at || item.cgv_rgpd_accepted_at || null;
+      const version = cgvMeta?.version || item.cgv_rgpd_version || null;
+
       return {
         ...local,
         prenom: item.first_name || '',
@@ -261,7 +284,10 @@ export function mapSupabaseToLocal(storeName, item) {
         notes: cleanNotesFromDb,
         uuid: clientUuid,
         archived_at: item.archived_at || null,
-        archive_reason: item.archive_reason || null
+        archive_reason: item.archive_reason || null,
+        cgv_rgpd_accepted: isAccepted,
+        cgv_rgpd_accepted_at: acceptedAt,
+        cgv_rgpd_version: version
       };
     case 'animals':
       let parsedCustom = {};

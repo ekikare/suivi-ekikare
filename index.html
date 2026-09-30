@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.16">
+  <link rel="stylesheet" href="style.css?v=1.6.17">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -262,7 +262,7 @@
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
               Retour aux clients
             </button>
-            <h1 id="detail-client-name">Fiche Client</h1>
+            <h1 id="detail-client-name" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">Fiche Client <span id="detail-client-cgv-badge" style="display: none;"></span></h1>
           </div>
           <div class="button-group">
             <button class="btn btn-secondary" id="btn-copy-client-portal-link">🔗 Lien Espace Client</button>
@@ -323,6 +323,15 @@
                 <div class="info-item" id="client-detail-stable-row">
                   <span class="info-label">Écurie / Pension</span>
                   <span class="info-value" id="detail-client-stable">-</span>
+                </div>
+                <div class="info-item practitioner-only" id="detail-client-cgv-row">
+                  <span class="info-label">Statut CGV & RGPD</span>
+                  <span class="info-value">
+                    <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+                      <input type="checkbox" id="detail-client-cgv-checkbox" style="width: 16px; height: 16px; accent-color: #10b981; cursor: pointer;">
+                      <span id="detail-client-cgv-status-text" style="font-weight: 500;">En attente de validation</span>
+                    </label>
+                  </span>
                 </div>
                 <div class="info-item practitioner-only">
                   <span class="info-label">Notes et remarques</span>
@@ -440,6 +449,9 @@
               <p class="portal-disclaimer-text">
                 Les informations partagées sur cet espace sont fournies à titre indicatif pour le suivi de confort de votre animal et ne constituent en aucun cas un diagnostic ou un acte vétérinaire.
               </p>
+              <div style="margin-top: 14px;">
+                <button type="button" class="btn-portal-cgv-link btn-open-cgv-modal" id="btn-portal-cgv-footer">📜 CGV & Confidentialité</button>
+              </div>
             </footer>
           </div>
         </div>
@@ -723,6 +735,9 @@
           <p class="portal-disclaimer-text">
             Les informations partagées sur cet espace sont fournies à titre indicatif pour le suivi de confort de votre animal et ne constituent en aucun cas un diagnostic ou un acte vétérinaire.
           </p>
+          <div style="margin-top: 14px;">
+            <button type="button" class="btn-portal-cgv-link btn-open-cgv-modal" id="btn-portal-animal-cgv-footer">📜 CGV & Confidentialité</button>
+          </div>
         </footer>
       </section>
 
@@ -1811,6 +1826,12 @@
         <label for="client-form-notes">Notes client (Remarques facturation, disponibilités...)</label>
         <textarea id="client-form-notes" rows="3" placeholder="Ex: Souhaite être appelé uniquement le matin..."></textarea>
       </div>
+      <div class="form-group practitioner-only" style="margin-top: -8px;">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+          <input type="checkbox" id="client-form-cgv-accepted" style="width: 18px; height: 18px; accent-color: #10b981; cursor: pointer;">
+          <span style="font-size: 0.9rem;">CGV & RGPD validés (accord direct ou papier)</span>
+        </label>
+      </div>
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary btn-cancel-dialog">Annuler</button>
         <button type="submit" class="btn btn-primary">Enregistrer</button>
@@ -2646,6 +2667,149 @@
     </div>
   </dialog>
 
+  <!-- MODALE CGV & RGPD (ACCEPTATION BLOQUANTE & CONSULTATION) -->
+  <dialog class="app-dialog glass-card" id="dialog-cgv-rgpd" style="max-width: 740px; width: 94%; max-height: 90vh; border-color: rgba(217, 107, 39, 0.4); padding: 0; overflow: hidden;">
+    <div class="dialog-header" style="padding: 18px 24px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(217, 107, 39, 0.15); border: 1px solid rgba(217, 107, 39, 0.35); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+          📜
+        </div>
+        <div>
+          <h2 id="cgv-dialog-title" style="margin: 0; font-size: 1.2rem; color: #fff;">Conditions Générales & Confidentialité</h2>
+          <p id="cgv-dialog-subtitle" style="margin: 2px 0 0; font-size: 0.82rem; color: #D96B27; font-weight: 500;">Prestations de soins et de suivi eKiKare</p>
+        </div>
+      </div>
+      <button class="btn-close-dialog" id="btn-close-cgv-dialog" aria-label="Fermer" style="margin-left: auto;">&times;</button>
+    </div>
+
+    <div style="display: flex; gap: 8px; padding: 12px 24px 0 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); background: rgba(15, 23, 42, 0.4);">
+      <button type="button" class="btn btn-secondary cgv-tab-btn active" id="tab-cgv-btn" style="border-bottom-left-radius: 0; border-bottom-right-radius: 0; font-size: 0.88rem; padding: 8px 16px;">
+        📜 Conditions Générales (CGV)
+      </button>
+      <button type="button" class="btn btn-secondary cgv-tab-btn" id="tab-rgpd-btn" style="border-bottom-left-radius: 0; border-bottom-right-radius: 0; font-size: 0.88rem; padding: 8px 16px;">
+        🔒 Politique de Confidentialité (RGPD)
+      </button>
+    </div>
+
+    <div class="cgv-content-scroller" style="padding: 20px 24px; overflow-y: auto; max-height: 48vh; flex: 1; font-size: 0.88rem; line-height: 1.6; color: #cbd5e1;">
+      <!-- Panneau CGV -->
+      <div id="panel-cgv" class="cgv-panel">
+        <h3 style="color: #D96B27; font-size: 1.05rem; margin-top: 0; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+          <span>Conditions Générales de Vente (CGV)</span>
+          <span style="font-size: 0.72rem; background: rgba(217, 107, 39, 0.2); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-weight: 600;">v1.0</span>
+        </h3>
+        
+        <div class="cgv-article" style="margin-bottom: 14px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 1 &mdash; Objet & Champ d'application</h4>
+          <p style="margin: 0; color: #94a3b8;">
+            Les présentes Conditions Générales de Vente régissent l'ensemble des prestations de soins de confort, d'entretien et de bien-être pour équidés et carnivores domestiques délivrées par <strong>eKiKare</strong>. Toute réservation de séance ou accès au suivi implique l'acceptation pleine et entière des présentes conditions.
+          </p>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 14px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 2 &mdash; Nature des prestations & Cadre légal</h4>
+          <p style="margin: 0; color: #94a3b8;">
+            Les interventions réalisées (massages, enveloppements, algothérapie, confort locomoteur et tissulaire) relèvent exclusivement du bien-être et de la détente animale. Elles <strong>ne constituent en aucun cas des actes de médecine ou de chirurgie vétérinaire</strong> au sens de l'article L.243-1 du Code rural et de la pêche maritime. Aucun diagnostic, prescription médicale ou modification de posologie vétérinaire n'est établi.
+          </p>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 14px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 3 &mdash; Obligations du client & Sécurité</h4>
+          <p style="margin: 0; color: #94a3b8;">
+            Le client s'engage à communiquer l'ensemble des antécédents médicaux connus, traumatismes récents, chirurgies ou traitements en cours de l'animal. Il assure la présence d'une personne habilitée pour la contention, met à disposition une zone de manipulation sécurisée, plane, propre et dégagée, et signale toute agressivité ou sensibilité comportementale particulière.
+          </p>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 14px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 4 &mdash; Tarifs & Modalités de règlement</h4>
+          <p style="margin: 0; color: #94a3b8;">
+            Les prestations sont facturées aux tarifs convenus lors de la prise de rendez-vous. Le règlement est exigible à l'issue de la séance (espèces, chèque ou virement bancaire). En cas d'annulation non signalée au moins 48 heures à l'avance, une indemnité de dédommagement pourra être appliquée.
+          </p>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 8px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 5 &mdash; Responsabilité Civile Professionnelle</h4>
+          <p style="margin: 0; color: #94a3b8;">
+            eKiKare est titulaire d'une assurance Responsabilité Civile Professionnelle couvrant ses activités. La responsabilité d'eKiKare ne saurait être engagée en cas de fausse déclaration, de dissimulation d'une pathologie préexistante ou de comportement imprévisible de l'animal survenant en dehors de la séance.
+          </p>
+        </div>
+      </div>
+
+      <!-- Panneau RGPD -->
+      <div id="panel-rgpd" class="cgv-panel" style="display: none;">
+        <h3 style="color: #10b981; font-size: 1.05rem; margin-top: 0; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+          <span>Politique de Confidentialité & Protection des Données (RGPD)</span>
+          <span style="font-size: 0.72rem; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: 600;">v1.0</span>
+        </h3>
+
+        <div class="cgv-article" style="margin-bottom: 14px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 1 &mdash; Responsable du traitement</h4>
+          <p style="margin: 0; color: #94a3b8;">
+            Les données à caractère personnel collectées pour la gestion des dossiers et le suivi de vos animaux sont traitées par eKiKare, agissant en qualité de responsable du traitement.
+          </p>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 14px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 2 &mdash; Données recueillies & Finalités</h4>
+          <p style="margin: 0; color: #94a3b8;">
+            Les données recueillies (coordonnées du propriétaire, localisation de l'animal, antécédents, observations morphologiques et comptes-rendus de séance) sont strictement utilisées pour :
+          </p>
+          <ul style="margin: 6px 0 0 16px; padding: 0;">
+            <li>L'organisation des rendez-vous et tournées géographiques ;</li>
+            <li>Le suivi individualisé du confort et du bien-être de votre animal ;</li>
+            <li>L'élaboration et la transmission des comptes-rendus de séance ;</li>
+            <li>La gestion de la facturation et du dossier client.</li>
+          </ul>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 14px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 3 &mdash; Confidentialité & Non-cession</h4>
+          <p style="margin: 0; color: #94a3b8;">
+            Vos données ne font l'objet d'aucune cession, revente ou communication à des tiers commerciaux. Elles ne sont partagées avec des praticiens partenaires (vétérinaire, ostéopathe, maréchal) qu'avec votre consentement exprès dans l'intérêt exclusif de l'animal.
+          </p>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 8px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 4 &mdash; Vos droits (Accès, Rectification, Suppression)</h4>
+          <p style="margin: 0; color: #94a3b8;">
+            Conformément au Règlement Général sur la Protection des Données (RGPD - Règlement UE 2016/679), vous bénéficiez d'un droit d'accès, de rectification, de portabilité et de suppression des données vous concernant. Vous pouvez exercer ce droit à tout moment par simple demande auprès de votre praticienne.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pied de modale : Mode Bloquant (Acceptation obligatoire) -->
+    <div id="cgv-blocking-footer" style="padding: 18px 24px; border-top: 1px solid var(--glass-border); background: rgba(15, 23, 42, 0.9);">
+      <div style="font-size: 0.84rem; color: #f59e0b; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+        <span>⚠️</span> <span>Pour accéder à votre espace de suivi, merci de cocher les deux engagements ci-dessous :</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
+        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
+          <input type="checkbox" id="cgv-consent-cgv" style="margin-top: 3px; width: 18px; height: 18px; accent-color: #D96B27; cursor: pointer; flex-shrink: 0;" required>
+          <span style="font-size: 0.88rem; color: #fff;">J'ai lu et j'accepte les <strong>Conditions Générales de Vente (CGV)</strong> des prestations eKiKare. <span style="color: #ef4444;">*</span></span>
+        </label>
+        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
+          <input type="checkbox" id="cgv-consent-rgpd" style="margin-top: 3px; width: 18px; height: 18px; accent-color: #10b981; cursor: pointer; flex-shrink: 0;" required>
+          <span style="font-size: 0.88rem; color: #fff;">J'autorise le traitement de mes données personnelles et de celles de mon animal conformément à la <strong>Politique de Confidentialité (RGPD)</strong> pour le suivi des séances et l'envoi des comptes-rendus. <span style="color: #ef4444;">*</span></span>
+        </label>
+      </div>
+
+      <button type="button" class="btn btn-primary" id="btn-submit-cgv-rgpd" disabled style="width: 100%; justify-content: center; padding: 12px; font-weight: 600; opacity: 0.5; cursor: not-allowed;">
+        Accepter et accéder à mon espace
+      </button>
+    </div>
+
+    <!-- Pied de modale : Mode Consultation Simple -->
+    <div id="cgv-consultation-footer" style="padding: 16px 24px; border-top: 1px solid var(--glass-border); display: none; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.9);">
+      <div style="display: flex; align-items: center; gap: 8px; color: #10b981; font-size: 0.88rem; font-weight: 500;">
+        <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: #10b981; color: #fff; font-size: 11px; font-weight: bold;">✓</span>
+        <span>Conditions Générales et Politique RGPD acceptées</span>
+      </div>
+      <button type="button" class="btn btn-secondary" id="btn-close-cgv-consultation-footer" style="padding: 8px 20px;">Fermer</button>
+    </div>
+  </dialog>
+
   <!-- LOCK SCREEN PRATICIEN -->
   <div id="practitioner-lock-overlay" class="lock-overlay" style="display: none;">
     <div class="lock-card glass-card">
@@ -2693,6 +2857,6 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.16"></script>
+  <script type="module" src="app.js?v=1.6.17"></script>
 </body>
 </html>
