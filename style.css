@@ -3875,7 +3875,7 @@ body.is-printing .collapsible-icon {
   padding: 12px 14px;
 }
 
-/* Modale CGV & RGPD - Conteneur principal contraint */
+/* Modale CGV & RGPD - Conteneur principal à défilement unique (Piste 1) */
 dialog#dialog-cgv-rgpd {
   max-width: 740px;
   width: 94%;
@@ -3884,63 +3884,78 @@ dialog#dialog-cgv-rgpd {
   max-height: 90dvh;
   box-sizing: border-box;
   padding: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   border-radius: 16px;
   border: 1px solid rgba(217, 107, 39, 0.4);
+  scrollbar-width: thin;
+  scrollbar-color: #D96B27 rgba(15, 23, 42, 0.6);
+}
+
+dialog#dialog-cgv-rgpd::-webkit-scrollbar {
+  width: 8px;
+}
+
+dialog#dialog-cgv-rgpd::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 4px;
+}
+
+dialog#dialog-cgv-rgpd::-webkit-scrollbar-thumb {
+  background: #D96B27;
+  border-radius: 4px;
+  border: 2px solid rgba(15, 23, 42, 0.6);
+}
+
+dialog#dialog-cgv-rgpd::-webkit-scrollbar-thumb:hover {
+  background: #f59e0b;
 }
 
 dialog#dialog-cgv-rgpd[open] {
-  display: flex !important;
-  flex-direction: column;
+  display: block !important;
 }
 
 dialog#dialog-cgv-rgpd:not([open]) {
   display: none !important;
 }
 
+/* En-tête fixé en haut (titre + onglets CGV / RGPD) */
+#dialog-cgv-rgpd .cgv-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #0f172a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 #dialog-cgv-rgpd .dialog-header {
-  flex-shrink: 0;
+  background: #0f172a;
 }
 
 #dialog-cgv-rgpd .cgv-tabs-bar {
-  flex-shrink: 0;
+  background: #0f172a;
 }
 
-/* Zone interne de lecture (textes des articles CGV et RGPD) */
-.cgv-content-scroller {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #D96B27 rgba(15, 23, 42, 0.6);
+/* Zone de texte des articles : toute sa longueur naturelle */
+.cgv-content-body {
+  padding: 24px 24px 32px 24px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: #cbd5e1;
 }
 
-.cgv-content-scroller::-webkit-scrollbar {
-  width: 8px;
-}
-
-.cgv-content-scroller::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
-  border-radius: 4px;
-}
-
-.cgv-content-scroller::-webkit-scrollbar-thumb {
-  background: #D96B27;
-  border-radius: 4px;
-  border: 2px solid rgba(15, 23, 42, 0.6);
-}
-
-.cgv-content-scroller::-webkit-scrollbar-thumb:hover {
-  background: #f59e0b;
-}
-
-/* Bloc inférieur d'engagement (cases à cocher + bouton) fixé en bas */
+/* Bloc d'engagement (cases à cocher + bouton de validation) dans le flux naturel */
 #cgv-blocking-footer {
-  flex-shrink: 0;
-  padding-top: 1rem !important;
+  margin-top: 2rem;
+  padding: 1.5rem 0 0.5rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
 }
 
 #cgv-consultation-footer {
-  flex-shrink: 0;
+  margin-top: 2rem;
+  padding: 1.5rem 0 0.5rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
 }
 

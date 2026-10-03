@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.22';
+} from './db.js?v=1.6.23';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.22';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.23';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -9439,6 +9439,7 @@ function setupCgvRgpdModal() {
       if (panelCgv) panelCgv.style.display = 'none';
       if (panelRgpd) panelRgpd.style.display = 'block';
     }
+    dialog.scrollTop = 0;
   };
 
   if (tabCgvBtn) tabCgvBtn.onclick = () => switchTab('cgv');
@@ -9633,8 +9634,9 @@ async function openCgvRgpdDialog(client, isBlocking = false) {
       dialog.showModal();
     }
   } else {
-    dialog.style.display = 'flex';
+    dialog.style.display = 'block';
   }
+  dialog.scrollTop = 0;
 }
 
 // --- PORTAIL CLIENT ---

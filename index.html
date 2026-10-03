@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.22">
+  <link rel="stylesheet" href="style.css?v=1.6.23">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -2668,30 +2668,32 @@
   </dialog>
 
   <!-- MODALE CGV & RGPD (ACCEPTATION BLOQUANTE & CONSULTATION) -->
-  <dialog class="app-dialog glass-card" id="dialog-cgv-rgpd" style="max-width: 740px; width: 94%; max-height: 90vh; max-height: 90dvh; display: flex; flex-direction: column; overflow: hidden; border-color: rgba(217, 107, 39, 0.4); padding: 0;">
-    <div class="dialog-header" style="padding: 18px 24px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center;">
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(217, 107, 39, 0.15); border: 1px solid rgba(217, 107, 39, 0.35); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
-          📜
+  <dialog class="app-dialog glass-card" id="dialog-cgv-rgpd" style="max-width: 740px; width: 94%; max-height: 90vh; max-height: 90dvh; overflow-y: auto; border-color: rgba(217, 107, 39, 0.4); padding: 0;">
+    <div class="cgv-sticky-header" style="position: sticky; top: 0; z-index: 10; background: #0f172a; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+      <div class="dialog-header" style="padding: 18px 24px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center; background: #0f172a;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(217, 107, 39, 0.15); border: 1px solid rgba(217, 107, 39, 0.35); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+            📜
+          </div>
+          <div>
+            <h2 id="cgv-dialog-title" style="margin: 0; font-size: 1.2rem; color: #fff;">Conditions Générales &amp; Confidentialité</h2>
+            <p id="cgv-dialog-subtitle" style="margin: 2px 0 0; font-size: 0.82rem; color: #D96B27; font-weight: 500;">Prestations de soins et de suivi eKiKare</p>
+          </div>
         </div>
-        <div>
-          <h2 id="cgv-dialog-title" style="margin: 0; font-size: 1.2rem; color: #fff;">Conditions Générales & Confidentialité</h2>
-          <p id="cgv-dialog-subtitle" style="margin: 2px 0 0; font-size: 0.82rem; color: #D96B27; font-weight: 500;">Prestations de soins et de suivi eKiKare</p>
-        </div>
+        <button class="btn-close-dialog" id="btn-close-cgv-dialog" aria-label="Fermer" style="margin-left: auto;">&times;</button>
       </div>
-      <button class="btn-close-dialog" id="btn-close-cgv-dialog" aria-label="Fermer" style="margin-left: auto;">&times;</button>
+
+      <div class="cgv-tabs-bar" style="display: flex; gap: 8px; padding: 12px 24px 0 24px; background: #0f172a;">
+        <button type="button" class="btn btn-secondary cgv-tab-btn active" id="tab-cgv-btn" style="border-bottom-left-radius: 0; border-bottom-right-radius: 0; font-size: 0.88rem; padding: 8px 16px;">
+          📜 Conditions Générales (CGV)
+        </button>
+        <button type="button" class="btn btn-secondary cgv-tab-btn" id="tab-rgpd-btn" style="border-bottom-left-radius: 0; border-bottom-right-radius: 0; font-size: 0.88rem; padding: 8px 16px;">
+          🔒 Politique de Confidentialité (RGPD)
+        </button>
+      </div>
     </div>
 
-    <div class="cgv-tabs-bar" style="display: flex; gap: 8px; padding: 12px 24px 0 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); background: rgba(15, 23, 42, 0.4); flex-shrink: 0;">
-      <button type="button" class="btn btn-secondary cgv-tab-btn active" id="tab-cgv-btn" style="border-bottom-left-radius: 0; border-bottom-right-radius: 0; font-size: 0.88rem; padding: 8px 16px;">
-        📜 Conditions Générales (CGV)
-      </button>
-      <button type="button" class="btn btn-secondary cgv-tab-btn" id="tab-rgpd-btn" style="border-bottom-left-radius: 0; border-bottom-right-radius: 0; font-size: 0.88rem; padding: 8px 16px;">
-        🔒 Politique de Confidentialité (RGPD)
-      </button>
-    </div>
-
-    <div class="cgv-content-scroller" style="padding: 20px 24px; overflow-y: auto; flex: 1 1 auto; min-height: 0; font-size: 0.88rem; line-height: 1.6; color: #cbd5e1;">
+    <div class="cgv-content-body" style="padding: 24px 24px 32px 24px; font-size: 0.88rem; line-height: 1.6; color: #cbd5e1;">
       <!-- Panneau CGV -->
       <div id="panel-cgv" class="cgv-panel">
         <div style="background: rgba(217, 107, 39, 0.08); border: 1px solid rgba(217, 107, 39, 0.25); border-radius: 10px; padding: 14px 16px; margin-bottom: 18px; font-size: 0.84rem; line-height: 1.55; color: #e2e8f0;">
@@ -2968,41 +2970,41 @@
           </p>
         </div>
       </div>
-    </div>
 
-    <!-- Pied de modale : Mode Bloquant (Acceptation obligatoire) -->
-    <div id="cgv-blocking-footer" style="padding: 1rem 24px 18px 24px; border-top: 1px solid var(--glass-border); background: rgba(15, 23, 42, 0.95); flex-shrink: 0;">
-      <div style="font-size: 0.84rem; color: #f59e0b; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
-        <span>⚠️</span> <span>Pour accéder à votre espace de suivi, merci de cocher les trois engagements ci-dessous :</span>
+      <!-- Bloc d'engagement : Mode Bloquant (Acceptation obligatoire) -->
+      <div id="cgv-blocking-footer" style="margin-top: 2rem; padding: 1.5rem 0 0.5rem 0; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+        <div style="font-size: 0.84rem; color: #f59e0b; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+          <span>⚠️</span> <span>Pour accéder à votre espace de suivi, merci de cocher les trois engagements ci-dessous :</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
+          <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="cgv-consent-cgv" style="margin-top: 3px; width: 18px; height: 18px; accent-color: #D96B27; cursor: pointer; flex-shrink: 0;" required>
+            <span style="font-size: 0.86rem; color: #fff; line-height: 1.45;">J'ai pris connaissance et j'accepte sans réserve l'intégralité des présentes Conditions Générales de Vente et d'Utilisation (CGV/CGU) régissant les séances de soins, la politique tarifaire et de déplacement, ainsi que l'accès à l'espace de suivi en ligne. <span style="color: #ef4444;">*</span></span>
+          </label>
+          <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="cgv-consent-vet" style="margin-top: 3px; width: 18px; height: 18px; accent-color: #f59e0b; cursor: pointer; flex-shrink: 0;" required>
+            <span style="font-size: 0.86rem; color: #fff; line-height: 1.45;">Je reconnais expressément que la Praticienne est tenue à une obligation de moyens et agit comme facilitatrice, sans garantie de résultat, et que les prestations et comptes-rendus relèvent du bien-être et ne se substituent à aucun acte, diagnostic ou suivi vétérinaire. <span style="color: #ef4444;">*</span></span>
+          </label>
+          <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="cgv-consent-rgpd" style="margin-top: 3px; width: 18px; height: 18px; accent-color: #10b981; cursor: pointer; flex-shrink: 0;" required>
+            <span style="font-size: 0.86rem; color: #fff; line-height: 1.45;">J'autorise Karelle SOISSONS EI – EKIKARE à collecter et traiter les données personnelles me concernant ainsi que celles relatives à mon animal (incluant les photographies d'évolution posturale) dans le cadre exclusif de son activité, et à me contacter par e-mail, téléphone, messagerie ou SMS pour les besoins des rendez-vous, du suivi et de l'accès aux comptes-rendus. <span style="color: #ef4444;">*</span></span>
+          </label>
+        </div>
+
+        <button type="button" class="btn btn-primary" id="btn-submit-cgv-rgpd" disabled style="width: 100%; justify-content: center; padding: 12px; font-weight: 600; opacity: 0.5; cursor: not-allowed;">
+          Valider et accéder à mon espace
+        </button>
       </div>
 
-      <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
-        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
-          <input type="checkbox" id="cgv-consent-cgv" style="margin-top: 3px; width: 18px; height: 18px; accent-color: #D96B27; cursor: pointer; flex-shrink: 0;" required>
-          <span style="font-size: 0.86rem; color: #fff; line-height: 1.45;">J'ai pris connaissance et j'accepte sans réserve l'intégralité des présentes Conditions Générales de Vente et d'Utilisation (CGV/CGU) régissant les séances de soins, la politique tarifaire et de déplacement, ainsi que l'accès à l'espace de suivi en ligne. <span style="color: #ef4444;">*</span></span>
-        </label>
-        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
-          <input type="checkbox" id="cgv-consent-vet" style="margin-top: 3px; width: 18px; height: 18px; accent-color: #f59e0b; cursor: pointer; flex-shrink: 0;" required>
-          <span style="font-size: 0.86rem; color: #fff; line-height: 1.45;">Je reconnais expressément que la Praticienne est tenue à une obligation de moyens et agit comme facilitatrice, sans garantie de résultat, et que les prestations et comptes-rendus relèvent du bien-être et ne se substituent à aucun acte, diagnostic ou suivi vétérinaire. <span style="color: #ef4444;">*</span></span>
-        </label>
-        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
-          <input type="checkbox" id="cgv-consent-rgpd" style="margin-top: 3px; width: 18px; height: 18px; accent-color: #10b981; cursor: pointer; flex-shrink: 0;" required>
-          <span style="font-size: 0.86rem; color: #fff; line-height: 1.45;">J'autorise Karelle SOISSONS EI – EKIKARE à collecter et traiter les données personnelles me concernant ainsi que celles relatives à mon animal (incluant les photographies d'évolution posturale) dans le cadre exclusif de son activité, et à me contacter par e-mail, téléphone, messagerie ou SMS pour les besoins des rendez-vous, du suivi et de l'accès aux comptes-rendus. <span style="color: #ef4444;">*</span></span>
-        </label>
+      <!-- Pied de modale : Mode Consultation Simple -->
+      <div id="cgv-consultation-footer" style="margin-top: 2rem; padding: 1.5rem 0 0.5rem 0; border-top: 1px solid rgba(255, 255, 255, 0.1); display: none; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 8px; color: #10b981; font-size: 0.88rem; font-weight: 500;">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: #10b981; color: #fff; font-size: 11px; font-weight: bold;">✓</span>
+          <span>Conditions Générales et Politique RGPD acceptées</span>
+        </div>
+        <button type="button" class="btn btn-secondary" id="btn-close-cgv-consultation-footer" style="padding: 8px 20px;">Fermer</button>
       </div>
-
-      <button type="button" class="btn btn-primary" id="btn-submit-cgv-rgpd" disabled style="width: 100%; justify-content: center; padding: 12px; font-weight: 600; opacity: 0.5; cursor: not-allowed;">
-        Valider et accéder à mon espace
-      </button>
-    </div>
-
-    <!-- Pied de modale : Mode Consultation Simple -->
-    <div id="cgv-consultation-footer" style="padding: 16px 24px; border-top: 1px solid var(--glass-border); display: none; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.95); flex-shrink: 0;">
-      <div style="display: flex; align-items: center; gap: 8px; color: #10b981; font-size: 0.88rem; font-weight: 500;">
-        <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: #10b981; color: #fff; font-size: 11px; font-weight: bold;">✓</span>
-        <span>Conditions Générales et Politique RGPD acceptées</span>
-      </div>
-      <button type="button" class="btn btn-secondary" id="btn-close-cgv-consultation-footer" style="padding: 8px 20px;">Fermer</button>
     </div>
   </dialog>
 
@@ -3053,6 +3055,6 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.22"></script>
+  <script type="module" src="app.js?v=1.6.23"></script>
 </body>
 </html>
