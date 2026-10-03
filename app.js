@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.24';
+} from './db.js?v=1.6.25';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.24';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.25';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -1389,8 +1389,10 @@ async function renderDashboard() {
       const animal = animals.find(an => an.id === r.animal_id);
       const client = clients.find(cl => cl.id === r.client_id);
       
-      const animalName = animal ? animal.nom : 'Animal inconnu';
-      const ownerName = client ? `${client.prenom} ${client.nom}` : 'Propriétaire inconnu';
+      const displayName = r.type_rappel === 'prendre_des_nouvelles' ? 'Prendre des nouvelles' : (r.type_rappel === 'fixer_rdv' ? 'Fixer RDV' : (r.type_rappel || 'Rappel'));
+      const subjectLabel = animal ? animal.nom : (client ? `${client.prenom} ${client.nom}` : '');
+      const fullTitle = subjectLabel ? `${displayName} &bull; ${subjectLabel}` : displayName;
+      const ownerName = client ? `${client.prenom} ${client.nom}` : '-';
       
       const rItem = document.createElement('div');
       const delayDays = Math.ceil((new Date(r.date_prevue) - new Date()) / (1000 * 60 * 60 * 24));
@@ -1404,17 +1406,23 @@ async function renderDashboard() {
 
       rItem.className = `reminder-item ${statusClass}`;
       rItem.innerHTML = `
-        <div class="reminder-left">
+        <div class="reminder-left" style="cursor: pointer;">
           <span class="reminder-date-tag">${formatDate(r.date_prevue)} (${delayDays < 0 ? 'En retard' : delayDays === 0 ? 'Aujourd\'hui' : 'Dans ' + delayDays + ' j'})</span>
-          <span class="reminder-title">${r.type_rappel === 'prendre_des_nouvelles' ? 'Prendre des nouvelles' : 'Relance RDV'} &bull; ${animalName}</span>
+          <span class="reminder-title">${fullTitle}</span>
           <span class="reminder-meta">Propriétaire : ${ownerName} &bull; ${r.notes || 'Pas de note'}</span>
         </div>
         <button class="btn btn-secondary btn-small btn-complete-reminder" data-id="${r.id}">Marquer Fait</button>
       `;
 
-      // Clic pour aller à la fiche animal
+      // Clic pour aller à la fiche animal ou client
       rItem.querySelector('.reminder-left').addEventListener('click', () => {
-        window.location.hash = `animals/${r.animal_id}`;
+        if (r.animal_id) {
+          window.location.hash = `animals/${r.animal_id}`;
+        } else if (r.client_id) {
+          window.location.hash = `clients/${r.client_id}`;
+        } else {
+          openReminderDialog(r);
+        }
       });
 
       // Clic pour marquer fait
@@ -1424,6 +1432,7 @@ async function renderDashboard() {
         await update('reminders', r);
         showToast('Rappel marqué comme effectué.');
         await renderDashboard();
+        await updateReminderBadge();
       });
 
       listContainer.appendChild(rItem);
@@ -2753,6 +2762,8 @@ async function renderAnimalDetails(animalId) {
           await update('reminders', r);
           showToast('Rappel marqué fait.');
           await renderAnimalDetails(animalId);
+          await updateReminderBadge();
+          await renderDashboard();
         });
       }
 
@@ -6268,6 +6279,8 @@ async function renderRemindersList() {
             await update('reminders', r);
             showToast('Rappel effectué.');
             await renderRemindersList();
+            await updateReminderBadge();
+            await renderDashboard();
           });
         }
 
@@ -8048,6 +8061,8 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
 
     dialog.close();
     await renderRemindersList();
+    await updateReminderBadge();
+    await renderDashboard();
 
     const hash = window.location.hash;
     if (hash.includes('animals/')) {
@@ -8255,6 +8270,11 @@ if (quickAnimalBtn) quickAnimalBtn.onclick = () => openAnimalDialog();
 const quickSessionBtn = document.getElementById('btn-quick-new-session');
 if (quickSessionBtn) {
   quickSessionBtn.onclick = () => { window.location.hash = 'session-editor'; };
+}
+
+const quickReminderBtn = document.getElementById('btn-quick-new-reminder');
+if (quickReminderBtn) {
+  quickReminderBtn.onclick = () => openReminderDialog();
 }
 
 // Clics boutons d'ajouts de listes globales
