@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.20';
+} from './db.js?v=1.6.21';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.20';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.21';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
