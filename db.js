@@ -83,7 +83,7 @@ export function mapLocalToSupabase(storeName, item) {
         archive_reason: item.archive_reason || null,
         cgv_rgpd_accepted: isCgvAccepted,
         cgv_rgpd_accepted_at: isCgvAccepted ? (item.cgv_rgpd_accepted_at || isoTime) : null,
-        cgv_rgpd_version: isCgvAccepted ? (item.cgv_rgpd_version || 'v1.0') : null
+        cgv_rgpd_version: isCgvAccepted ? (item.cgv_rgpd_version || 'v7') : null
       };
       break;
     }
@@ -278,7 +278,7 @@ export function mapSupabaseToLocal(storeName, item) {
 
       const version = (item.cgv_rgpd_version !== undefined && item.cgv_rgpd_version !== null)
         ? item.cgv_rgpd_version
-        : (isAccepted && cgvMeta?.version ? cgvMeta.version : (isAccepted ? 'v1.0' : null));
+        : (isAccepted && cgvMeta?.version ? cgvMeta.version : (isAccepted ? 'v7' : null));
 
       return {
         ...local,

@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.19">
+  <link rel="stylesheet" href="style.css?v=1.6.20">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -2694,85 +2694,158 @@
     <div class="cgv-content-scroller" style="padding: 20px 24px; overflow-y: auto; flex: 1 1 auto; min-height: 0; font-size: 0.88rem; line-height: 1.6; color: #cbd5e1;">
       <!-- Panneau CGV -->
       <div id="panel-cgv" class="cgv-panel">
-        <h3 style="color: #D96B27; font-size: 1.05rem; margin-top: 0; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-          <span>Conditions Générales de Vente (CGV)</span>
-          <span style="font-size: 0.72rem; background: rgba(217, 107, 39, 0.2); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-weight: 600;">v1.0</span>
-        </h3>
-        
-        <div class="cgv-article" style="margin-bottom: 14px;">
-          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 1 &mdash; Objet & Champ d'application</h4>
-          <p style="margin: 0; color: #94a3b8;">
-            Les présentes Conditions Générales de Vente régissent l'ensemble des prestations de soins de confort, d'entretien et de bien-être pour équidés et carnivores domestiques délivrées par <strong>eKiKare</strong>. Toute réservation de séance ou accès au suivi implique l'acceptation pleine et entière des présentes conditions.
+        <div style="background: rgba(217, 107, 39, 0.08); border: 1px solid rgba(217, 107, 39, 0.25); border-radius: 10px; padding: 14px 16px; margin-bottom: 18px; font-size: 0.82rem; line-height: 1.5; color: #e2e8f0;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; flex-wrap: wrap; gap: 6px;">
+            <div style="font-weight: 700; color: #D96B27; font-size: 0.95rem;">
+              CONDITIONS GÉNÉRALES DE VENTE ET D'UTILISATION (CGV / CGU)
+            </div>
+            <span style="font-size: 0.72rem; background: rgba(217, 107, 39, 0.2); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-weight: 600;">Version 7</span>
+          </div>
+          <div style="color: #f59e0b; font-weight: 600; margin-bottom: 6px;">
+            En vigueur à compter du 1er septembre 2026 &ndash; Version 7
+          </div>
+          <div><strong>Karelle SOISSONS EI &ndash; EKIKARE</strong></div>
+          <div style="color: #94a3b8;">Praticienne en bien-être intégratif équin et animalier | SIRET : 892 090 192 00014 (RNE Versailles) | APE : 9609Z</div>
+          <div style="color: #94a3b8;">Siège social : 70 rue de la porte Saint Martin, 78770 THOIRY, France</div>
+          <div style="color: #94a3b8;">Téléphone : 06 23 81 82 00 &ndash; Courriel : <a href="mailto:karelle.ekikare@gmail.com" style="color: #38bdf8; text-decoration: underline;">karelle.ekikare@gmail.com</a> &ndash; Site web : <a href="https://www.ekikare.fr" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline;">https://www.ekikare.fr</a></div>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 16px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 1 &ndash; Champ d'application et objet</h4>
+          <p style="margin: 0 0 6px 0; color: #cbd5e1;">
+            Les présentes Conditions Générales de Vente et d'Utilisation (ci-après les « CGV/CGU ») constituent le socle unique de la relation contractuelle, conformément à l'article L. 441-1 du Code de commerce, entre Karelle SOISSONS EI &ndash; EKIKARE (la « Praticienne ») et ses clients (le « Client »).
+          </p>
+          <p style="margin: 0 0 6px 0; color: #cbd5e1;">Elles régissent cumulativement :</p>
+          <ul style="margin: 0 0 6px 18px; padding: 0; color: #cbd5e1;">
+            <li>L'ensemble des prestations manuelles et énergétiques d'accompagnement au bien-être intégratif animalier réalisées par la Praticienne ;</li>
+            <li>L'accès, l'utilisation et les fonctionnalités de l'outil web et de l'espace client sécurisé dédié à la consultation des dossiers, fiches de suivi et comptes-rendus de séance.</li>
+          </ul>
+          <p style="margin: 0; color: #cbd5e1;">
+            Toute réservation de séance, acceptation de devis ou connexion à l'espace client emporte l'adhésion pleine, préalable et sans réserve du Client aux présentes stipulations.
           </p>
         </div>
 
-        <div class="cgv-article" style="margin-bottom: 14px;">
-          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 2 &mdash; Nature des prestations & Cadre légal</h4>
-          <p style="margin: 0; color: #94a3b8;">
-            Les interventions réalisées (massages, enveloppements, algothérapie, confort locomoteur et tissulaire) relèvent exclusivement du bien-être et de la détente animale. Elles <strong>ne constituent en aucun cas des actes de médecine ou de chirurgie vétérinaire</strong> au sens de l'article L.243-1 du Code rural et de la pêche maritime. Aucun diagnostic, prescription médicale ou modification de posologie vétérinaire n'est établi.
+        <div class="cgv-article" style="margin-bottom: 16px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 2 &ndash; Nature des prestations et cadre réglementaire (Exclusion d'acte vétérinaire)</h4>
+          <p style="margin: 0 0 6px 0; color: #cbd5e1;">
+            La Praticienne met en œuvre des approches de bien-être intégratif combinant le shiatsu (diplômée ESE, reconnue FFST et Syndicat de Shiatsu Équin), la kinésiologie animale, la réflexologie cranio-sacrée équine, ainsi que diverses techniques manuelles énergétiques et fasciales. Ces prestations visent exclusivement à favoriser l'équilibre énergétique, la détente et le confort de l'animal.
+          </p>
+          <div style="background: rgba(239, 68, 68, 0.1); border-left: 3px solid #ef4444; padding: 10px 14px; margin: 8px 0; border-radius: 4px;">
+            <p style="margin: 0 0 6px 0; font-weight: 600; color: #fca5a5;">
+              Rappel légal fondamental (Code rural et de la pêche maritime &ndash; art. L. 243-1 et suivants) :
+            </p>
+            <ul style="margin: 0 0 0 18px; padding: 0; color: #fecaca; display: flex; flex-direction: column; gap: 4px;">
+              <li>Les prestations délivrées relèvent du confort et de l'hygiène de vie de l'animal. Elles ne constituent en aucun cas des actes médicaux, chirurgicaux ou vétérinaires, ni des diagnostics au sens légal.</li>
+              <li>Les séances ne se substituent en aucun cas à une consultation vétérinaire, ni aux interventions d'un ostéopathe animalier inscrit au Registre National d'Aptitude (RNA), d'un maréchal-ferrant ou d'un dentiste équin.</li>
+              <li>La Praticienne ne pose aucun diagnostic pathologique, n'interrompt ni ne modifie aucun traitement médical ou vétérinaire en cours, et ne prescrit aucun médicament.</li>
+              <li>En cas d'urgence, de traumatisme récent, de colique, de boiterie aiguë inexpliquée, de fièvre ou de suspicion de maladie infectieuse, le Client doit impérativement solliciter en priorité un vétérinaire traitant.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 16px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 3 &ndash; Commandes, prise de rendez-vous et devis</h4>
+          <p style="margin: 0; color: #cbd5e1;">
+            La réservation s'effectue par téléphone, SMS, messagerie, courriel ou via l'outil web. La confirmation conjointe d'une date, d'un horaire et d'un lieu constitue la Commande ferme et définitive. Pour les demandes spécifiques (journées en écurie, groupes), un devis écrit valable 14 jours sera émis et validé par la mention manuscrite « Bon pour accord ».
           </p>
         </div>
 
-        <div class="cgv-article" style="margin-bottom: 14px;">
-          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 3 &mdash; Obligations du client & Sécurité</h4>
-          <p style="margin: 0; color: #94a3b8;">
-            Le client s'engage à communiquer l'ensemble des antécédents médicaux connus, traumatismes récents, chirurgies ou traitements en cours de l'animal. Il assure la présence d'une personne habilitée pour la contention, met à disposition une zone de manipulation sécurisée, plane, propre et dégagée, et signale toute agressivité ou sensibilité comportementale particulière.
+        <div class="cgv-article" style="margin-bottom: 16px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 4 &ndash; Tarifs, révision tarifaire et politique de déplacement</h4>
+          <p style="margin: 0 0 6px 0; color: #f59e0b; font-weight: 500;">
+            Régime fiscal : TVA non applicable, art. 293 B du CGI.
+          </p>
+          <ul style="margin: 0 0 0 18px; padding: 0; color: #cbd5e1; display: flex; flex-direction: column; gap: 6px;">
+            <li><strong>Tarifs des séances :</strong> Les tarifs applicables sont ceux en vigueur au jour de la réservation ou de la séance. Les tarifs peuvent faire l'objet d'une révision annuelle au 1ᵉʳ janvier. Tarif unique en vigueur : <strong>80 € TTC</strong> par séance individuelle (particuliers et professionnels avec SIRET).</li>
+            <li><strong>Avantage partenaire :</strong> Une séance offerte pour un volume régulier de recommandations concrétisées.</li>
+            <li><strong>Déplacements (depuis Thoiry 78770) :</strong>
+              <ul style="margin: 4px 0 0 16px; padding: 0; display: flex; flex-direction: column; gap: 3px;">
+                <li>Inclus jusqu'à 25 km.</li>
+                <li>Offerts jusqu'à 65 km en écurie dès 2 chevaux suivis le même jour.</li>
+                <li>Déplacements isolés au-delà de 25 km : tournées sectorisées dès que possible, ou forfait kilométrique spécifique (25-35 km : 10 € TTC ; 35-45 km : 20 € TTC ; 45-55 km : 30 € TTC ; au-delà : sur devis).</li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 16px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 5 &ndash; Conditions de règlement et pénalités</h4>
+          <p style="margin: 0; color: #cbd5e1;">
+            Règlement comptant le jour de l'intervention (chèque à l'ordre de Karelle SOISSONS ou espèces) ou par virement bancaire sous 30 jours calendaires. Tout retard entraîne l'application de pénalités égales à 3 fois le taux d'intérêt légal, ainsi qu'une indemnité forfaitaire de recouvrement de 40 € pour les professionnels.
           </p>
         </div>
 
-        <div class="cgv-article" style="margin-bottom: 14px;">
-          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 4 &mdash; Tarifs & Modalités de règlement</h4>
-          <p style="margin: 0; color: #94a3b8;">
-            Les prestations sont facturées aux tarifs convenus lors de la prise de rendez-vous. Le règlement est exigible à l'issue de la séance (espèces, chèque ou virement bancaire). En cas d'annulation non signalée au moins 48 heures à l'avance, une indemnité de dédommagement pourra être appliquée.
+        <div class="cgv-article" style="margin-bottom: 16px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 6 &ndash; Droit de rétractation et conditions d'annulation</h4>
+          <ul style="margin: 0 0 0 18px; padding: 0; color: #cbd5e1; display: flex; flex-direction: column; gap: 6px;">
+            <li><strong>Rétractation :</strong> Délai légal de 14 jours pour les consommateurs. Si la séance est exécutée avant ce délai à la demande du Client, celui-ci renonce expressément à son droit de rétractation.</li>
+            <li><strong>Annulation par le Client :</strong> Sans frais à plus de 48h. À moins de 48h, la séance est intégralement due à titre d'indemnité contractuelle compensatrice, sauf urgence vétérinaire justifiée sous 48h par écrit.</li>
+            <li><strong>Aléas climatiques / Force majeure :</strong> Report sans frais en cas de conditions météo dangereuses pour la route ou le cheval.</li>
+          </ul>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 16px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 7 &ndash; Sécurité, conditions matérielles et obligations du Client</h4>
+          <p style="margin: 0; color: #cbd5e1;">
+            Le Client s'engage à informer la Praticienne de tout trouble du comportement ou douleur de l'animal, à fournir un espace abrité, propre et plan, et à assurer la présence d'un responsable pour tenir l'équidé (le Client conservant la garde juridique selon l'art. 1243 du Code civil). Des temps de repos (30 min avant et 24 à 48h après) doivent être respectés. La Praticienne se réserve le droit d'interrompre la séance en cas de danger manifeste.
+          </p>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 16px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 8 &ndash; Obligation de moyens et limitation de responsabilité</h4>
+          <p style="margin: 0; color: #cbd5e1;">
+            La Praticienne est tenue à une obligation de moyens en tant que facilitatrice d'équilibre ; aucun résultat ou performance ne peut être garanti, l'organisme mobilisant ses propres ressources d'autorégulation. La responsabilité de la Praticienne ne saurait être engagée pour des réactions naturelles d'adaptation post-séance. Assurance RC Pro souscrite.
+          </p>
+        </div>
+
+        <div class="cgv-article" style="margin-bottom: 16px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 9 &ndash; Statut des comptes-rendus et propriété intellectuelle</h4>
+          <p style="margin: 0; color: #cbd5e1;">
+            Les bilans, conseils et fiches remis demeurent la propriété exclusive d'EKIKARE. Ils sont transmis à titre indicatif et ne constituent pas un avis médical. Le Client est autorisé à les télécharger et à les transmettre aux intervenants de soin de son animal (vétérinaire, ostéopathe, maréchal-ferrant) dans le cadre de la coordination des soins.
           </p>
         </div>
 
         <div class="cgv-article" style="margin-bottom: 8px;">
-          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 5 &mdash; Responsabilité Civile Professionnelle</h4>
-          <p style="margin: 0; color: #94a3b8;">
-            eKiKare est titulaire d'une assurance Responsabilité Civile Professionnelle couvrant ses activités. La responsabilité d'eKiKare ne saurait être engagée en cas de fausse déclaration, de dissimulation d'une pathologie préexistante ou de comportement imprévisible de l'animal survenant en dehors de la séance.
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 10 &ndash; Conditions d'Utilisation (CGU) de l'Outil Web et de l'Espace Client</h4>
+          <p style="margin: 0; color: #cbd5e1;">
+            L'accès s'effectue via un lien sécurisé personnel. La validation électronique des CGV/CGU dispose de la même force probante qu'une signature manuscrite (art. 1366 et 1367 du Code civil). Le Client peut déposer des bilans établis par d'autres intervenants pour le suivi de son animal ; ces documents sont consultés à titre purement indicatif par la Praticienne.
           </p>
         </div>
       </div>
 
       <!-- Panneau RGPD -->
       <div id="panel-rgpd" class="cgv-panel" style="display: none;">
-        <h3 style="color: #10b981; font-size: 1.05rem; margin-top: 0; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-          <span>Politique de Confidentialité & Protection des Données (RGPD)</span>
-          <span style="font-size: 0.72rem; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: 600;">v1.0</span>
-        </h3>
-
-        <div class="cgv-article" style="margin-bottom: 14px;">
-          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 1 &mdash; Responsable du traitement</h4>
-          <p style="margin: 0; color: #94a3b8;">
-            Les données à caractère personnel collectées pour la gestion des dossiers et le suivi de vos animaux sont traitées par eKiKare, agissant en qualité de responsable du traitement.
-          </p>
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 14px 16px; margin-bottom: 18px; font-size: 0.82rem; line-height: 1.5; color: #e2e8f0;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; flex-wrap: wrap; gap: 6px;">
+            <div style="font-weight: 700; color: #10b981; font-size: 0.95rem;">
+              POLITIQUE DE CONFIDENTIALITÉ & PROTECTION DES DONNÉES (RGPD)
+            </div>
+            <span style="font-size: 0.72rem; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: 600;">Version 7</span>
+          </div>
+          <div style="color: #94a3b8;">
+            Traitement sécurisé des dossiers de suivi animalier conformément au Règlement Général sur la Protection des Données (UE 2016/679) et à la Loi Informatique et Libertés.
+          </div>
         </div>
 
-        <div class="cgv-article" style="margin-bottom: 14px;">
-          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 2 &mdash; Données recueillies & Finalités</h4>
-          <p style="margin: 0; color: #94a3b8;">
-            Les données recueillies (coordonnées du propriétaire, localisation de l'animal, antécédents, observations morphologiques et comptes-rendus de séance) sont strictement utilisées pour :
+        <div class="cgv-article" style="margin-bottom: 16px;">
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 11 &ndash; Protection des données personnelles (RGPD)</h4>
+          <p style="margin: 0 0 8px 0; color: #cbd5e1;">
+            Conformément au RGPD (Règlement UE 2016/679) et à la Loi Informatique et Libertés :
           </p>
-          <ul style="margin: 6px 0 0 16px; padding: 0;">
-            <li>L'organisation des rendez-vous et tournées géographiques ;</li>
-            <li>Le suivi individualisé du confort et du bien-être de votre animal ;</li>
-            <li>L'élaboration et la transmission des comptes-rendus de séance ;</li>
-            <li>La gestion de la facturation et du dossier client.</li>
+          <ul style="margin: 0 0 0 18px; padding: 0; color: #cbd5e1; display: flex; flex-direction: column; gap: 8px;">
+            <li><strong>Responsable de traitement :</strong> Karelle SOISSONS EI &ndash; EKIKARE, 70 rue de la porte Saint Martin, 78770 THOIRY (<a href="mailto:karelle.ekikare@gmail.com" style="color: #38bdf8; text-decoration: underline;">karelle.ekikare@gmail.com</a>).</li>
+            <li><strong>Données collectées :</strong> Données de contact du Client (nom, prénom, adresse, téléphone, e-mail) et données relatives à l'animal (nom, race, âge, antécédents, localisation, photos d'évolution posturale, notes de suivi et bilans tiers téléversés).</li>
+            <li><strong>Finalités :</strong> Gestion des rendez-vous, accès à l'espace de suivi, échanges opérationnels, édition des fiches de suivi/comptes-rendus, facturation/comptabilité, informations pratiques sur les tournées.</li>
+            <li><strong>Confidentialité absolue :</strong> Aucune cession, vente ou échange commercial des données à des tiers.</li>
+            <li><strong>Durée de conservation :</strong> Durée de la relation augmentée de 3 ans pour les dossiers de suivi et photos ; 10 ans pour les justificatifs comptables.</li>
+            <li><strong>Droits du Client :</strong> Accès, rectification, limitation, opposition et effacement sur simple demande par courriel à <a href="mailto:karelle.ekikare@gmail.com" style="color: #38bdf8; text-decoration: underline;">karelle.ekikare@gmail.com</a> (ou réclamation auprès de la CNIL).</li>
           </ul>
         </div>
 
-        <div class="cgv-article" style="margin-bottom: 14px;">
-          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 3 &mdash; Confidentialité & Non-cession</h4>
-          <p style="margin: 0; color: #94a3b8;">
-            Vos données ne font l'objet d'aucune cession, revente ou communication à des tiers commerciaux. Elles ne sont partagées avec des praticiens partenaires (vétérinaire, ostéopathe, maréchal) qu'avec votre consentement exprès dans l'intérêt exclusif de l'animal.
-          </p>
-        </div>
-
         <div class="cgv-article" style="margin-bottom: 8px;">
-          <h4 style="color: #fff; font-size: 0.92rem; margin-bottom: 4px;">Article 4 &mdash; Vos droits (Accès, Rectification, Suppression)</h4>
-          <p style="margin: 0; color: #94a3b8;">
-            Conformément au Règlement Général sur la Protection des Données (RGPD - Règlement UE 2016/679), vous bénéficiez d'un droit d'accès, de rectification, de portabilité et de suppression des données vous concernant. Vous pouvez exercer ce droit à tout moment par simple demande auprès de votre praticienne.
+          <h4 style="color: #fff; font-size: 0.92rem; margin: 0 0 6px 0; font-weight: 600;">Article 12 &ndash; Droit applicable et médiation</h4>
+          <p style="margin: 0; color: #cbd5e1;">
+            Droit français. En cas de litige, recours gratuit possible à un médiateur de la consommation (art. L. 612-1 du Code de la consommation). À défaut d'accord amiable, juridictions compétentes du ressort du siège de la Praticienne.
           </p>
         </div>
       </div>
@@ -2781,22 +2854,26 @@
     <!-- Pied de modale : Mode Bloquant (Acceptation obligatoire) -->
     <div id="cgv-blocking-footer" style="padding: 1rem 24px 18px 24px; border-top: 1px solid var(--glass-border); background: rgba(15, 23, 42, 0.95); flex-shrink: 0;">
       <div style="font-size: 0.84rem; color: #f59e0b; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
-        <span>⚠️</span> <span>Pour accéder à votre espace de suivi, merci de cocher les deux engagements ci-dessous :</span>
+        <span>⚠️</span> <span>Pour accéder à votre espace de suivi, merci de cocher les trois engagements ci-dessous :</span>
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
         <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
           <input type="checkbox" id="cgv-consent-cgv" style="margin-top: 3px; width: 18px; height: 18px; accent-color: #D96B27; cursor: pointer; flex-shrink: 0;" required>
-          <span style="font-size: 0.88rem; color: #fff;">J'ai lu et j'accepte les <strong>Conditions Générales de Vente (CGV)</strong> des prestations eKiKare. <span style="color: #ef4444;">*</span></span>
+          <span style="font-size: 0.86rem; color: #fff; line-height: 1.45;">J'ai pris connaissance et j'accepte l'intégralité des <strong>Conditions Générales de Vente et d'Utilisation (CGV/CGU)</strong> régissant les séances, la politique tarifaire, les déplacements et l'accès à l'espace web. <span style="color: #ef4444;">*</span></span>
+        </label>
+        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
+          <input type="checkbox" id="cgv-consent-vet" style="margin-top: 3px; width: 18px; height: 18px; accent-color: #f59e0b; cursor: pointer; flex-shrink: 0;" required>
+          <span style="font-size: 0.86rem; color: #fff; line-height: 1.45;">Je reconnais expressément que la Praticienne est tenue à une <strong>obligation de moyens</strong>, que les séances relèvent du <strong>bien-être et ne se substituent à aucun acte ou suivi vétérinaire</strong>. <span style="color: #ef4444;">*</span></span>
         </label>
         <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
           <input type="checkbox" id="cgv-consent-rgpd" style="margin-top: 3px; width: 18px; height: 18px; accent-color: #10b981; cursor: pointer; flex-shrink: 0;" required>
-          <span style="font-size: 0.88rem; color: #fff;">J'autorise le traitement de mes données personnelles et de celles de mon animal conformément à la <strong>Politique de Confidentialité (RGPD)</strong> pour le suivi des séances et l'envoi des comptes-rendus. <span style="color: #ef4444;">*</span></span>
+          <span style="font-size: 0.86rem; color: #fff; line-height: 1.45;">J'autorise <strong>Karelle SOISSONS EI &ndash; EKIKARE</strong> à collecter et traiter les données me concernant et concernant mon animal (incluant les photographies d'évolution posturale) et à me contacter pour le suivi. <span style="color: #ef4444;">*</span></span>
         </label>
       </div>
 
       <button type="button" class="btn btn-primary" id="btn-submit-cgv-rgpd" disabled style="width: 100%; justify-content: center; padding: 12px; font-weight: 600; opacity: 0.5; cursor: not-allowed;">
-        Accepter et accéder à mon espace
+        Valider et accéder à mon espace
       </button>
     </div>
 
@@ -2857,6 +2934,6 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.19"></script>
+  <script type="module" src="app.js?v=1.6.20"></script>
 </body>
 </html>

@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.19';
+} from './db.js?v=1.6.20';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.19';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.20';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -1935,7 +1935,7 @@ async function renderClientDetails(clientId) {
       const nowIso = new Date().toISOString();
       client.cgv_rgpd_accepted = isChecked;
       client.cgv_rgpd_accepted_at = isChecked ? (client.cgv_rgpd_accepted_at || nowIso) : null;
-      client.cgv_rgpd_version = isChecked ? (client.cgv_rgpd_version || 'v1.0') : null;
+      client.cgv_rgpd_version = isChecked ? (client.cgv_rgpd_version || 'v7') : null;
       client.updated_at = nowIso;
       client.last_modified = Date.now();
       client.synced = 0;
@@ -6895,7 +6895,7 @@ async function openClientDialog(client = null) {
       if (cgvChanged) {
         fieldsToUpdate.cgv_rgpd_accepted = isCgvChecked;
         fieldsToUpdate.cgv_rgpd_accepted_at = isCgvChecked ? (currentClient?.cgv_rgpd_accepted_at || new Date().toISOString()) : null;
-        fieldsToUpdate.cgv_rgpd_version = isCgvChecked ? (currentClient?.cgv_rgpd_version || 'v1.0') : null;
+        fieldsToUpdate.cgv_rgpd_version = isCgvChecked ? (currentClient?.cgv_rgpd_version || 'v7') : null;
       }
       fieldsToUpdate.updated_at = new Date().toISOString();
 
@@ -6935,7 +6935,7 @@ async function openClientDialog(client = null) {
       // 3. Mettre à jour l'enregistrement local avec UNIQUEMENT les champs modifiés
       const current = (await getById('clients', clientId)) || currentClient || {};
       const cgvAcceptedAt = isCgvChecked ? (current.cgv_rgpd_accepted_at || new Date().toISOString()) : null;
-      const cgvVersion = isCgvChecked ? (current.cgv_rgpd_version || 'v1.0') : null;
+      const cgvVersion = isCgvChecked ? (current.cgv_rgpd_version || 'v7') : null;
 
       const updatedClient = {
         ...current,
@@ -6985,7 +6985,7 @@ async function openClientDialog(client = null) {
         uuid: generateUUID(),
         cgv_rgpd_accepted: isCgvChecked,
         cgv_rgpd_accepted_at: isCgvChecked ? new Date().toISOString() : null,
-        cgv_rgpd_version: isCgvChecked ? 'v1.0' : null,
+        cgv_rgpd_version: isCgvChecked ? 'v7' : null,
         synced: 0
       };
       await add('clients', newClient);
@@ -9423,6 +9423,7 @@ function setupCgvRgpdModal() {
   const panelCgv = document.getElementById('panel-cgv');
   const panelRgpd = document.getElementById('panel-rgpd');
   const checkCgv = document.getElementById('cgv-consent-cgv');
+  const checkVet = document.getElementById('cgv-consent-vet');
   const checkRgpd = document.getElementById('cgv-consent-rgpd');
   const submitBtn = document.getElementById('btn-submit-cgv-rgpd');
 
@@ -9472,16 +9473,21 @@ function setupCgvRgpdModal() {
     }
   });
 
-  // Validation des deux cases à cocher obligatoires
+  // Validation des trois cases à cocher obligatoires
   const checkValidation = () => {
     if (!submitBtn) return;
-    const isValid = Boolean(checkCgv && checkCgv.checked && checkRgpd && checkRgpd.checked);
+    const isValid = Boolean(
+      checkCgv && checkCgv.checked &&
+      checkVet && checkVet.checked &&
+      checkRgpd && checkRgpd.checked
+    );
     submitBtn.disabled = !isValid;
     submitBtn.style.opacity = isValid ? '1' : '0.5';
     submitBtn.style.cursor = isValid ? 'pointer' : 'not-allowed';
   };
 
   if (checkCgv) checkCgv.onchange = checkValidation;
+  if (checkVet) checkVet.onchange = checkValidation;
   if (checkRgpd) checkRgpd.onchange = checkValidation;
 
   // Validation et enregistrement de l'acceptation
@@ -9498,7 +9504,7 @@ function setupCgvRgpdModal() {
         const nowIso = new Date().toISOString();
         currentCgvClient.cgv_rgpd_accepted = true;
         currentCgvClient.cgv_rgpd_accepted_at = nowIso;
-        currentCgvClient.cgv_rgpd_version = 'v1.0';
+        currentCgvClient.cgv_rgpd_version = 'v7';
         currentCgvClient.updated_at = nowIso;
         currentCgvClient.last_modified = Date.now();
         currentCgvClient.synced = 0;
@@ -9518,7 +9524,7 @@ function setupCgvRgpdModal() {
               const patch = {
                 cgv_rgpd_accepted: true,
                 cgv_rgpd_accepted_at: nowIso,
-                cgv_rgpd_version: 'v1.0',
+                cgv_rgpd_version: 'v7',
                 notes: currentCgvClient.notes || '',
                 updated_at: nowIso
               };
@@ -9558,7 +9564,7 @@ function setupCgvRgpdModal() {
         showToast("Erreur lors de la validation. Veuillez réessayer.", "error");
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = "Accepter et accéder à mon espace";
+        submitBtn.textContent = "Valider et accéder à mon espace";
       }
     };
   }
@@ -9587,6 +9593,7 @@ async function openCgvRgpdDialog(client, isBlocking = false) {
   const blockingFooter = document.getElementById('cgv-blocking-footer');
   const consultationFooter = document.getElementById('cgv-consultation-footer');
   const checkCgv = document.getElementById('cgv-consent-cgv');
+  const checkVet = document.getElementById('cgv-consent-vet');
   const checkRgpd = document.getElementById('cgv-consent-rgpd');
   const submitBtn = document.getElementById('btn-submit-cgv-rgpd');
   const subtitle = document.getElementById('cgv-dialog-subtitle');
@@ -9607,6 +9614,7 @@ async function openCgvRgpdDialog(client, isBlocking = false) {
     if (consultationFooter) consultationFooter.style.display = 'none';
     if (subtitle) subtitle.textContent = "Validation obligatoire avant accès à l'espace de suivi";
     if (checkCgv) checkCgv.checked = false;
+    if (checkVet) checkVet.checked = false;
     if (checkRgpd) checkRgpd.checked = false;
     if (submitBtn) {
       submitBtn.disabled = true;
