@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.17">
+  <link rel="stylesheet" href="style.css?v=1.6.18">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -2668,7 +2668,7 @@
   </dialog>
 
   <!-- MODALE CGV & RGPD (ACCEPTATION BLOQUANTE & CONSULTATION) -->
-  <dialog class="app-dialog glass-card" id="dialog-cgv-rgpd" style="max-width: 740px; width: 94%; max-height: 90vh; border-color: rgba(217, 107, 39, 0.4); padding: 0; overflow: hidden;">
+  <dialog class="app-dialog glass-card" id="dialog-cgv-rgpd" style="max-width: 740px; width: 94%; max-height: 90vh; max-height: 90dvh; display: flex; flex-direction: column; overflow: hidden; border-color: rgba(217, 107, 39, 0.4); padding: 0;">
     <div class="dialog-header" style="padding: 18px 24px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center;">
       <div style="display: flex; align-items: center; gap: 12px;">
         <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(217, 107, 39, 0.15); border: 1px solid rgba(217, 107, 39, 0.35); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
@@ -2682,7 +2682,7 @@
       <button class="btn-close-dialog" id="btn-close-cgv-dialog" aria-label="Fermer" style="margin-left: auto;">&times;</button>
     </div>
 
-    <div style="display: flex; gap: 8px; padding: 12px 24px 0 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); background: rgba(15, 23, 42, 0.4);">
+    <div class="cgv-tabs-bar" style="display: flex; gap: 8px; padding: 12px 24px 0 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); background: rgba(15, 23, 42, 0.4); flex-shrink: 0;">
       <button type="button" class="btn btn-secondary cgv-tab-btn active" id="tab-cgv-btn" style="border-bottom-left-radius: 0; border-bottom-right-radius: 0; font-size: 0.88rem; padding: 8px 16px;">
         📜 Conditions Générales (CGV)
       </button>
@@ -2691,7 +2691,7 @@
       </button>
     </div>
 
-    <div class="cgv-content-scroller" style="padding: 20px 24px; overflow-y: auto; max-height: 48vh; flex: 1; font-size: 0.88rem; line-height: 1.6; color: #cbd5e1;">
+    <div class="cgv-content-scroller" style="padding: 20px 24px; overflow-y: auto; flex: 1 1 auto; min-height: 0; font-size: 0.88rem; line-height: 1.6; color: #cbd5e1;">
       <!-- Panneau CGV -->
       <div id="panel-cgv" class="cgv-panel">
         <h3 style="color: #D96B27; font-size: 1.05rem; margin-top: 0; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
@@ -2779,7 +2779,7 @@
     </div>
 
     <!-- Pied de modale : Mode Bloquant (Acceptation obligatoire) -->
-    <div id="cgv-blocking-footer" style="padding: 18px 24px; border-top: 1px solid var(--glass-border); background: rgba(15, 23, 42, 0.9);">
+    <div id="cgv-blocking-footer" style="padding: 1rem 24px 18px 24px; border-top: 1px solid var(--glass-border); background: rgba(15, 23, 42, 0.95); flex-shrink: 0;">
       <div style="font-size: 0.84rem; color: #f59e0b; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
         <span>⚠️</span> <span>Pour accéder à votre espace de suivi, merci de cocher les deux engagements ci-dessous :</span>
       </div>
@@ -2801,7 +2801,7 @@
     </div>
 
     <!-- Pied de modale : Mode Consultation Simple -->
-    <div id="cgv-consultation-footer" style="padding: 16px 24px; border-top: 1px solid var(--glass-border); display: none; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.9);">
+    <div id="cgv-consultation-footer" style="padding: 16px 24px; border-top: 1px solid var(--glass-border); display: none; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.95); flex-shrink: 0;">
       <div style="display: flex; align-items: center; gap: 8px; color: #10b981; font-size: 0.88rem; font-weight: 500;">
         <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: #10b981; color: #fff; font-size: 11px; font-weight: bold;">✓</span>
         <span>Conditions Générales et Politique RGPD acceptées</span>
@@ -2857,6 +2857,6 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.17"></script>
+  <script type="module" src="app.js?v=1.6.18"></script>
 </body>
 </html>
