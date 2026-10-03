@@ -67,16 +67,9 @@ export function mapLocalToSupabase(storeName, item) {
 
   let specificFields = {};
   switch (storeName) {
-    case 'clients':
-      let cleanNotes = item.notes ? String(item.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim() : '';
-      if (item.cgv_rgpd_accepted) {
-        const cgvPayload = JSON.stringify({
-          accepted: true,
-          accepted_at: item.cgv_rgpd_accepted_at || isoTime,
-          version: item.cgv_rgpd_version || 'v1.0'
-        });
-        cleanNotes = cleanNotes ? `${cleanNotes}\n[cgv_rgpd:${cgvPayload}]` : `[cgv_rgpd:${cgvPayload}]`;
-      }
+    case 'clients': {
+      const cleanNotes = item.notes ? String(item.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim() : '';
+      const isCgvAccepted = item.cgv_rgpd_accepted !== undefined && item.cgv_rgpd_accepted !== null ? Boolean(item.cgv_rgpd_accepted) : false;
       specificFields = {
         first_name: item.prenom || item.first_name || '',
         last_name: item.nom || item.last_name || '',
@@ -87,9 +80,13 @@ export function mapLocalToSupabase(storeName, item) {
         notes: cleanNotes,
         uuid: item.uuid || null,
         archived_at: item.archived_at || null,
-        archive_reason: item.archive_reason || null
+        archive_reason: item.archive_reason || null,
+        cgv_rgpd_accepted: isCgvAccepted,
+        cgv_rgpd_accepted_at: isCgvAccepted ? (item.cgv_rgpd_accepted_at || isoTime) : null,
+        cgv_rgpd_version: isCgvAccepted ? (item.cgv_rgpd_version || 'v1.0') : null
       };
       break;
+    }
     case 'animals':
       let existingCustom = {};
       if (item.custom_details) {
@@ -255,8 +252,8 @@ export function mapSupabaseToLocal(storeName, item) {
   };
 
   switch (storeName) {
-    case 'clients':
-      let rawNotes = item.notes ? String(item.notes) : '';
+    case 'clients': {
+      const rawNotes = item.notes ? String(item.notes) : '';
       let cgvMeta = null;
       const cgvMatch = rawNotes.match(/\[cgv_rgpd:(.*?)\]/);
       if (cgvMatch) {
@@ -266,12 +263,22 @@ export function mapSupabaseToLocal(storeName, item) {
           console.warn("Erreur parsing cgv_rgpd tag:", e);
         }
       }
-      let cleanNotesFromDb = rawNotes.replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
+      const cleanNotesFromDb = rawNotes.replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
       const clientUuid = item.uuid || (item.id ? String(item.id) : null);
       
-      const isAccepted = cgvMeta ? Boolean(cgvMeta.accepted) : (item.cgv_rgpd_accepted !== undefined ? Boolean(item.cgv_rgpd_accepted) : false);
-      const acceptedAt = cgvMeta?.accepted_at || item.cgv_rgpd_accepted_at || null;
-      const version = cgvMeta?.version || item.cgv_rgpd_version || null;
+      // Rétrocompatibilité à la lecture : lecture prioritaire des colonnes dédiées, repli sur tag notes si vide
+      const hasDedicatedCol = item.cgv_rgpd_accepted !== undefined && item.cgv_rgpd_accepted !== null;
+      const isAccepted = hasDedicatedCol
+        ? Boolean(item.cgv_rgpd_accepted)
+        : (cgvMeta ? Boolean(cgvMeta.accepted) : false);
+
+      const acceptedAt = (item.cgv_rgpd_accepted_at !== undefined && item.cgv_rgpd_accepted_at !== null)
+        ? item.cgv_rgpd_accepted_at
+        : (isAccepted && cgvMeta?.accepted_at ? cgvMeta.accepted_at : (isAccepted ? new Date().toISOString() : null));
+
+      const version = (item.cgv_rgpd_version !== undefined && item.cgv_rgpd_version !== null)
+        ? item.cgv_rgpd_version
+        : (isAccepted && cgvMeta?.version ? cgvMeta.version : (isAccepted ? 'v1.0' : null));
 
       return {
         ...local,
@@ -289,6 +296,7 @@ export function mapSupabaseToLocal(storeName, item) {
         cgv_rgpd_accepted_at: acceptedAt,
         cgv_rgpd_version: version
       };
+    }
     case 'animals':
       let parsedCustom = {};
       if (item.custom_details) {
@@ -1057,6 +1065,34 @@ export async function ensureClientsHaveUUID() {
       client.notes = client.notes.replace(/\[portal_token:[^\]]+\]/g, '').trim();
       changed = true;
     }
+    // Migration et nettoyage rétrocompatible du tag [cgv_rgpd:...] dans le champ notes
+    if (client.notes && client.notes.includes('[cgv_rgpd:')) {
+      const cgvMatch = client.notes.match(/\[cgv_rgpd:(.*?)\]/);
+      if (cgvMatch) {
+        try {
+          const cgvMeta = JSON.parse(cgvMatch[1]);
+          if (client.cgv_rgpd_accepted === undefined || client.cgv_rgpd_accepted === null) {
+            client.cgv_rgpd_accepted = Boolean(cgvMeta.accepted);
+          }
+          if (!client.cgv_rgpd_accepted_at && cgvMeta.accepted_at) {
+            client.cgv_rgpd_accepted_at = cgvMeta.accepted_at;
+          }
+          if (!client.cgv_rgpd_version && cgvMeta.version) {
+            client.cgv_rgpd_version = cgvMeta.version;
+          }
+        } catch (e) {
+          console.warn("Erreur migration cgv_rgpd tag local:", e);
+        }
+      }
+      client.notes = client.notes.replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
+      changed = true;
+    }
+    if (client.cgv_rgpd_accepted === undefined || client.cgv_rgpd_accepted === null) {
+      client.cgv_rgpd_accepted = false;
+      client.cgv_rgpd_accepted_at = null;
+      client.cgv_rgpd_version = null;
+      changed = true;
+    }
     if (client.portal_token) {
       if (!client.uuid) {
         client.uuid = client.portal_token;
@@ -1074,7 +1110,13 @@ export async function ensureClientsHaveUUID() {
       if (navigator.onLine) {
         const supabase = getSupabaseClient();
         if (supabase) {
-          const updatePayload = { uuid: client.uuid };
+          const updatePayload = {
+            uuid: client.uuid,
+            notes: client.notes || '',
+            cgv_rgpd_accepted: Boolean(client.cgv_rgpd_accepted),
+            cgv_rgpd_accepted_at: client.cgv_rgpd_accepted_at || null,
+            cgv_rgpd_version: client.cgv_rgpd_version || null
+          };
           if (client.archived_at) {
             updatePayload.archived_at = client.archived_at;
             updatePayload.archive_reason = client.archive_reason;

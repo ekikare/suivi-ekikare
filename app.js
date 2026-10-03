@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.18';
+} from './db.js?v=1.6.19';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.18';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.19';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -1932,12 +1932,16 @@ async function renderClientDetails(clientId) {
     }
     cgvCheckbox.onchange = async () => {
       const isChecked = cgvCheckbox.checked;
+      const nowIso = new Date().toISOString();
       client.cgv_rgpd_accepted = isChecked;
-      client.cgv_rgpd_accepted_at = isChecked ? new Date().toISOString() : null;
-      client.cgv_rgpd_version = isChecked ? 'v1.0' : null;
-      client.updated_at = new Date().toISOString();
+      client.cgv_rgpd_accepted_at = isChecked ? (client.cgv_rgpd_accepted_at || nowIso) : null;
+      client.cgv_rgpd_version = isChecked ? (client.cgv_rgpd_version || 'v1.0') : null;
+      client.updated_at = nowIso;
       client.last_modified = Date.now();
       client.synced = 0;
+      if (client.notes) {
+        client.notes = String(client.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
+      }
       await updateLocal('clients', client);
       
       if (badgeEl) {
@@ -1958,10 +1962,19 @@ async function renderClientDetails(clientId) {
         const supabase = getSupabaseClient();
         if (supabase) {
           try {
-            const patch = buildScalarPatch('clients', client);
-            const targetCol = client.uuid ? 'uuid' : 'id';
-            const targetVal = client.uuid || String(client.id);
-            await supabase.from('clients').update(patch).eq(targetCol, targetVal);
+            const patch = {
+              cgv_rgpd_accepted: isChecked,
+              cgv_rgpd_accepted_at: client.cgv_rgpd_accepted_at,
+              cgv_rgpd_version: client.cgv_rgpd_version,
+              updated_at: nowIso
+            };
+            const targetCol = client.id ? 'id' : 'uuid';
+            const targetVal = client.id ? String(client.id) : client.uuid;
+            const { error: patchErr } = await supabase.from('clients').update(patch).eq(targetCol, targetVal);
+            if (!patchErr) {
+              client.synced = 1;
+              await updateLocal('clients', client);
+            }
           } catch (e) {
             console.warn("Erreur sync manuelle CGV praticienne:", e);
           }
@@ -6859,8 +6872,13 @@ async function openClientDialog(client = null) {
         }
       }
 
+      const clientFormCgv = document.getElementById('client-form-cgv-accepted');
+      const isCgvChecked = clientFormCgv ? clientFormCgv.checked : !!(currentClient && currentClient.cgv_rgpd_accepted);
+      const initialCgvChecked = !!(currentClient && currentClient.cgv_rgpd_accepted);
+      const cgvChanged = isCgvChecked !== initialCgvChecked;
+
       // Si aucun champ n'a été modifié, fermer simplement
-      if (Object.keys(modifiedFields).length === 0) {
+      if (Object.keys(modifiedFields).length === 0 && !cgvChanged) {
         dialog.close();
         return;
       }
@@ -6874,6 +6892,11 @@ async function openClientDialog(client = null) {
       if ('adresse' in modifiedFields) fieldsToUpdate.address = modifiedFields.adresse;
       if ('ecurie' in modifiedFields) fieldsToUpdate.main_stable = modifiedFields.ecurie;
       if ('notes' in modifiedFields) fieldsToUpdate.notes = modifiedFields.notes;
+      if (cgvChanged) {
+        fieldsToUpdate.cgv_rgpd_accepted = isCgvChecked;
+        fieldsToUpdate.cgv_rgpd_accepted_at = isCgvChecked ? (currentClient?.cgv_rgpd_accepted_at || new Date().toISOString()) : null;
+        fieldsToUpdate.cgv_rgpd_version = isCgvChecked ? (currentClient?.cgv_rgpd_version || 'v1.0') : null;
+      }
       fieldsToUpdate.updated_at = new Date().toISOString();
 
       let updateSuccess = false;
@@ -6911,8 +6934,6 @@ async function openClientDialog(client = null) {
 
       // 3. Mettre à jour l'enregistrement local avec UNIQUEMENT les champs modifiés
       const current = (await getById('clients', clientId)) || currentClient || {};
-      const clientFormCgv = document.getElementById('client-form-cgv-accepted');
-      const isCgvChecked = clientFormCgv ? clientFormCgv.checked : !!(current && current.cgv_rgpd_accepted);
       const cgvAcceptedAt = isCgvChecked ? (current.cgv_rgpd_accepted_at || new Date().toISOString()) : null;
       const cgvVersion = isCgvChecked ? (current.cgv_rgpd_version || 'v1.0') : null;
 
@@ -6930,6 +6951,10 @@ async function openClientDialog(client = null) {
         last_modified: Date.now(),
         synced: updateSuccess ? 1 : 0
       };
+
+      if (updatedClient.notes) {
+        updatedClient.notes = String(updatedClient.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
+      }
 
       await updateLocal('clients', updatedClient);
 
@@ -6953,8 +6978,10 @@ async function openClientDialog(client = null) {
     } else {
       const clientFormCgv = document.getElementById('client-form-cgv-accepted');
       const isCgvChecked = Boolean(clientFormCgv && clientFormCgv.checked);
+      const cleanNewNotes = formValues.notes ? String(formValues.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim() : '';
       const newClient = {
         ...formValues,
+        notes: cleanNewNotes,
         uuid: generateUUID(),
         cgv_rgpd_accepted: isCgvChecked,
         cgv_rgpd_accepted_at: isCgvChecked ? new Date().toISOString() : null,
@@ -9476,20 +9503,50 @@ function setupCgvRgpdModal() {
         currentCgvClient.last_modified = Date.now();
         currentCgvClient.synced = 0;
 
+        // Nettoyage de sécurité dans la note si un ancien tag subsistait
+        if (currentCgvClient.notes) {
+          currentCgvClient.notes = String(currentCgvClient.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
+        }
+
         await updateLocal('clients', currentCgvClient);
 
-        // Synchronisation immédiate avec Supabase si connecté
+        // Synchronisation immédiate avec Supabase avant de fermer la modale
         if (navigator.onLine) {
           const supabase = getSupabaseClient();
           if (supabase) {
             try {
-              const patch = buildScalarPatch('clients', currentCgvClient);
-              const targetCol = currentCgvClient.uuid ? 'uuid' : 'id';
-              const targetVal = currentCgvClient.uuid || String(currentCgvClient.id);
-              await supabase.from('clients').update(patch).eq(targetCol, targetVal);
+              const patch = {
+                cgv_rgpd_accepted: true,
+                cgv_rgpd_accepted_at: nowIso,
+                cgv_rgpd_version: 'v1.0',
+                notes: currentCgvClient.notes || '',
+                updated_at: nowIso
+              };
+
+              let syncSuccess = false;
+              if (currentCgvClient.id) {
+                const resId = await supabase.from('clients').update(patch).eq('id', String(currentCgvClient.id));
+                if (!resId.error) syncSuccess = true;
+              }
+              if (!syncSuccess && currentCgvClient.uuid) {
+                const resUuid = await supabase.from('clients').update(patch).eq('uuid', currentCgvClient.uuid);
+                if (!resUuid.error) syncSuccess = true;
+              }
+
+              if (syncSuccess) {
+                currentCgvClient.synced = 1;
+                await updateLocal('clients', currentCgvClient);
+              }
             } catch (errSync) {
-              console.warn("Sync immédiate CGV/RGPD client:", errSync);
+              console.warn("[Portal CGV] Erreur push direct Supabase:", errSync);
             }
+          }
+
+          // Déclencher le push pending du SyncManager pour garantir l'intégrité de la file d'attente
+          try {
+            await SyncManager.pushPending();
+          } catch (ePush) {
+            console.warn("[Portal CGV] SyncManager.pushPending exception:", ePush);
           }
         }
 

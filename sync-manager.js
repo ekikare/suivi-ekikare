@@ -21,7 +21,7 @@ import {
   mapSupabaseToLocal,
   reconcileClientUUIDsFromSupabase,
   registerDatabaseChangeCallback
-} from './db.js?v=1.6.18';
+} from './db.js?v=1.6.19';
 
 /**
  * Récupère le client Supabase actif (via window.supabaseClient ou getSupabaseClient)
@@ -56,6 +56,9 @@ export const SCALAR_COLUMNS = {
     'uuid',
     'archived_at',
     'archive_reason',
+    'cgv_rgpd_accepted',
+    'cgv_rgpd_accepted_at',
+    'cgv_rgpd_version',
     'updated_at'
   ],
   animals: [
