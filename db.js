@@ -397,7 +397,7 @@ export function mapSupabaseToLocal(storeName, item) {
     case 'reminders':
       return {
         ...local,
-        animal_id: item.animal_id ? Number(item.animal_id) : null,
+        animal_id: item.animal_id === 'ALL' ? 'ALL' : (item.animal_id && !isNaN(Number(item.animal_id)) ? Number(item.animal_id) : (item.animal_id || null)),
         client_id: item.client_id ? Number(item.client_id) : null,
         session_id: item.session_id ? Number(item.session_id) : null,
         date_prevue: item.due_date || '',
