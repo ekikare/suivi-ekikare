@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.26';
+} from './db.js?v=1.6.27';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.26';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.27';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -1390,7 +1390,8 @@ async function renderDashboard() {
       const animal = !isAllAnimals ? animals.find(an => an.id === r.animal_id) : null;
       const client = clients.find(cl => cl.id === r.client_id);
       
-      const displayName = r.type_rappel === 'prendre_des_nouvelles' ? 'Prendre des nouvelles' : (r.type_rappel === 'fixer_rdv' ? 'Fixer RDV' : (r.type_rappel || 'Rappel'));
+      const rawType = r.type_rappel || r.title || r.motif || 'Rappel';
+      const displayName = (rawType === 'prendre_des_nouvelles') ? 'Prendre des nouvelles' : ((rawType === 'fixer_rdv' || rawType === 'prendre_rdv') ? 'Planifier un nouveau RDV' : rawType);
       
       let subjectLabel = '';
       if (isAllAnimals) {
@@ -1406,6 +1407,7 @@ async function renderDashboard() {
       
       const fullTitle = subjectLabel ? `${displayName} &bull; ${subjectLabel}` : displayName;
       const ownerName = client ? `${client.prenom} ${client.nom}` : '-';
+      const rawNote = r.notes || r.description || r.note || '';
       
       const rItem = document.createElement('div');
       const delayDays = Math.ceil((new Date(r.date_prevue) - new Date()) / (1000 * 60 * 60 * 24));
@@ -1422,7 +1424,7 @@ async function renderDashboard() {
         <div class="reminder-left" style="cursor: pointer;">
           <span class="reminder-date-tag">${formatDate(r.date_prevue)} (${delayDays < 0 ? 'En retard' : delayDays === 0 ? 'Aujourd\'hui' : 'Dans ' + delayDays + ' j'})</span>
           <span class="reminder-title">${fullTitle}</span>
-          <span class="reminder-meta">Propriétaire : ${ownerName} &bull; ${r.notes || 'Pas de note'}</span>
+          <span class="reminder-meta">Propriétaire : ${ownerName} &bull; ${rawNote ? escapeHtml(rawNote) : 'Pas de note'}</span>
         </div>
         <button class="btn btn-secondary btn-small btn-complete-reminder" data-id="${r.id}">Marquer Fait</button>
       `;
@@ -2750,14 +2752,16 @@ async function renderAnimalDetails(animalId) {
       rDiv.className = `reminder-item ${statusClass}`;
       rDiv.style.cursor = 'pointer';
       
-      const displayName = r.type_rappel === 'prendre_des_nouvelles' ? 'Prendre des nouvelles' : (r.type_rappel === 'fixer_rdv' ? 'Fixer RDV' : (r.type_rappel || 'Rappel'));
+      const rawType = r.type_rappel || r.title || r.motif || 'Rappel';
+      const displayName = (rawType === 'prendre_des_nouvelles') ? 'Prendre des nouvelles' : ((rawType === 'fixer_rdv' || rawType === 'prendre_rdv') ? 'Planifier un nouveau RDV' : rawType);
       const groupBadge = (r.animal_id === 'ALL') ? `<span class="badge-all-animals" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.15); color: var(--color-primary); border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.72rem; padding: 1px 6px; border-radius: 4px; font-weight: 600; vertical-align: middle; margin-left: 6px;">🐾 Tous les animaux du client</span>` : '';
+      const rawNote = r.notes || r.description || r.note || '';
 
       rDiv.innerHTML = `
         <div class="reminder-left" style="flex-grow: 1; margin-right: 15px;">
           <span class="reminder-date-tag" style="color:var(${tagColorVar});">${formatDate(r.date_prevue)}</span>
           <span class="reminder-title">${displayName}${groupBadge}</span>
-          <span class="reminder-meta">${r.notes || ''}</span>
+          <span class="reminder-meta">${rawNote ? escapeHtml(rawNote) : ''}</span>
         </div>
         ${(!animal.archived_at && !currentPortalClientId) ? `<button class="btn btn-secondary btn-small btn-complete-reminder-animal" data-id="${r.id}">Marquer Fait</button>` : ''}
       `;
@@ -4297,10 +4301,22 @@ function addReminderRow(data = null) {
   row.setAttribute('data-index', idx);
   
   // Pre-fill values
-  const dateVal = data ? data.date_prevue : '';
+  const dateVal = data ? (data.date_prevue || data.due_date || '') : '';
   const delayVal = data ? (data.delay || '2m') : '2m';
-  const typeVal = data ? data.type_rappel : 'prendre_des_nouvelles';
-  const notesVal = data ? data.notes : '';
+  const rawType = data ? (data.type_rappel || data.title || data.motif || '') : 'Prendre des nouvelles';
+  const notesVal = data ? (data.notes || data.description || data.note || '') : '';
+
+  let selectedType = 'Prendre des nouvelles';
+  let customTypeVal = '';
+
+  if (rawType === 'Prendre des nouvelles' || rawType === 'prendre_des_nouvelles') {
+    selectedType = 'Prendre des nouvelles';
+  } else if (rawType === 'Planifier un nouveau RDV' || rawType === 'prendre_rdv' || rawType === 'fixer_rdv') {
+    selectedType = 'Planifier un nouveau RDV';
+  } else if (rawType) {
+    selectedType = 'Autre';
+    customTypeVal = rawType;
+  }
   
   row.innerHTML = `
     <button type="button" class="btn-remove-reminder-row" style="position: absolute; top: 10px; right: 10px; background: transparent; border: none; color: var(--color-danger); cursor: pointer;" title="Supprimer ce rappel">
@@ -4328,15 +4344,19 @@ function addReminderRow(data = null) {
       <div class="form-group" style="margin-bottom: 0;">
         <label style="font-size:0.85rem; font-weight:500;">Type de rappel</label>
         <select class="reminder-item-type" data-index="${idx}" style="padding: 8px; font-size:0.85rem; width:100%;">
-          <option value="prendre_des_nouvelles" ${typeVal === 'prendre_des_nouvelles' ? 'selected' : ''}>Prendre des nouvelles</option>
-          <option value="prendre_rdv" ${typeVal === 'prendre_rdv' ? 'selected' : ''}>Proposer de planifier un RDV</option>
+          <option value="Prendre des nouvelles" ${selectedType === 'Prendre des nouvelles' ? 'selected' : ''}>Prendre des nouvelles</option>
+          <option value="Planifier un nouveau RDV" ${selectedType === 'Planifier un nouveau RDV' ? 'selected' : ''}>Planifier un nouveau RDV</option>
+          <option value="Autre" ${selectedType === 'Autre' ? 'selected' : ''}>Autre</option>
         </select>
+        <div class="reminder-item-custom-type-group" style="margin-top: 8px; display: ${selectedType === 'Autre' ? 'block' : 'none'};">
+          <input type="text" class="reminder-item-custom-type" data-index="${idx}" value="${escapeHtml(customTypeVal)}" placeholder="Précisez le type de rappel..." style="padding: 8px; font-size:0.85rem; width:100%;">
+        </div>
       </div>
     </div>
     
     <div class="form-group" style="margin-top: 15px; margin-bottom: 0;">
       <label style="font-size:0.85rem; font-weight:500;">Note de rappel</label>
-      <input type="text" class="reminder-item-notes" data-index="${idx}" value="${notesVal}" placeholder="Ex: Prendre des nouvelles du postérieur droit..." style="padding: 8px; font-size:0.85rem; width:100%;">
+      <input type="text" class="reminder-item-notes" data-index="${idx}" value="${escapeHtml(notesVal)}" placeholder="Ex: Prendre des nouvelles du postérieur droit..." style="padding: 8px; font-size:0.85rem; width:100%;">
     </div>
   `;
   
@@ -4358,6 +4378,20 @@ function addReminderRow(data = null) {
   };
   
   delaySelect.addEventListener('change', updateDateFromDelay);
+  
+  // Handle type change (toggle custom type text field)
+  const typeSelect = row.querySelector('.reminder-item-type');
+  const customTypeGroup = row.querySelector('.reminder-item-custom-type-group');
+  const customTypeInput = row.querySelector('.reminder-item-custom-type');
+  if (typeSelect) {
+    typeSelect.addEventListener('change', () => {
+      const isCustom = typeSelect.value === 'Autre';
+      if (customTypeGroup) customTypeGroup.style.display = isCustom ? 'block' : 'none';
+      if (isCustom && customTypeInput) {
+        customTypeInput.focus();
+      }
+    });
+  }
   
   // Set initial date if not custom and empty
   if (!dateVal && delayVal !== 'custom') {
@@ -5789,16 +5823,20 @@ async function saveSessionForm() {
     const delaySelect = row.querySelector('.reminder-item-delay');
     const dateInput = row.querySelector('.reminder-item-date');
     const typeSelect = row.querySelector('.reminder-item-type');
+    const customTypeInput = row.querySelector('.reminder-item-custom-type');
     const notesInput = row.querySelector('.reminder-item-notes');
     
-    const delayVal = delaySelect.value;
-    const dateVal = dateInput.value;
-    const typeVal = typeSelect.value;
-    const notesVal = notesInput.value.trim();
+    const delayVal = delaySelect ? delaySelect.value : '2m';
+    const dateVal = dateInput ? dateInput.value : '';
+    let typeVal = typeSelect ? typeSelect.value : 'Prendre des nouvelles';
+    if (typeVal === 'Autre') {
+      typeVal = (customTypeInput && customTypeInput.value.trim()) ? customTypeInput.value.trim() : 'Autre';
+    }
+    const notesVal = notesInput ? notesInput.value.trim() : '';
     
     if (!dateVal) {
       showToast('Veuillez spécifier une date de rappel valide pour tous les rappels.', 'error');
-      dateInput.focus();
+      if (dateInput) dateInput.focus();
       return; // Bloque la sauvegarde
     }
     
@@ -6019,15 +6057,21 @@ async function saveSessionForm() {
   // Enregistrer les nouveaux rappels
   for (const rData of remindersToSave) {
     const weekStr = getYearWeek(new Date(rData.date_prevue));
+    const titleVal = rData.type_rappel || 'Rappel';
+    const noteVal = rData.notes || '';
     await add('reminders', {
       animal_id: animalId,
       client_id: clientId,
       session_id: savedId,
       date_prevue: rData.date_prevue,
       semaine_prevue: weekStr,
-      type_rappel: rData.type_rappel,
+      type_rappel: titleVal,
+      title: titleVal,
+      motif: titleVal,
       statut: 'en_attente',
-      notes: rData.notes,
+      notes: noteVal,
+      description: noteVal,
+      note: noteVal,
       delay: rData.delay
     });
   }
@@ -6263,9 +6307,8 @@ async function renderRemindersList() {
           else if (delayDays === 0) statusClass = 'status-today';
         }
 
-        rItem.className = `reminder-item ${statusClass}`;
-        
-        const displayName = r.type_rappel === 'prendre_des_nouvelles' ? 'Prendre des nouvelles' : (r.type_rappel === 'fixer_rdv' ? 'Fixer RDV' : (r.type_rappel || 'Rappel'));
+        const rawType = r.type_rappel || r.title || r.motif || 'Rappel';
+        const displayName = (rawType === 'prendre_des_nouvelles') ? 'Prendre des nouvelles' : ((rawType === 'fixer_rdv' || rawType === 'prendre_rdv') ? 'Planifier un nouveau RDV' : rawType);
         
         let animalDisplay = '';
         if (isAllAnimals) {
@@ -6278,11 +6321,13 @@ async function renderRemindersList() {
           animalDisplay = 'Général';
         }
 
+        const rawNote = r.notes || r.description || r.note || '';
+
         rItem.innerHTML = `
           <div class="reminder-left" style="cursor: pointer; flex-grow: 1; margin-right: 15px;">
             <span class="reminder-date-tag">${formatDate(r.date_prevue)} ${r.statut === 'fait' ? '[Traité]' : ''}</span>
             <span class="reminder-title">${displayName} &bull; ${animalDisplay}</span>
-            <span class="reminder-meta">Propriétaire : ${ownerName} &bull; ${r.notes || 'Sans note'}</span>
+            <span class="reminder-meta">Propriétaire : ${ownerName} &bull; ${rawNote ? escapeHtml(rawNote) : 'Sans note'}</span>
           </div>
           <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
             <button class="btn btn-secondary btn-small btn-edit-reminder" style="background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); color: var(--text-main);">Modifier / Reporter</button>
@@ -7113,9 +7158,14 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
   const idInput = document.getElementById('dialog-animal-id');
   const ownerSelect = document.getElementById('animal-form-owner');
 
-  // Charger la liste des clients pour le select propriétaire
+  // Charger la liste des clients pour le select propriétaire (tri par prénom)
   ownerSelect.innerHTML = '';
   const clients = await getAll('clients');
+  clients.sort((a, b) => {
+    const prenomComp = (a.prenom || '').localeCompare(b.prenom || '', 'fr', { sensitivity: 'base' });
+    if (prenomComp !== 0) return prenomComp;
+    return (a.nom || '').localeCompare(b.nom || '', 'fr', { sensitivity: 'base' });
+  });
   clients.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.id;
@@ -7988,16 +8038,19 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
   const idInput = document.getElementById('dialog-reminder-id');
   const animalSelect = document.getElementById('reminder-form-animal');
   const clientSelect = document.getElementById('reminder-form-client');
+  const typeSelect = document.getElementById('reminder-form-type-select');
+  const customTitleGroup = document.getElementById('reminder-form-custom-title-group');
+  const customTitleInput = document.getElementById('reminder-form-title');
 
   const animals = await getAll('animals');
   const clients = await getAll('clients');
 
-  // Populate client select
+  // Populate client select - Trié par ordre alphabétique du PRÉNOM (français)
   const selectableClients = clients.filter(cl => !cl.archived_at || (reminder && reminder.client_id === cl.id));
   selectableClients.sort((a, b) => {
-    const nomA = (a.nom || '').localeCompare(b.nom || '');
-    if (nomA !== 0) return nomA;
-    return (a.prenom || '').localeCompare(b.prenom || '');
+    const prenomComp = (a.prenom || '').localeCompare(b.prenom || '', 'fr', { sensitivity: 'base' });
+    if (prenomComp !== 0) return prenomComp;
+    return (a.nom || '').localeCompare(b.nom || '', 'fr', { sensitivity: 'base' });
   });
 
   clientSelect.innerHTML = '<option value="">-- Aucun client --</option>';
@@ -8007,6 +8060,18 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
     opt.textContent = `${cl.prenom} ${cl.nom.toUpperCase()}${cl.archived_at ? ' (Archivé)' : ''}`;
     clientSelect.appendChild(opt);
   });
+
+  // Gestion de l'affichage du champ personnalisé selon le type de rappel
+  const updateCustomTypeVisibility = () => {
+    if (typeSelect.value === 'Autre') {
+      if (customTitleGroup) customTitleGroup.style.display = 'block';
+      if (customTitleInput) customTitleInput.required = true;
+    } else {
+      if (customTitleGroup) customTitleGroup.style.display = 'none';
+      if (customTitleInput) customTitleInput.required = false;
+    }
+  };
+  typeSelect.onchange = updateCustomTypeVisibility;
 
   // Fonction de mise à jour dynamique des options d'animaux selon le client choisi
   function updateAnimalOptions(preferredAnimalVal = null) {
@@ -8019,40 +8084,67 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
       // Filtrer les animaux de ce client
       const clientAnimals = animals.filter(an => an.client_id === selectedClientId && (!an.archived_at || (reminder && (String(reminder.animal_id) === String(an.id) || reminder.animal_id === 'ALL')) || (preselectedAnimalId && preselectedAnimalId === an.id)));
 
-      const defaultOpt = document.createElement('option');
-      defaultOpt.value = '';
-      defaultOpt.textContent = '-- Aucun animal en particulier --';
-      animalSelect.appendChild(defaultOpt);
+      if (clientAnimals.length === 0) {
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = '-- Aucun animal en particulier --';
+        animalSelect.appendChild(defaultOpt);
 
-      if (clientAnimals.length > 0) {
-        // Option 1 : "Tous les animaux du client"
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.disabled = true;
+        emptyOpt.textContent = '(Aucun animal enregistré pour ce client)';
+        animalSelect.appendChild(emptyOpt);
+        animalSelect.value = '';
+      } else if (clientAnimals.length === 1) {
+        // S'il ne possède qu'UN SEUL animal :
+        // 1. Sélectionner automatiquement cet animal par défaut
+        // 2. Ne PAS proposer ni afficher l'option "Tous les animaux du client" dans ce cas
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = '-- Aucun animal en particulier --';
+        animalSelect.appendChild(defaultOpt);
+
+        const an = clientAnimals[0];
+        const opt = document.createElement('option');
+        opt.value = an.id;
+        opt.textContent = `${an.nom}${an.archived_at ? ' (Archivé)' : ''}`;
+        animalSelect.appendChild(opt);
+
+        if (preferredAnimalVal === '') {
+          animalSelect.value = '';
+        } else {
+          animalSelect.value = String(an.id);
+        }
+      } else {
+        // S'il possède PLUSIEURS animaux :
+        // Proposer en première option "Tous les animaux du client" (non sélectionnée d'office, laisser l'utilisateur choisir / laisser le placeholder)
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = '-- Aucun animal en particulier --';
+        animalSelect.appendChild(defaultOpt);
+
         const allOpt = document.createElement('option');
         allOpt.value = 'ALL';
         allOpt.textContent = `🐾 Tous les animaux du client (${clientAnimals.length})`;
         animalSelect.appendChild(allOpt);
 
         // Liste individuelle des animaux triés
-        clientAnimals.sort((a, b) => (a.nom || '').localeCompare(b.nom || '')).forEach(an => {
+        clientAnimals.slice().sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr', { sensitivity: 'base' })).forEach(an => {
           const opt = document.createElement('option');
           opt.value = an.id;
           opt.textContent = `${an.nom}${an.archived_at ? ' (Archivé)' : ''}`;
           animalSelect.appendChild(opt);
         });
-      } else {
-        const emptyOpt = document.createElement('option');
-        emptyOpt.value = '';
-        emptyOpt.disabled = true;
-        emptyOpt.textContent = '(Aucun animal enregistré pour ce client)';
-        animalSelect.appendChild(emptyOpt);
-      }
 
-      // Conserver la sélection si elle est valide
-      if (currentVal === 'ALL') {
-        animalSelect.value = 'ALL';
-      } else if (currentVal && clientAnimals.some(a => String(a.id) === String(currentVal))) {
-        animalSelect.value = String(currentVal);
-      } else {
-        animalSelect.value = '';
+        // Conserver la sélection si elle est valide
+        if (currentVal === 'ALL') {
+          animalSelect.value = 'ALL';
+        } else if (currentVal && clientAnimals.some(a => String(a.id) === String(currentVal))) {
+          animalSelect.value = String(currentVal);
+        } else {
+          animalSelect.value = '';
+        }
       }
     } else {
       // Aucun client sélectionné : proposer tous les animaux avec le nom du propriétaire
@@ -8062,7 +8154,7 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
       animalSelect.appendChild(defaultOpt);
 
       const selectableAnimals = animals.filter(an => !an.archived_at || (reminder && String(reminder.animal_id) === String(an.id)) || (preselectedAnimalId && preselectedAnimalId === an.id));
-      selectableAnimals.sort((a, b) => (a.nom || '').localeCompare(b.nom || '')).forEach(an => {
+      selectableAnimals.sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr', { sensitivity: 'base' })).forEach(an => {
         const cl = clients.find(c => c.id === an.client_id);
         const clLabel = cl ? ` (${cl.prenom} ${cl.nom.toUpperCase()})` : '';
         const opt = document.createElement('option');
@@ -8081,19 +8173,7 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
 
   // Événements de synchronisation Client <-> Animal
   clientSelect.onchange = () => {
-    const newClientId = clientSelect.value ? Number(clientSelect.value) : null;
-    const currentAnimalVal = animalSelect.value;
-
-    let valToKeep = '';
-    if (currentAnimalVal === 'ALL') {
-      valToKeep = 'ALL';
-    } else if (currentAnimalVal) {
-      const anim = animals.find(a => a.id === Number(currentAnimalVal));
-      if (anim && anim.client_id === newClientId) {
-        valToKeep = currentAnimalVal;
-      }
-    }
-    updateAnimalOptions(valToKeep);
+    updateAnimalOptions();
   };
 
   animalSelect.onchange = () => {
@@ -8114,7 +8194,23 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
   if (reminder) {
     titleEl.textContent = 'Modifier / Reporter la tâche';
     idInput.value = reminder.id;
-    document.getElementById('reminder-form-title').value = reminder.type_rappel || '';
+
+    // Type de rappel standardisé
+    const rawType = reminder.type_rappel || reminder.title || reminder.motif || '';
+    if (rawType === 'Prendre des nouvelles' || rawType === 'prendre_des_nouvelles') {
+      typeSelect.value = 'Prendre des nouvelles';
+      if (customTitleInput) customTitleInput.value = '';
+    } else if (rawType === 'Planifier un nouveau RDV' || rawType === 'prendre_rdv' || rawType === 'fixer_rdv') {
+      typeSelect.value = 'Planifier un nouveau RDV';
+      if (customTitleInput) customTitleInput.value = '';
+    } else if (rawType) {
+      typeSelect.value = 'Autre';
+      if (customTitleInput) customTitleInput.value = rawType;
+    } else {
+      typeSelect.value = 'Prendre des nouvelles';
+      if (customTitleInput) customTitleInput.value = '';
+    }
+    updateCustomTypeVisibility();
 
     let initialClientId = reminder.client_id;
     if (!initialClientId && reminder.animal_id && reminder.animal_id !== 'ALL') {
@@ -8131,8 +8227,8 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
     const initialAnimalVal = reminder.animal_id ? String(reminder.animal_id) : '';
     updateAnimalOptions(initialAnimalVal);
 
-    document.getElementById('reminder-form-date').value = reminder.date_prevue || '';
-    document.getElementById('reminder-form-notes').value = reminder.notes || '';
+    document.getElementById('reminder-form-date').value = reminder.date_prevue || reminder.due_date || '';
+    document.getElementById('reminder-form-notes').value = reminder.notes || reminder.description || reminder.note || '';
 
     animalSelect.disabled = false;
     clientSelect.disabled = false;
@@ -8140,17 +8236,26 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
     titleEl.textContent = 'Nouveau rappel / tâche';
     idInput.value = '';
 
+    typeSelect.value = 'Prendre des nouvelles';
+    if (customTitleInput) customTitleInput.value = '';
+    updateCustomTypeVisibility();
+
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('reminder-form-date').value = today;
+    document.getElementById('reminder-form-notes').value = '';
 
     if (preselectedAnimalId) {
       const anim = animals.find(a => a.id === preselectedAnimalId);
-      if (anim && anim.client_id) {
-        clientSelect.value = String(anim.client_id);
-        clientSelect.disabled = true;
+      const ownerId = anim ? anim.client_id : null;
+      if (ownerId) {
+        clientSelect.value = String(ownerId);
       }
       updateAnimalOptions(preselectedAnimalId);
+      animalSelect.value = String(preselectedAnimalId);
+
+      // Figés impérativement lorsque initié depuis la fiche d'un animal
       animalSelect.disabled = true;
+      clientSelect.disabled = true;
     } else {
       clientSelect.value = '';
       updateAnimalOptions('');
@@ -8169,15 +8274,36 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
   form.onsubmit = async (e) => {
     e.preventDefault();
 
-    const titleVal = document.getElementById('reminder-form-title').value.trim();
-    const animalVal = animalSelect.value;
-    let animalId = null;
-    if (animalVal === 'ALL') {
-      animalId = 'ALL';
-    } else if (animalVal) {
-      animalId = Number(animalVal);
+    const selectedType = typeSelect.value;
+    const customTitle = customTitleInput ? customTitleInput.value.trim() : '';
+    let finalTitle = selectedType;
+    if (selectedType === 'Autre') {
+      if (!customTitle) {
+        showToast('Veuillez préciser le type de rappel.', 'warning');
+        if (customTitleInput) customTitleInput.focus();
+        return;
+      }
+      finalTitle = customTitle;
     }
-    const clientId = clientSelect.value ? Number(clientSelect.value) : null;
+
+    let animalId = null;
+    let clientId = clientSelect.value ? Number(clientSelect.value) : null;
+
+    if (preselectedAnimalId) {
+      animalId = preselectedAnimalId;
+      const anim = animals.find(a => a.id === preselectedAnimalId);
+      if (anim && anim.client_id) {
+        clientId = anim.client_id;
+      }
+    } else {
+      const animalVal = animalSelect.value;
+      if (animalVal === 'ALL') {
+        animalId = 'ALL';
+      } else if (animalVal) {
+        animalId = Number(animalVal);
+      }
+    }
+
     const dateVal = document.getElementById('reminder-form-date').value;
     const notesVal = document.getElementById('reminder-form-notes').value.trim();
     const weekStr = getYearWeek(new Date(dateVal));
@@ -8188,12 +8314,16 @@ async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
     }
 
     const reminderData = {
-      type_rappel: titleVal,
+      type_rappel: finalTitle,
+      title: finalTitle,
+      motif: finalTitle,
       animal_id: animalId,
       client_id: clientId,
       date_prevue: dateVal,
       semaine_prevue: weekStr,
       notes: notesVal,
+      description: notesVal,
+      note: notesVal,
       statut: reminder ? (reminder.statut || 'en_attente') : 'en_attente'
     };
 

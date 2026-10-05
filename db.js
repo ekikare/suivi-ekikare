@@ -207,8 +207,11 @@ export function mapLocalToSupabase(storeName, item) {
       };
       break;
     case 'reminders':
+      const titleValue = item.type_rappel || item.title || item.motif || 'Rappel';
+      const notesValue = item.notes || item.description || item.note || '';
       specificFields = {
-        title: item.title || item.notes || item.type_rappel || '',
+        title: titleValue,
+        description: notesValue,
         due_date: item.dueDate || item.due_date || item.date_prevue || null,
         completed: item.completed !== undefined ? Boolean(item.completed) : (item.statut === 'fait'),
         related_client_id: String(item.relatedClientId || item.client_id || ''),
@@ -395,16 +398,22 @@ export function mapSupabaseToLocal(storeName, item) {
         notes: item.notes || ''
       };
     case 'reminders':
+      const rawTitle = item.title || item.reminder_type || item.type_rappel || item.motif || '';
+      const rawNotes = item.description || item.notes || item.note || '';
       return {
         ...local,
         animal_id: item.animal_id === 'ALL' ? 'ALL' : (item.animal_id && !isNaN(Number(item.animal_id)) ? Number(item.animal_id) : (item.animal_id || null)),
         client_id: item.client_id ? Number(item.client_id) : null,
         session_id: item.session_id ? Number(item.session_id) : null,
-        date_prevue: item.due_date || '',
-        semaine_prevue: item.planned_week || '',
-        type_rappel: item.reminder_type || '',
-        statut: item.completed ? 'fait' : 'en_attente',
-        notes: item.notes || '',
+        date_prevue: item.due_date || item.date_prevue || '',
+        semaine_prevue: item.planned_week || item.semaine_prevue || '',
+        type_rappel: rawTitle,
+        title: rawTitle,
+        motif: rawTitle,
+        statut: (item.completed !== undefined) ? (item.completed ? 'fait' : 'en_attente') : (item.statut || 'en_attente'),
+        notes: rawNotes,
+        description: rawNotes,
+        note: rawNotes,
         delay: item.delay || ''
       };
     case 'settings':

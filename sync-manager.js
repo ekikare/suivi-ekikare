@@ -21,7 +21,7 @@ import {
   mapSupabaseToLocal,
   reconcileClientUUIDsFromSupabase,
   registerDatabaseChangeCallback
-} from './db.js?v=1.6.26';
+} from './db.js?v=1.6.27';
 
 /**
  * Récupère le client Supabase actif (via window.supabaseClient ou getSupabaseClient)
@@ -111,6 +111,7 @@ export const SCALAR_COLUMNS = {
   ],
   reminders: [
     'title',
+    'description',
     'due_date',
     'completed',
     'client_id',
