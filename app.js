@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.27';
+} from './db.js?v=1.6.28';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.27';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.28';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -2728,6 +2728,8 @@ async function renderAnimalDetails(animalId) {
   // Rappels associés
   const reminders = await getAll('reminders');
   const animalReminders = reminders.filter(r => (r.animal_id === animalId || (r.animal_id === 'ALL' && animal && r.client_id === animal.client_id)) && r.statut === 'en_attente');
+  // Trier impérativement par ordre chronologique CROISSANT (ascendant) : la date la plus proche en premier
+  animalReminders.sort((a, b) => new Date(a.date_prevue || a.due_date || 0) - new Date(b.date_prevue || b.due_date || 0));
   const remindersContainer = document.getElementById('detail-animal-reminders');
   remindersContainer.innerHTML = '';
 
@@ -6300,12 +6302,14 @@ async function renderRemindersList() {
         
         let statusClass = 'status-future';
         if (r.statut === 'fait') {
-          statusClass = '';
+          statusClass = 'status-done';
         } else {
           const delayDays = Math.ceil((new Date(r.date_prevue) - new Date()) / (1000 * 60 * 60 * 24));
           if (delayDays < 0) statusClass = 'status-overdue';
           else if (delayDays === 0) statusClass = 'status-today';
         }
+
+        rItem.className = `reminder-item ${statusClass}`.trim();
 
         const rawType = r.type_rappel || r.title || r.motif || 'Rappel';
         const displayName = (rawType === 'prendre_des_nouvelles') ? 'Prendre des nouvelles' : ((rawType === 'fixer_rdv' || rawType === 'prendre_rdv') ? 'Planifier un nouveau RDV' : rawType);

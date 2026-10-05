@@ -685,15 +685,18 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius-md);
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
   transition: all var(--transition-speed);
 }
 
 .reminder-item:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .reminder-item.status-overdue {
@@ -706,6 +709,11 @@ body {
 
 .reminder-item.status-future {
   border-left: 4px solid var(--color-info);
+}
+
+.reminder-item.status-done {
+  border-left: 4px solid var(--color-success);
+  opacity: 0.75;
 }
 
 .reminder-left {
