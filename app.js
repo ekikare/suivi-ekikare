@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.29';
+} from './db.js?v=1.6.30';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.29';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.30';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -287,7 +287,7 @@ window.FormSanitizer = FormSanitizer;
 
 /**
  * Configure les attributs nécessaires à la reconnaissance des gestes manuscrits Gboard
- * et à la navigation par le clavier virtuel sur les inputs et textareas.
+ * (rayer, entourer, insérer) et à la navigation par le clavier virtuel sur les inputs et textareas.
  * @param {HTMLElement|Document} root
  */
 function enhanceInputsForGboard(root = document) {
@@ -307,6 +307,14 @@ function enhanceInputsForGboard(root = document) {
     input.setAttribute('spellcheck', 'true');
 
     const type = (input.type || 'text').toLowerCase();
+
+    // Gestes Gboard : inputmode="text" pour les champs textuels afin d'activer pleinement les gestes
+    if (['text', 'search'].includes(type) || !input.hasAttribute('type')) {
+      if (!input.hasAttribute('inputmode')) {
+        input.setAttribute('inputmode', 'text');
+      }
+    }
+
     if (['number', 'tel', 'date', 'time', 'datetime-local'].includes(type) || input.id === 'client-form-phone' || input.id === 'prof-form-phone') {
       input.setAttribute('autocorrect', 'off');
       input.setAttribute('autocapitalize', 'none');
@@ -327,10 +335,9 @@ function enhanceInputsForGboard(root = document) {
   // 2. Zones de texte multi-lignes
   const textareas = root.querySelectorAll('textarea');
   textareas.forEach(textarea => {
-    // enterkeyhint="enter" pour conserver le saut de ligne normal
-    if (!textarea.hasAttribute('enterkeyhint')) {
-      textarea.setAttribute('enterkeyhint', 'enter');
-    }
+    // Gestes manuscrits Gboard complets (rayer, entourer, insérer)
+    textarea.setAttribute('inputmode', 'text');
+    textarea.setAttribute('enterkeyhint', 'enter');
     if (!textarea.hasAttribute('autocomplete')) {
       textarea.setAttribute('autocomplete', 'off');
     }
@@ -343,13 +350,46 @@ function enhanceInputsForGboard(root = document) {
 }
 
 /**
- * Empêche la soumission involontaire du formulaire lors de l'appui sur "Entrée"
- * sur les champs à ligne unique et déplace automatiquement le focus sur le champ suivant.
+ * Déplace automatiquement le focus sur le champ interactif suivant du formulaire/modale.
+ * @param {HTMLElement} currentElement
+ */
+function switchToNextInputField(currentElement) {
+  if (!currentElement) return;
+
+  // Trouver le conteneur du formulaire ou de la modale
+  const container = currentElement.closest('form') || currentElement.closest('dialog') || currentElement.closest('.modal-content') || currentElement.closest('.app-dialog') || currentElement.closest('.glass-card') || document.body;
+
+  // Sélecteur de tous les champs interactifs éligibles
+  const selector = 'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]):not([readonly])';
+
+  const allFields = Array.from(container.querySelectorAll(selector)).filter(el => {
+    if (el.disabled || el.readOnly) return false;
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden' && (rect.width > 0 || rect.height > 0);
+  });
+
+  const currentIndex = allFields.indexOf(currentElement);
+  if (currentIndex !== -1 && currentIndex < allFields.length - 1) {
+    const nextField = allFields[currentIndex + 1];
+    nextField.focus();
+    if (typeof nextField.scrollIntoView === 'function') {
+      nextField.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  } else {
+    // Dernier champ : quitter le focus pour fermer le clavier virtuel
+    currentElement.blur();
+  }
+}
+
+/**
+ * Empêche la soumission involontaire du formulaire lors de l'appui sur "Entrée" (ou code 13)
+ * sur les balises <input> et bascule vers le champ interactif suivant.
  */
 function initEnterKeyNavigation() {
   document.addEventListener('keydown', (e) => {
-    // Uniquement la touche Entrée sans touches modificatrices
-    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    const isEnter = e.key === 'Enter' || e.keyCode === 13 || e.which === 13;
+    if (!isEnter || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
 
     const target = e.target;
     if (!target || target.tagName !== 'INPUT') return;
@@ -360,6 +400,7 @@ function initEnterKeyNavigation() {
 
     // Empêcher impérativement la soumission involontaire
     e.preventDefault();
+    e.stopPropagation();
 
     // Si c'est un champ de recherche autonome (sans formulaire avec d'autres champs à remplir)
     if (target.classList.contains('search-input') || target.id.includes('search')) {
@@ -367,39 +408,61 @@ function initEnterKeyNavigation() {
       return;
     }
 
-    // Trouver le conteneur du formulaire ou de la modale
-    const container = target.closest('form') || target.closest('dialog') || target.closest('.modal-content') || target.closest('.app-dialog') || target.closest('.glass-card') || document.body;
-
-    // Sélecteur de tous les champs interactifs éligibles
-    const selector = 'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]):not([readonly])';
-
-    const allFields = Array.from(container.querySelectorAll(selector)).filter(el => {
-      if (el.disabled || el.readOnly) return false;
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return style.display !== 'none' && style.visibility !== 'hidden' && (rect.width > 0 || rect.height > 0);
-    });
-
-    const currentIndex = allFields.indexOf(target);
-    if (currentIndex !== -1 && currentIndex < allFields.length - 1) {
-      const nextField = allFields[currentIndex + 1];
-      nextField.focus();
-      if (typeof nextField.scrollIntoView === 'function') {
-        nextField.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
-    } else {
-      // Fin de formulaire : quitter le focus pour fermer le clavier virtuel
-      target.blur();
-    }
+    // Basculer vers le champ interactif suivant
+    switchToNextInputField(target);
   }, true); // Capture phase pour intercepter avant les handlers 'submit' du DOM
 }
 
 /**
- * Active l'observation des mutations du DOM pour configurer dynamiquement tous les nouveaux inputs/textareas.
+ * Protection contre la soumission involontaire via le bouton d'action/validation du panneau manuscrit Gboard
+ * (signal IME Action Done). Bloque systématiquement le submit sur les balises <form> de modales et de séances
+ * à moins que l'utilisateur n'ait cliqué explicitement sur le bouton Enregistrer.
+ */
+let lastExplicitSubmitClickTime = 0;
+
+function initModalSubmitProtection() {
+  const markExplicitSubmit = (e) => {
+    const btn = e.target.closest('button[type="submit"], input[type="submit"]');
+    if (btn) {
+      lastExplicitSubmitClickTime = Date.now();
+    }
+  };
+
+  document.addEventListener('click', markExplicitSubmit, true);
+  document.addEventListener('pointerup', markExplicitSubmit, true);
+  document.addEventListener('touchend', markExplicitSubmit, true);
+
+  // Intercepter tout événement submit en phase de capture
+  document.addEventListener('submit', (e) => {
+    const form = e.target;
+    if (!form || form.tagName !== 'FORM') return;
+
+    const isModalOrProtectedForm = !!(form.closest('dialog') || form.closest('.app-dialog') || form.closest('.modal-content') || form.closest('.modal-backdrop') || form.id === 'session-form');
+
+    // Vérifier si un clic explicite a eu lieu très récemment (moins de 1000ms) sur un bouton de soumission
+    const timeSinceClick = Date.now() - lastExplicitSubmitClickTime;
+    const isExplicitClick = timeSinceClick < 1000;
+
+    if (isModalOrProtectedForm && !isExplicitClick) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      console.warn('[Gboard Protect] Soumission involontaire bloquée (bouton Entrée / Done du stylet sans clic explicite sur Enregistrer).');
+      return false;
+    }
+
+    // Réinitialiser après utilisation légitime
+    lastExplicitSubmitClickTime = 0;
+  }, true);
+}
+
+/**
+ * Active l'observation des mutations du DOM et initialise les protections stylet / Gboard.
  */
 function setupStylusInputObserver() {
   enhanceInputsForGboard(document);
   initEnterKeyNavigation();
+  initModalSubmitProtection();
 
   if (typeof MutationObserver !== 'undefined') {
     const observer = new MutationObserver((mutations) => {
@@ -6643,6 +6706,32 @@ animals.forEach(an => {
 
     downloadCSV(csv, 'animaux_ekikare.csv');
   };
+
+  // Forcer la mise à jour de l'application et purger les caches du navigateur
+  const btnForceCache = document.getElementById('btn-force-cache-update');
+  if (btnForceCache) {
+    btnForceCache.onclick = async () => {
+      showToast('Purge du cache et mise à jour de l\'application en cours...', 'info');
+      try {
+        // 1. Vider les caches du navigateur
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(k => caches.delete(k)));
+        }
+        // 2. Désinscrire et réactualiser le Service Worker
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map(r => r.unregister()));
+        }
+      } catch (err) {
+        console.error('Erreur lors de la purge du cache:', err);
+      }
+      // 3. Recharger la page brutalement
+      setTimeout(() => {
+        window.location.reload(true);
+      }, 400);
+    };
+  }
 }
 
 function downloadCSV(csvContent, filename) {

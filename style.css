@@ -81,6 +81,23 @@ input[type="reset"],
   touch-action: manipulation;
 }
 
+/* COMPATIBILITÉ GESTES GBOARD & STYLET : ne jamais bloquer la sélection sur les zones de texte */
+input,
+textarea,
+[contenteditable="true"] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
+.form-group,
+.form-grid-2,
+.form-grid-3,
+.app-dialog,
+form {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
 body {
   background-color: var(--bg-app);
   color: var(--text-main);
