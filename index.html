@@ -31,7 +31,7 @@
     }
   </script>
   <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="manifest.json?v=1.6.28">
+  <link rel="manifest" href="manifest.json?v=1.6.29">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,17 +39,17 @@
   <meta name="apple-mobile-web-app-title" content="eKiKare">
 
   <!-- Icons (Favicon & Touch Icons) -->
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.28">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.28">
-  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.28">
-  <link rel="shortcut icon" href="favicon.ico?v=1.6.28">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.28">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.29">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.29">
+  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.29">
+  <link rel="shortcut icon" href="favicon.ico?v=1.6.29">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.29">
 
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.28">
+  <link rel="stylesheet" href="style.css?v=1.6.29">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -866,7 +866,7 @@
 
             <div class="form-group">
               <label for="session-form-objective">Motif de consultation <span class="required">*</span></label>
-              <textarea id="session-form-objective" rows="2" placeholder="Ex: Bilan général, boiterie, stress..." required></textarea>
+              <textarea id="session-form-objective" rows="2" placeholder="Ex: Bilan général, boiterie, stress..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter" required></textarea>
             </div>
 
             <!-- Intelligent Prefill Banner -->
@@ -903,7 +903,7 @@
             <!-- Champ Observations Initiales -->
             <div class="form-group" style="margin: 20px 0;">
               <label for="session-form-notes-obs" style="font-weight: 600; color: var(--color-secondary);">Notes d'observations</label>
-              <textarea id="session-form-notes-obs" rows="3" placeholder="Saisissez vos observations initiales sur l'état général de l'animal, posture, comportement..."></textarea>
+              <textarea id="session-form-notes-obs" rows="3" placeholder="Saisissez vos observations initiales sur l'état général de l'animal, posture, comportement..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
             </div>
 
             <!-- 3. FORMULAIRE METIER : LES 6 PROTOCOLES DE SOIN -->
@@ -988,7 +988,7 @@
               <div class="protocol-body">
                 <div class="form-group">
                   <label for="proto-manuelles-texte">Observations & Travail effectué</label>
-                  <textarea id="proto-manuelles-texte" rows="4" placeholder="Décrivez le travail structurel, fascial ou tissulaire réalisé..."></textarea>
+                  <textarea id="proto-manuelles-texte" rows="4" placeholder="Décrivez le travail structurel, fascial ou tissulaire réalisé..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
                 </div>
               </div>
             </div>
@@ -1290,7 +1290,7 @@
                 <!-- Problématique travaillée (commun, affiché en haut, masqué pour urgence) -->
                 <div class="form-group" id="container-kinesio-problematique" style="width: 100%; display: block; clear: both;">
                   <label for="kinesio-problematique">Problématique travaillée</label>
-                  <textarea id="kinesio-problematique" rows="2" placeholder="La source de tension émotionnelle..." style="width: 100%; display: block; box-sizing: border-box;"></textarea>
+                  <textarea id="kinesio-problematique" rows="2" placeholder="La source de tension émotionnelle..." style="width: 100%; display: block; box-sizing: border-box;" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
                 </div>
 
                 <!-- Panels conditionnels -->
@@ -1299,11 +1299,11 @@
                   <div style="display: flex; flex-direction: column; gap: 15px; width: 100%;">
                     <div class="form-group" style="width: 100%; display: block;">
                       <label for="kinesio-reactives">Émotions réactives</label>
-                      <textarea id="kinesio-reactives" rows="2" placeholder="Ex: Colère, abattement..." style="width: 100%; display: block; box-sizing: border-box;"></textarea>
+                      <textarea id="kinesio-reactives" rows="2" placeholder="Ex: Colère, abattement..." style="width: 100%; display: block; box-sizing: border-box;" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
                     </div>
                     <div class="form-group" style="width: 100%; display: block;">
                       <label for="kinesio-reactrice">Émotions réactrices</label>
-                      <textarea id="kinesio-reactrice" rows="2" placeholder="L'émotion racine/déclencheuse..." style="width: 100%; display: block; box-sizing: border-box;"></textarea>
+                      <textarea id="kinesio-reactrice" rows="2" placeholder="L'émotion racine/déclencheuse..." style="width: 100%; display: block; box-sizing: border-box;" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
                     </div>
                   </div>
                 </div>
@@ -1312,7 +1312,7 @@
                 <div class="conditional-panel" id="panel-kinesio-emotion-urgence">
                   <div class="form-group">
                     <label for="kinesio-liberee">Émotion libérée</label>
-                    <input type="text" id="kinesio-liberee" placeholder="Émotion d'urgence libérée lors de la séance...">
+                    <input type="text" id="kinesio-liberee" placeholder="Émotion d'urgence libérée lors de la séance..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
                   </div>
                 </div>
 
@@ -1324,26 +1324,26 @@
                 <div class="common-panel" id="panel-kinesio-commun">
                   <div class="form-group" id="container-kinesio-syntho" style="width: 100%; display: block; clear: both;">
                     <label for="kinesio-syntho">Syntonisation</label>
-                    <textarea id="kinesio-syntho" rows="2" placeholder="Outil d'harmonisation..." style="width: 100%; display: block; box-sizing: border-box;"></textarea>
+                    <textarea id="kinesio-syntho" rows="2" placeholder="Outil d'harmonisation..." style="width: 100%; display: block; box-sizing: border-box;" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
                     <span class="field-explanation" style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">il s'agit de syntonisation, qui est le schéma de fonctionnement de l'animal.</span>
                   </div>
                   <div class="form-group">
                     <label for="kinesio-objectif">Objectif positif de séance</label>
-                    <input type="text" id="kinesio-objectif" placeholder="Formulation positive. Ex: Se déplacer en sécurité...">
+                    <input type="text" id="kinesio-objectif" placeholder="Formulation positive. Ex: Se déplacer en sécurité..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
                   </div>
                   <div class="form-grid-2">
                     <div class="form-group">
                       <label for="kinesio-cen-debut">CEN Début (%)</label>
-                      <input type="number" id="kinesio-cen-debut" min="0" value="100" placeholder="Ex: 80">
+                      <input type="number" id="kinesio-cen-debut" min="0" value="100" placeholder="Ex: 80" autocomplete="off" autocorrect="off" enterkeyhint="next">
                     </div>
                     <div class="form-group">
                       <label for="kinesio-cen-fin">CEN Fin (%)</label>
-                      <input type="number" id="kinesio-cen-fin" min="0" value="0" placeholder="Ex: 10">
+                      <input type="number" id="kinesio-cen-fin" min="0" value="0" placeholder="Ex: 10" autocomplete="off" autocorrect="off" enterkeyhint="next">
                     </div>
                   </div>
                   <div class="form-group" style="margin-top: 15px;">
                     <label for="kinesio-ldt">LDT (Ligne de Temps)</label>
-                    <textarea id="kinesio-ldt" rows="2" placeholder="Généalogie, âge de blocage..."></textarea>
+                    <textarea id="kinesio-ldt" rows="2" placeholder="Généalogie, âge de blocage..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
                   </div>
                 </div>
 
@@ -1452,12 +1452,12 @@
             
             <div class="form-group">
               <label for="session-form-precisions">Précisions générales de la séance</label>
-              <textarea id="session-form-precisions" rows="3" placeholder="Saisissez les précisions générales à transmettre (ex: conseils, préconisations, exercices...)."></textarea>
+              <textarea id="session-form-precisions" rows="3" placeholder="Saisissez les précisions générales à transmettre (ex: conseils, préconisations, exercices...)." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
             </div>
 
             <div class="form-group">
               <label for="session-form-cr-practicienne">Notes personnelles (Privé - Ne figure pas sur le compte-rendu client)</label>
-              <textarea id="session-form-cr-practicienne" rows="3" placeholder="Écrivez vos notes cliniques privées, ressentis, intuition..."></textarea>
+              <textarea id="session-form-cr-practicienne" rows="3" placeholder="Écrivez vos notes cliniques privées, ressentis, intuition..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
             </div>
 
             <!-- Planification Rappels automatiques multiples -->
@@ -1484,7 +1484,7 @@
                   Générer le Résumé
                 </button>
               </div>
-              <textarea id="session-form-resume" rows="6" placeholder="Cliquez sur le bouton ci-dessus pour générer le résumé basé sur les protocoles appliqués..."></textarea>
+              <textarea id="session-form-resume" rows="6" placeholder="Cliquez sur le bouton ci-dessus pour générer le résumé basé sur les protocoles appliqués..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
             </div>
 
             <div class="form-actions">
@@ -1813,34 +1813,34 @@
       <div class="form-grid-2">
         <div class="form-group">
           <label for="client-form-lastname">Nom de famille <span class="required">*</span></label>
-          <input type="text" id="client-form-lastname" required>
+          <input type="text" id="client-form-lastname" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="true" enterkeyhint="next" required>
         </div>
         <div class="form-group">
           <label for="client-form-firstname">Prénom <span class="required">*</span></label>
-          <input type="text" id="client-form-firstname" required>
+          <input type="text" id="client-form-firstname" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next" required>
         </div>
       </div>
       <div class="form-grid-2">
         <div class="form-group">
           <label for="client-form-phone">Téléphone <span class="required">*</span></label>
-          <input type="tel" id="client-form-phone" inputmode="numeric" pattern="[0-9 ]*" placeholder="06 12 34 56 78" required>
+          <input type="tel" id="client-form-phone" inputmode="numeric" pattern="[0-9 ]*" placeholder="06 12 34 56 78" autocomplete="off" autocorrect="off" autocapitalize="none" enterkeyhint="next" required>
         </div>
         <div class="form-group">
           <label for="client-form-email">E-mail</label>
-          <input type="email" id="client-form-email" placeholder="client@exemple.com">
+          <input type="email" id="client-form-email" placeholder="client@exemple.com" autocomplete="off" autocorrect="off" autocapitalize="none" enterkeyhint="next">
         </div>
       </div>
       <div class="form-group">
         <label for="client-form-address">Adresse complète</label>
-        <input type="text" id="client-form-address" placeholder="12 rue des Prés, 75000 Paris">
+        <input type="text" id="client-form-address" placeholder="12 rue des Prés, 75000 Paris" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
       </div>
       <div class="form-group">
         <label for="client-form-stable">Écurie / Pension principale</label>
-        <input type="text" id="client-form-stable" placeholder="Ex: Écurie des Prés">
+        <input type="text" id="client-form-stable" placeholder="Ex: Écurie des Prés" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
       </div>
       <div class="form-group practitioner-only">
         <label for="client-form-notes">Notes client (Remarques facturation, disponibilités...)</label>
-        <textarea id="client-form-notes" rows="3" placeholder="Ex: Souhaite être appelé uniquement le matin..."></textarea>
+        <textarea id="client-form-notes" rows="3" placeholder="Ex: Souhaite être appelé uniquement le matin..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
       </div>
       <div class="form-group practitioner-only" style="margin-top: -8px;">
         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
@@ -1879,7 +1879,7 @@
       <div class="form-grid-2">
         <div class="form-group">
           <label for="animal-form-name">Nom de l'animal <span class="required">*</span></label>
-          <input type="text" id="animal-form-name" required>
+          <input type="text" id="animal-form-name" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next" required>
         </div>
         <div class="form-group practitioner-only">
           <label for="animal-form-owner">Propriétaire <span class="required">*</span></label>
@@ -1897,15 +1897,15 @@
             <option value="Chat">Chat</option>
             <option value="Autre">Autre</option>
           </select>
-          <input type="text" id="animal-form-species-other" placeholder="Précisez l'espèce..." style="display: none; margin-top: 5px;">
+          <input type="text" id="animal-form-species-other" placeholder="Précisez l'espèce..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next" style="display: none; margin-top: 5px;">
         </div>
         <div class="form-group">
           <label for="animal-form-breed">Race</label>
-          <input type="text" id="animal-form-breed" placeholder="Ex: Selle Français, Golden...">
+          <input type="text" id="animal-form-breed" placeholder="Ex: Selle Français, Golden..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
         </div>
         <div class="form-group">
           <label for="animal-form-robe">Robe</label>
-          <input type="text" id="animal-form-robe" placeholder="Ex: Bai, Alzan, Fauve...">
+          <input type="text" id="animal-form-robe" placeholder="Ex: Bai, Alzan, Fauve..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
         </div>
       </div>
       <div class="form-grid-3">
@@ -1921,12 +1921,12 @@
         </div>
         <div class="form-group">
           <label for="animal-form-birthdate">Date de naissance</label>
-          <input type="date" id="animal-form-birthdate">
+          <input type="date" id="animal-form-birthdate" enterkeyhint="next">
         </div>
         <div class="form-group">
           <label for="animal-form-age-estimation">Ou Âge estimé</label>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="number" id="animal-form-age-estimation" min="0" max="60" placeholder="ex: 5" style="flex: 1;">
+            <input type="number" id="animal-form-age-estimation" min="0" max="60" placeholder="ex: 5" style="flex: 1;" autocomplete="off" autocorrect="off" autocapitalize="none" enterkeyhint="next">
             <span style="font-weight: 500; font-size: var(--font-size-base); color: var(--color-text-secondary);">ans</span>
           </div>
         </div>
@@ -1935,7 +1935,7 @@
       <!-- Identification SIRE / Puce -->
       <div class="form-group">
         <label for="animal-form-id-number">Numéro d'identification (SIRE, puce, transpondeur)</label>
-        <input type="text" id="animal-form-id-number" placeholder="Ex: 250269600123456 ou 12345678A">
+        <input type="text" id="animal-form-id-number" placeholder="Ex: 250269600123456 ou 12345678A" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="true" enterkeyhint="next">
       </div>
 
       <!-- Option: Vit au domicile -->
@@ -1948,26 +1948,26 @@
       <div class="form-grid-2" id="animal-form-location-grid-1">
         <div class="form-group">
           <label for="animal-form-stable-name">Nom de l'écurie / pension</label>
-          <input type="text" id="animal-form-stable-name" placeholder="Ex: Écuries du Teich" list="stable-names-datalist">
+          <input type="text" id="animal-form-stable-name" placeholder="Ex: Écuries du Teich" list="stable-names-datalist" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
           <datalist id="stable-names-datalist"></datalist>
         </div>
         <div class="form-group">
           <label for="animal-form-stable-address">Adresse (Rue)</label>
-          <input type="text" id="animal-form-stable-address" placeholder="Ex: 12 Rue du Port">
+          <input type="text" id="animal-form-stable-address" placeholder="Ex: 12 Rue du Port" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
         </div>
       </div>
       <div class="form-grid-3" id="animal-form-location-grid-2">
         <div class="form-group">
           <label for="animal-form-stable-zip">Code Postal</label>
-          <input type="text" id="animal-form-stable-zip" placeholder="Ex: 33470">
+          <input type="text" id="animal-form-stable-zip" placeholder="Ex: 33470" autocomplete="off" autocorrect="off" autocapitalize="none" enterkeyhint="next">
         </div>
         <div class="form-group">
           <label for="animal-form-stable-city">Ville</label>
-          <input type="text" id="animal-form-stable-city" placeholder="Ex: Le Teich">
+          <input type="text" id="animal-form-stable-city" placeholder="Ex: Le Teich" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="true" enterkeyhint="next">
         </div>
         <div class="form-group practitioner-only">
           <label for="animal-form-stable-distance">Distance depuis domicile (km)</label>
-          <input type="number" id="animal-form-stable-distance" min="0" placeholder="Ex: 25">
+          <input type="number" id="animal-form-stable-distance" min="0" placeholder="Ex: 25" autocomplete="off" autocorrect="off" autocapitalize="none" enterkeyhint="next">
         </div>
       </div>
 
@@ -1982,7 +1982,7 @@
             <option value="Box + Paddock (Paddock = petite surface)">Box + Paddock (Paddock = petite surface)</option>
             <option value="Autre">Autre</option>
           </select>
-          <input type="text" id="animal-form-housing-type-other" placeholder="Précisez l'hébergement..." style="display: none; margin-top: 5px;">
+          <input type="text" id="animal-form-housing-type-other" placeholder="Précisez l'hébergement..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next" style="display: none; margin-top: 5px;">
         </div>
         <div class="form-group" id="group-social-type">
           <label for="animal-form-social-type">Vie sociale / Cohabitation</label>
@@ -2004,7 +2004,7 @@
             <option value="4x par an">4x par an</option>
             <option value="Autre">Autre</option>
           </select>
-          <input type="text" id="animal-form-tracking-mode-other" placeholder="Précisez le suivi..." style="display: none; margin-top: 5px;">
+          <input type="text" id="animal-form-tracking-mode-other" placeholder="Précisez le suivi..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next" style="display: none; margin-top: 5px;">
         </div>
       </div>
 
@@ -2016,22 +2016,22 @@
         </div>
         <div class="form-group">
           <label for="animal-form-nutrition-details">Alimentation (ration/type)</label>
-          <input type="text" id="animal-form-nutrition-details" placeholder="Ex: Foin à volonté + 2L d'orge...">
+          <input type="text" id="animal-form-nutrition-details" placeholder="Ex: Foin à volonté + 2L d'orge..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
         </div>
       </div>
 
       <!-- Grid: Travail & Problématiques -->
       <div class="form-group" id="group-work-objective">
         <label for="animal-form-work-objective">Travail et objectif</label>
-        <input type="text" id="animal-form-work-objective" placeholder="Ex: 5j/semaine - CCE Amateur 2">
+        <input type="text" id="animal-form-work-objective" placeholder="Ex: 5j/semaine - CCE Amateur 2" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
       </div>
       <div class="form-group" id="group-lifestyle-details" style="display: none;">
         <label for="animal-form-lifestyle-details">Précisions mode de vie / activité</label>
-        <textarea id="animal-form-lifestyle-details" rows="2" placeholder="Mode de vie, habitudes, activité / travail..."></textarea>
+        <textarea id="animal-form-lifestyle-details" rows="2" placeholder="Mode de vie, habitudes, activité / travail..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
       </div>
       <div class="form-group">
         <label for="animal-form-main-problems">Problématique(s) principale(s)</label>
-        <textarea id="animal-form-main-problems" rows="2" placeholder="Ex: Sensibilité dos, raideur à gauche..."></textarea>
+        <textarea id="animal-form-main-problems" rows="2" placeholder="Ex: Sensibilité dos, raideur à gauche..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
       </div>
 
       <!-- Historique Médical & Pathologique Structuré -->
@@ -2100,16 +2100,16 @@
             <option value="Saddle Fitter">Saddle Fitter</option>
             <option value="Autre">Autre</option>
           </select>
-          <input type="text" id="prof-form-specialty-other" placeholder="Précisez la spécialité..." style="display: none; margin-top: 5px;">
+          <input type="text" id="prof-form-specialty-other" placeholder="Précisez la spécialité..." style="display: none; margin-top: 5px;" autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
         </div>
         <div class="form-group">
           <label for="prof-form-phone">Téléphone</label>
-          <input type="tel" id="prof-form-phone" inputmode="numeric" pattern="[0-9 ]*" placeholder="06 00 00 00 00">
+          <input type="tel" id="prof-form-phone" inputmode="numeric" pattern="[0-9 ]*" placeholder="06 00 00 00 00" autocomplete="off" autocorrect="off" enterkeyhint="next">
         </div>
       </div>
       <div class="form-group">
         <label for="prof-form-notes">Commentaires et notes professionnelles</label>
-        <textarea id="prof-form-notes" rows="2" placeholder="Ex: Travaille uniquement sur Rambouillet, réputation..."></textarea>
+        <textarea id="prof-form-notes" rows="2" placeholder="Ex: Travaille uniquement sur Rambouillet, réputation..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
       </div>
       <!-- Section: Animaux suivis par ce professionnel -->
       <div class="form-group" style="margin-top: 15px;">
@@ -2233,7 +2233,7 @@
 
       <div class="form-group" id="reminder-form-custom-title-group" style="display: none;">
         <label for="reminder-form-title">Précisez le type de rappel <span class="required">*</span></label>
-        <input type="text" id="reminder-form-title" placeholder="Ex: Visite de contrôle, Facturation, Soin spécifique...">
+        <input type="text" id="reminder-form-title" placeholder="Ex: Visite de contrôle, Facturation, Soin spécifique..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
       </div>
 
       <div class="form-grid-2">
@@ -2255,12 +2255,12 @@
 
       <div class="form-group">
         <label for="reminder-form-date">Date d'échéance <span class="required">*</span></label>
-        <input type="date" id="reminder-form-date" required>
+        <input type="date" id="reminder-form-date" enterkeyhint="next" required>
       </div>
 
       <div class="form-group">
         <label for="reminder-form-notes">Note de rappel</label>
-        <textarea id="reminder-form-notes" rows="3" placeholder="Notes additionnelles ou précisions sur le rappel..."></textarea>
+        <textarea id="reminder-form-notes" rows="3" placeholder="Notes additionnelles ou précisions sur le rappel..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
       </div>
 
       <div class="dialog-actions">
@@ -2307,22 +2307,22 @@
 
       <div class="form-group" id="group-ext-session-profession-other" style="display: none;">
         <label for="ext-session-profession-other">Préciser la spécialité <span class="required">*</span></label>
-        <input type="text" id="ext-session-profession-other" placeholder="Ex: Acupuncteur, Phytothérapeute...">
+        <input type="text" id="ext-session-profession-other" placeholder="Ex: Acupuncteur, Phytothérapeute..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
       </div>
 
       <div class="form-group">
         <label for="ext-session-practitioner">Nom du praticien</label>
-        <input type="text" id="ext-session-practitioner" placeholder="Ex: Dr Martin, Jean Dupont...">
+        <input type="text" id="ext-session-practitioner" placeholder="Ex: Dr Martin, Jean Dupont..." autocomplete="off" autocorrect="on" autocapitalize="words" spellcheck="false" enterkeyhint="next">
       </div>
 
       <div class="form-group">
         <label for="ext-session-motif">Motif de la séance</label>
-        <input type="text" id="ext-session-motif" placeholder="Ex: Boiterie, contrôle annuel, parage...">
+        <input type="text" id="ext-session-motif" placeholder="Ex: Boiterie, contrôle annuel, parage..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next">
       </div>
 
       <div class="form-group">
         <label for="ext-session-summary">Résumé / Observations / Prescriptions</label>
-        <textarea id="ext-session-summary" rows="4" placeholder="Compte-rendu, observations ou recommandations du praticien..."></textarea>
+        <textarea id="ext-session-summary" rows="4" placeholder="Compte-rendu, observations ou recommandations du praticien..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter"></textarea>
       </div>
 
       <div class="form-group">
@@ -3080,13 +3080,13 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.28"></script>
+  <script type="module" src="app.js?v=1.6.29"></script>
 
   <!-- Service Worker PWA -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1.6.28')
+        navigator.serviceWorker.register('./sw.js?v=1.6.29')
           .then((reg) => {
             console.log('[PWA] Service Worker actif (scope:', reg.scope, ')');
           })

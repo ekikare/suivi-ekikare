@@ -58,6 +58,29 @@
   scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
 }
 
+/* PROTECTION TACTILE (STYLET / TABLETTE) : élimine le délai de 300ms, les doubles taps parasites et le scrolling involontaire de la paume */
+button,
+.btn,
+[role="button"],
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+.nav-item,
+.tab-btn,
+.tab-item,
+.clickable,
+.reminder-item,
+.timeline-item,
+.card-clickable,
+.btn-close-dialog,
+.btn-cancel-dialog,
+.btn-small,
+.protocol-header,
+.filter-tab,
+.action-card {
+  touch-action: manipulation;
+}
+
 body {
   background-color: var(--bg-app);
   color: var(--text-main);
@@ -1186,6 +1209,7 @@ body {
   font-size: 0.95rem;
   outline: none;
   transition: all var(--transition-speed);
+  touch-action: manipulation;
 }
 
 .form-group textarea {

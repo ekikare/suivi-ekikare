@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.28';
+} from './db.js?v=1.6.29';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.28';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.29';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -283,6 +283,140 @@ const FormSanitizer = {
 };
 window.FormSanitizer = FormSanitizer;
 
+// --- OPTIMISATION SAISIE STYLET / CLAVIER VIRTUEL (GBOARD) ---
+
+/**
+ * Configure les attributs nécessaires à la reconnaissance des gestes manuscrits Gboard
+ * et à la navigation par le clavier virtuel sur les inputs et textareas.
+ * @param {HTMLElement|Document} root
+ */
+function enhanceInputsForGboard(root = document) {
+  if (!root || !root.querySelectorAll) return;
+
+  // 1. Inputs à ligne unique
+  const singleLineInputs = root.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="image"])');
+  singleLineInputs.forEach(input => {
+    // enterkeyhint="next" pour indiquer à Gboard d'afficher la flèche "Suivant"
+    if (!input.hasAttribute('enterkeyhint')) {
+      input.setAttribute('enterkeyhint', 'next');
+    }
+    // autocomplete="off" pour éviter les popups bloquant l'écriture au stylet
+    if (!input.hasAttribute('autocomplete') && input.type !== 'password') {
+      input.setAttribute('autocomplete', 'off');
+    }
+    input.setAttribute('spellcheck', 'true');
+
+    const type = (input.type || 'text').toLowerCase();
+    if (['number', 'tel', 'date', 'time', 'datetime-local'].includes(type) || input.id === 'client-form-phone' || input.id === 'prof-form-phone') {
+      input.setAttribute('autocorrect', 'off');
+      input.setAttribute('autocapitalize', 'none');
+    } else if (type === 'email') {
+      input.setAttribute('autocorrect', 'off');
+      input.setAttribute('autocapitalize', 'none');
+    } else if (input.id === 'animal-form-id-number' || input.id === 'client-form-lastname' || input.id === 'prof-form-lastname' || input.id === 'animal-form-stable-city' || input.id === 'client-form-stable-city') {
+      input.setAttribute('autocorrect', 'off');
+      input.setAttribute('autocapitalize', 'characters');
+    } else {
+      input.setAttribute('autocorrect', 'on');
+      if (!input.hasAttribute('autocapitalize')) {
+        input.setAttribute('autocapitalize', 'sentences');
+      }
+    }
+  });
+
+  // 2. Zones de texte multi-lignes
+  const textareas = root.querySelectorAll('textarea');
+  textareas.forEach(textarea => {
+    // enterkeyhint="enter" pour conserver le saut de ligne normal
+    if (!textarea.hasAttribute('enterkeyhint')) {
+      textarea.setAttribute('enterkeyhint', 'enter');
+    }
+    if (!textarea.hasAttribute('autocomplete')) {
+      textarea.setAttribute('autocomplete', 'off');
+    }
+    textarea.setAttribute('autocorrect', 'on');
+    if (!textarea.hasAttribute('autocapitalize')) {
+      textarea.setAttribute('autocapitalize', 'sentences');
+    }
+    textarea.setAttribute('spellcheck', 'true');
+  });
+}
+
+/**
+ * Empêche la soumission involontaire du formulaire lors de l'appui sur "Entrée"
+ * sur les champs à ligne unique et déplace automatiquement le focus sur le champ suivant.
+ */
+function initEnterKeyNavigation() {
+  document.addEventListener('keydown', (e) => {
+    // Uniquement la touche Entrée sans touches modificatrices
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+
+    const target = e.target;
+    if (!target || target.tagName !== 'INPUT') return;
+
+    const type = (target.type || 'text').toLowerCase();
+    const excludedTypes = ['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'hidden', 'image', 'range', 'color'];
+    if (excludedTypes.includes(type)) return;
+
+    // Empêcher impérativement la soumission involontaire
+    e.preventDefault();
+
+    // Si c'est un champ de recherche autonome (sans formulaire avec d'autres champs à remplir)
+    if (target.classList.contains('search-input') || target.id.includes('search')) {
+      target.blur();
+      return;
+    }
+
+    // Trouver le conteneur du formulaire ou de la modale
+    const container = target.closest('form') || target.closest('dialog') || target.closest('.modal-content') || target.closest('.app-dialog') || target.closest('.glass-card') || document.body;
+
+    // Sélecteur de tous les champs interactifs éligibles
+    const selector = 'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]):not([readonly])';
+
+    const allFields = Array.from(container.querySelectorAll(selector)).filter(el => {
+      if (el.disabled || el.readOnly) return false;
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return style.display !== 'none' && style.visibility !== 'hidden' && (rect.width > 0 || rect.height > 0);
+    });
+
+    const currentIndex = allFields.indexOf(target);
+    if (currentIndex !== -1 && currentIndex < allFields.length - 1) {
+      const nextField = allFields[currentIndex + 1];
+      nextField.focus();
+      if (typeof nextField.scrollIntoView === 'function') {
+        nextField.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    } else {
+      // Fin de formulaire : quitter le focus pour fermer le clavier virtuel
+      target.blur();
+    }
+  }, true); // Capture phase pour intercepter avant les handlers 'submit' du DOM
+}
+
+/**
+ * Active l'observation des mutations du DOM pour configurer dynamiquement tous les nouveaux inputs/textareas.
+ */
+function setupStylusInputObserver() {
+  enhanceInputsForGboard(document);
+  initEnterKeyNavigation();
+
+  if (typeof MutationObserver !== 'undefined') {
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.addedNodes && m.addedNodes.length > 0) {
+          for (const node of m.addedNodes) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              enhanceInputsForGboard(node);
+            }
+          }
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+}
+
 // Motifs d'archivage par défaut
 const DEFAULT_CLIENT_ARCHIVE_REASONS = [
   "Déménagement",
@@ -394,6 +528,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   populateSpecialtyDropdown();
   setupDateHeader();
   FormSanitizer.initBlurListeners();
+  setupStylusInputObserver();
   
   // Migration automatique des UUIDs pour les clients existants (réservée au praticien)
   if (isPractitionerUnlocked()) {
@@ -4340,7 +4475,7 @@ function addReminderRow(data = null) {
       
       <div class="form-group custom-date-field" style="margin-bottom: 0; display: ${delayVal === 'custom' ? 'block' : 'none'};">
         <label style="font-size:0.85rem; font-weight:500;">Date prévue <span style="color:var(--color-danger)">*</span></label>
-        <input type="date" class="reminder-item-date" data-index="${idx}" value="${dateVal}" style="padding: 8px; font-size:0.85rem; width:100%;">
+        <input type="date" class="reminder-item-date" data-index="${idx}" value="${dateVal}" enterkeyhint="next" style="padding: 8px; font-size:0.85rem; width:100%;">
       </div>
       
       <div class="form-group" style="margin-bottom: 0;">
@@ -4351,16 +4486,18 @@ function addReminderRow(data = null) {
           <option value="Autre" ${selectedType === 'Autre' ? 'selected' : ''}>Autre</option>
         </select>
         <div class="reminder-item-custom-type-group" style="margin-top: 8px; display: ${selectedType === 'Autre' ? 'block' : 'none'};">
-          <input type="text" class="reminder-item-custom-type" data-index="${idx}" value="${escapeHtml(customTypeVal)}" placeholder="Précisez le type de rappel..." style="padding: 8px; font-size:0.85rem; width:100%;">
+          <input type="text" class="reminder-item-custom-type" data-index="${idx}" value="${escapeHtml(customTypeVal)}" placeholder="Précisez le type de rappel..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next" style="padding: 8px; font-size:0.85rem; width:100%;">
         </div>
       </div>
     </div>
     
     <div class="form-group" style="margin-top: 15px; margin-bottom: 0;">
       <label style="font-size:0.85rem; font-weight:500;">Note de rappel</label>
-      <input type="text" class="reminder-item-notes" data-index="${idx}" value="${escapeHtml(notesVal)}" placeholder="Ex: Prendre des nouvelles du postérieur droit..." style="padding: 8px; font-size:0.85rem; width:100%;">
+      <input type="text" class="reminder-item-notes" data-index="${idx}" value="${escapeHtml(notesVal)}" placeholder="Ex: Prendre des nouvelles du postérieur droit..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next" style="padding: 8px; font-size:0.85rem; width:100%;">
     </div>
   `;
+  
+  enhanceInputsForGboard(row);
   
   // Handle delay change
   const delaySelect = row.querySelector('.reminder-item-delay');
