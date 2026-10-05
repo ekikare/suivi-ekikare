@@ -6708,29 +6708,35 @@ animals.forEach(an => {
   };
 
   // Forcer la mise à jour de l'application et purger les caches du navigateur
-  const btnForceCache = document.getElementById('btn-force-cache-update');
-  if (btnForceCache) {
-    btnForceCache.onclick = async () => {
-      showToast('Purge du cache et mise à jour de l\'application en cours...', 'info');
-      try {
-        // 1. Vider les caches du navigateur
-        if ('caches' in window) {
-          const keys = await caches.keys();
-          await Promise.all(keys.map(k => caches.delete(k)));
-        }
-        // 2. Désinscrire et réactualiser le Service Worker
-        if ('serviceWorker' in navigator) {
-          const registrations = await navigator.serviceWorker.getRegistrations();
-          await Promise.all(registrations.map(r => r.unregister()));
-        }
-      } catch (err) {
-        console.error('Erreur lors de la purge du cache:', err);
+  const handleForceCacheRefresh = async () => {
+    showToast('Purge du cache et mise à jour de l\'application en cours...', 'info');
+    try {
+      // 1. Vider les caches du navigateur
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
       }
-      // 3. Recharger la page brutalement
-      setTimeout(() => {
-        window.location.reload(true);
-      }, 400);
-    };
+      // 2. Désinscrire et réactualiser le Service Worker
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map(r => r.unregister()));
+      }
+    } catch (err) {
+      console.error('Erreur lors de la purge du cache:', err);
+    }
+    // 3. Recharger la page brutalement
+    setTimeout(() => {
+      window.location.reload(true);
+    }, 400);
+  };
+
+  const btnForceCacheRefresh = document.getElementById('btn-force-cache-refresh');
+  if (btnForceCacheRefresh) {
+    btnForceCacheRefresh.onclick = handleForceCacheRefresh;
+  }
+  const btnForceCacheUpdate = document.getElementById('btn-force-cache-update');
+  if (btnForceCacheUpdate) {
+    btnForceCacheUpdate.onclick = handleForceCacheRefresh;
   }
 }
 
