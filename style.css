@@ -84,6 +84,7 @@ input[type="reset"],
 /* COMPATIBILITÉ GESTES GBOARD & STYLET : autoriser les gestes tactiles et stylet sur les champs */
 input,
 textarea,
+select,
 [contenteditable="true"] {
   touch-action: auto !important;
   user-select: text !important;
@@ -94,8 +95,11 @@ textarea,
 .form-grid-2,
 .form-grid-3,
 .app-dialog,
+.modal-content,
+.modal-backdrop,
+dialog,
 form {
-  touch-action: auto;
+  touch-action: auto !important;
   -webkit-user-select: auto;
   user-select: auto;
 }

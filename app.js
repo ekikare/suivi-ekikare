@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.32';
+} from './db.js?v=1.6.33';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.32';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.33';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -233,29 +233,10 @@ const FormSanitizer = {
   },
 
   /**
-   * Attache un écouteur sur l'événement 'input' qui formate le téléphone à la volée.
-   * @param {HTMLInputElement|string} inputOrId
-   */
-  attachPhoneInput(inputOrId) {
-    const el = typeof inputOrId === 'string' ? document.getElementById(inputOrId) : inputOrId;
-    if (!el || el.dataset.phoneInputAttached === 'true') return;
-    el.dataset.phoneInputAttached = 'true';
-    el.addEventListener('input', (e) => {
-      let digits = e.target.value.replace(/\D/g, '');
-      if (digits.startsWith('33')) digits = '0' + digits.slice(2);
-      digits = digits.slice(0, 10);
-      e.target.value = digits.replace(/(\d{2})(?=\d)/g, '$1 ');
-    });
-  },
-
-  /**
-   * Initialise les écouteurs de blur et input sur tous les champs cibles des formulaires clients, animaux, professionnels.
+   * Initialise les écouteurs de blur sur tous les champs cibles des formulaires clients, animaux, professionnels.
+   * Ne modifie jamais .value pendant la saisie pour ne pas casser le canal de gestes Gboard.
    */
   initBlurListeners() {
-    // Saisie téléphone à la volée (clients et professionnels)
-    this.attachPhoneInput('client-form-phone');
-    this.attachPhoneInput('prof-form-phone');
-
     // Formulaire Client
     this.attachBlur('client-form-lastname', this.formatUpperCase);
     this.attachBlur('client-form-firstname', this.formatCapitalize);
@@ -339,7 +320,7 @@ function enhanceInputsForGboard(root = document) {
     textarea.dataset.gboardEnhanced = 'true';
 
     // Gestes manuscrits Gboard complets (rayer, entourer, insérer)
-    if (!textarea.hasAttribute('inputmode')) textarea.setAttribute('inputmode', 'text');
+    // Ne pas forcer inputmode="text" sur textarea pour préserver le comportement multi-ligne natif de Gboard
     if (!textarea.hasAttribute('enterkeyhint')) textarea.setAttribute('enterkeyhint', 'enter');
     textarea.setAttribute('autocomplete', 'off');
     textarea.setAttribute('autocorrect', 'off');
@@ -381,15 +362,17 @@ let lastExplicitSubmitClickTime = 0;
 
 function initModalSubmitProtection() {
   const markExplicitSubmit = (e) => {
-    const btn = e.target.closest('button[type="submit"], input[type="submit"]');
+    // Ne pas intercepter ni interférer si la cible est un champ de saisie
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+      return;
+    }
+    const btn = e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]');
     if (btn) {
       lastExplicitSubmitClickTime = Date.now();
     }
   };
 
   document.addEventListener('click', markExplicitSubmit, true);
-  document.addEventListener('pointerup', markExplicitSubmit, true);
-  document.addEventListener('touchend', markExplicitSubmit, true);
 
   // Intercepter tout événement submit en phase de capture
   document.addEventListener('submit', (e) => {
@@ -1796,7 +1779,8 @@ function openPermanentDeleteDialog(type, record) {
   confirmBtn.style.opacity = '0.5';
   confirmBtn.style.cursor = 'not-allowed';
 
-  input.oninput = () => {
+  input.oninput = (e) => {
+    if (e && e.isComposing) return;
     if (input.value.trim().toUpperCase() === 'SUPPRIMER') {
       confirmBtn.disabled = false;
       confirmBtn.style.opacity = '1';
@@ -1916,7 +1900,10 @@ async function renderClientsList() {
   const searchInput = document.getElementById('client-search-input');
   if (searchInput && !searchInput.dataset.listener) {
     searchInput.dataset.listener = 'true';
-    searchInput.addEventListener('input', renderClientsList);
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderClientsList();
+    });
   }
   const filterVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
@@ -2353,7 +2340,10 @@ async function renderAnimalsList() {
   const searchInput = document.getElementById('animal-search-input');
   if (searchInput && !searchInput.dataset.listener) {
     searchInput.dataset.listener = 'true';
-    searchInput.addEventListener('input', renderAnimalsList);
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderAnimalsList();
+    });
   }
   const speciesFilter = document.getElementById('animal-species-filter');
   if (speciesFilter && !speciesFilter.dataset.listener) {
@@ -3268,7 +3258,10 @@ async function renderTournee() {
   const searchInput = document.getElementById('tournee-search-input');
   if (searchInput && !searchInput.dataset.listener) {
     searchInput.dataset.listener = 'true';
-    searchInput.addEventListener('input', renderTournee);
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderTournee();
+    });
   }
   const filterVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
@@ -3693,7 +3686,10 @@ async function renderSessionsList() {
   const searchInput = document.getElementById('session-search-input');
   if (searchInput && !searchInput.dataset.listener) {
     searchInput.dataset.listener = 'true';
-    searchInput.addEventListener('input', renderSessionsList);
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderSessionsList();
+    });
   }
   const filterVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
@@ -4413,6 +4409,7 @@ function buildQuestionnaireInputs(containerId, data = null, compareData = null) 
     if (containerId === 'q-avant-seance-container') {
       const textarea = card.querySelector('textarea');
       textarea.addEventListener('input', (e) => {
+        if (e && e.isComposing) return;
         const val = e.target.value.trim();
         const targetIds = ['q-3-semaines-container', 'q-followup-dialog-container'];
         targetIds.forEach(targetId => {
@@ -6262,7 +6259,10 @@ async function renderProfessionalsList() {
   const searchInput = document.getElementById('prof-search-input');
   if (searchInput && !searchInput.dataset.listener) {
     searchInput.dataset.listener = 'true';
-    searchInput.addEventListener('input', renderProfessionalsList);
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderProfessionalsList();
+    });
   }
   const filterVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
@@ -6348,7 +6348,10 @@ async function renderRemindersList() {
   const searchInput = document.getElementById('reminder-search-input');
   if (searchInput && !searchInput.dataset.listener) {
     searchInput.dataset.listener = 'true';
-    searchInput.addEventListener('input', renderRemindersList);
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderRemindersList();
+    });
   }
   const filterVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
@@ -7431,7 +7434,8 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
 
   const nameInput = document.getElementById('animal-form-stable-name');
   if (nameInput) {
-    nameInput.oninput = () => {
+    nameInput.oninput = (e) => {
+      if (e && e.isComposing) return;
       const val = nameInput.value.trim().toLowerCase();
       const match = knownStables.find(s => s.name.toLowerCase() === val);
       if (match) {
@@ -8111,7 +8115,10 @@ async function openProfessionalDialog(prof = null) {
   };
 
   if (animalSearchInput) {
-    animalSearchInput.oninput = renderFormAnimals;
+    animalSearchInput.oninput = (e) => {
+      if (e && e.isComposing) return;
+      renderFormAnimals();
+    };
   }
 
   renderFormAnimals();
@@ -8619,7 +8626,10 @@ async function openAssociateProfsDialog(animal) {
   };
 
   if (searchInput) {
-    searchInput.oninput = renderList;
+    searchInput.oninput = (e) => {
+      if (e && e.isComposing) return;
+      renderList();
+    };
   }
 
   // Quick professional creation dialog hook
