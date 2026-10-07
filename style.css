@@ -81,12 +81,13 @@ input[type="reset"],
   touch-action: manipulation;
 }
 
-/* COMPATIBILITÉ GESTES GBOARD & STYLET : ne jamais bloquer la sélection sur les zones de texte */
+/* COMPATIBILITÉ GESTES GBOARD & STYLET : autoriser les gestes tactiles et stylet sur les champs */
 input,
 textarea,
 [contenteditable="true"] {
-  -webkit-user-select: text !important;
+  touch-action: auto !important;
   user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .form-group,
@@ -94,6 +95,7 @@ textarea,
 .form-grid-3,
 .app-dialog,
 form {
+  touch-action: auto;
   -webkit-user-select: auto;
   user-select: auto;
 }
@@ -1226,7 +1228,6 @@ body {
   font-size: 0.95rem;
   outline: none;
   transition: all var(--transition-speed);
-  touch-action: manipulation;
 }
 
 .form-group textarea {

@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.31';
+} from './db.js?v=1.6.32';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.31';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.32';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -307,7 +307,8 @@ function enhanceInputsForGboard(root = document) {
     if (!input.hasAttribute('autocomplete') && input.type !== 'password') {
       input.setAttribute('autocomplete', 'off');
     }
-    input.setAttribute('spellcheck', 'true');
+    input.setAttribute('spellcheck', 'false');
+    input.setAttribute('autocorrect', 'off');
 
     const type = (input.type || 'text').toLowerCase();
 
@@ -319,16 +320,12 @@ function enhanceInputsForGboard(root = document) {
     }
 
     if (['number', 'tel', 'date', 'time', 'datetime-local'].includes(type) || input.id === 'client-form-phone' || input.id === 'prof-form-phone') {
-      input.setAttribute('autocorrect', 'off');
       input.setAttribute('autocapitalize', 'none');
     } else if (type === 'email') {
-      input.setAttribute('autocorrect', 'off');
       input.setAttribute('autocapitalize', 'none');
     } else if (input.id === 'animal-form-id-number' || input.id === 'client-form-lastname' || input.id === 'prof-form-lastname' || input.id === 'animal-form-stable-city' || input.id === 'client-form-stable-city') {
-      input.setAttribute('autocorrect', 'off');
       input.setAttribute('autocapitalize', 'characters');
     } else {
-      input.setAttribute('autocorrect', 'on');
       if (!input.hasAttribute('autocapitalize')) {
         input.setAttribute('autocapitalize', 'sentences');
       }
@@ -344,10 +341,10 @@ function enhanceInputsForGboard(root = document) {
     // Gestes manuscrits Gboard complets (rayer, entourer, insérer)
     if (!textarea.hasAttribute('inputmode')) textarea.setAttribute('inputmode', 'text');
     if (!textarea.hasAttribute('enterkeyhint')) textarea.setAttribute('enterkeyhint', 'enter');
-    if (!textarea.hasAttribute('autocomplete')) textarea.setAttribute('autocomplete', 'off');
-    if (!textarea.hasAttribute('autocorrect')) textarea.setAttribute('autocorrect', 'on');
+    textarea.setAttribute('autocomplete', 'off');
+    textarea.setAttribute('autocorrect', 'off');
+    textarea.setAttribute('spellcheck', 'false');
     if (!textarea.hasAttribute('autocapitalize')) textarea.setAttribute('autocapitalize', 'sentences');
-    textarea.setAttribute('spellcheck', 'true');
   });
 
   // 3. Attacher la prévention anti-submit sur les formulaires du fragment
