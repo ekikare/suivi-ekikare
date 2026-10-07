@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.30';
+} from './db.js?v=1.6.31';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.30';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.31';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -296,6 +296,9 @@ function enhanceInputsForGboard(root = document) {
   // 1. Inputs à ligne unique
   const singleLineInputs = root.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="image"])');
   singleLineInputs.forEach(input => {
+    if (input.dataset.gboardEnhanced === 'true') return;
+    input.dataset.gboardEnhanced = 'true';
+
     // enterkeyhint="next" pour indiquer à Gboard d'afficher la flèche "Suivant"
     if (!input.hasAttribute('enterkeyhint')) {
       input.setAttribute('enterkeyhint', 'next');
@@ -335,82 +338,41 @@ function enhanceInputsForGboard(root = document) {
   // 2. Zones de texte multi-lignes
   const textareas = root.querySelectorAll('textarea');
   textareas.forEach(textarea => {
+    if (textarea.dataset.gboardEnhanced === 'true') return;
+    textarea.dataset.gboardEnhanced = 'true';
+
     // Gestes manuscrits Gboard complets (rayer, entourer, insérer)
-    textarea.setAttribute('inputmode', 'text');
-    textarea.setAttribute('enterkeyhint', 'enter');
-    if (!textarea.hasAttribute('autocomplete')) {
-      textarea.setAttribute('autocomplete', 'off');
-    }
-    textarea.setAttribute('autocorrect', 'on');
-    if (!textarea.hasAttribute('autocapitalize')) {
-      textarea.setAttribute('autocapitalize', 'sentences');
-    }
+    if (!textarea.hasAttribute('inputmode')) textarea.setAttribute('inputmode', 'text');
+    if (!textarea.hasAttribute('enterkeyhint')) textarea.setAttribute('enterkeyhint', 'enter');
+    if (!textarea.hasAttribute('autocomplete')) textarea.setAttribute('autocomplete', 'off');
+    if (!textarea.hasAttribute('autocorrect')) textarea.setAttribute('autocorrect', 'on');
+    if (!textarea.hasAttribute('autocapitalize')) textarea.setAttribute('autocapitalize', 'sentences');
     textarea.setAttribute('spellcheck', 'true');
   });
+
+  // 3. Attacher la prévention anti-submit sur les formulaires du fragment
+  setupFormEnterKeyPrevention(root);
 }
 
 /**
- * Déplace automatiquement le focus sur le champ interactif suivant du formulaire/modale.
- * @param {HTMLElement} currentElement
+ * Empêche la soumission automatique sur Entrée sur les formulaires (<form>)
+ * UNIQUEMENT si l'utilisateur n'est pas dans un <textarea> et n'est pas en cours de composition IME (Gboard/stylet).
+ * N'effectue AUCUN blur() ni déplacement forcé de focus pour laisser le clavier/panneau d'écriture ouvert.
+ * @param {HTMLElement|Document} root
  */
-function switchToNextInputField(currentElement) {
-  if (!currentElement) return;
+function setupFormEnterKeyPrevention(root = document) {
+  const forms = root.querySelectorAll ? root.querySelectorAll('form') : [];
+  forms.forEach(form => {
+    if (form.dataset.enterPreventAttached === 'true') return;
+    form.dataset.enterPreventAttached = 'true';
 
-  // Trouver le conteneur du formulaire ou de la modale
-  const container = currentElement.closest('form') || currentElement.closest('dialog') || currentElement.closest('.modal-content') || currentElement.closest('.app-dialog') || currentElement.closest('.glass-card') || document.body;
-
-  // Sélecteur de tous les champs interactifs éligibles
-  const selector = 'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]):not([readonly])';
-
-  const allFields = Array.from(container.querySelectorAll(selector)).filter(el => {
-    if (el.disabled || el.readOnly) return false;
-    const rect = el.getBoundingClientRect();
-    const style = window.getComputedStyle(el);
-    return style.display !== 'none' && style.visibility !== 'hidden' && (rect.width > 0 || rect.height > 0);
+    form.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target && e.target.tagName !== 'TEXTAREA') {
+        if (e.isComposing || e.keyCode === 229) return; // Ignore la validation d'écriture manuscrite/Gboard
+        e.preventDefault(); // Empêche le submit intempestif
+      }
+    });
   });
-
-  const currentIndex = allFields.indexOf(currentElement);
-  if (currentIndex !== -1 && currentIndex < allFields.length - 1) {
-    const nextField = allFields[currentIndex + 1];
-    nextField.focus();
-    if (typeof nextField.scrollIntoView === 'function') {
-      nextField.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-  } else {
-    // Dernier champ : quitter le focus pour fermer le clavier virtuel
-    currentElement.blur();
-  }
-}
-
-/**
- * Empêche la soumission involontaire du formulaire lors de l'appui sur "Entrée" (ou code 13)
- * sur les balises <input> et bascule vers le champ interactif suivant.
- */
-function initEnterKeyNavigation() {
-  document.addEventListener('keydown', (e) => {
-    const isEnter = e.key === 'Enter' || e.keyCode === 13 || e.which === 13;
-    if (!isEnter || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
-
-    const target = e.target;
-    if (!target || target.tagName !== 'INPUT') return;
-
-    const type = (target.type || 'text').toLowerCase();
-    const excludedTypes = ['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'hidden', 'image', 'range', 'color'];
-    if (excludedTypes.includes(type)) return;
-
-    // Empêcher impérativement la soumission involontaire
-    e.preventDefault();
-    e.stopPropagation();
-
-    // Si c'est un champ de recherche autonome (sans formulaire avec d'autres champs à remplir)
-    if (target.classList.contains('search-input') || target.id.includes('search')) {
-      target.blur();
-      return;
-    }
-
-    // Basculer vers le champ interactif suivant
-    switchToNextInputField(target);
-  }, true); // Capture phase pour intercepter avant les handlers 'submit' du DOM
 }
 
 /**
@@ -461,8 +423,18 @@ function initModalSubmitProtection() {
  */
 function setupStylusInputObserver() {
   enhanceInputsForGboard(document);
-  initEnterKeyNavigation();
+  setupFormEnterKeyPrevention(document);
   initModalSubmitProtection();
+
+  // Écouteur global sur document (phase de bouillonnement, sans aucun blur forcé)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target && e.target.tagName !== 'TEXTAREA') {
+      if (e.isComposing || e.keyCode === 229) return; // Ignore la validation d'écriture manuscrite/Gboard
+      if (e.target.tagName === 'INPUT' || e.target.closest('form')) {
+        e.preventDefault(); // Empêche le submit intempestif
+      }
+    }
+  });
 
   if (typeof MutationObserver !== 'undefined') {
     const observer = new MutationObserver((mutations) => {
@@ -471,6 +443,7 @@ function setupStylusInputObserver() {
           for (const node of m.addedNodes) {
             if (node.nodeType === Node.ELEMENT_NODE) {
               enhanceInputsForGboard(node);
+              setupFormEnterKeyPrevention(node);
             }
           }
         }
