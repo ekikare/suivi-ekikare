@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.33';
+} from './db.js?v=1.6.34';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.33';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.34';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -534,6 +534,20 @@ let currentDrawingColor = '#dc2626'; // default red (#dc2626)
 let currentBrushSize = 2;
 let canvasUndoHistory = []; // stores transparent states
 const MAX_UNDO_STATES = 20;
+
+// Variables pour le Zoom et Pan (Pinch-to-zoom & navigation à deux doigts)
+let canvasScale = 1.0;
+let canvasPanX = 0;
+let canvasPanY = 0;
+let isPinching = false;
+let pinchStartDist = 0;
+let pinchStartScale = 1.0;
+let pinchStartMidX = 0;
+let pinchStartMidY = 0;
+let pinchContentFocalX = 0;
+let pinchContentFocalY = 0;
+const activeCanvasPointers = new Map();
+let prePinchDrawingSnapshot = null;
 
 // --- INITIALISATION AU CHARGEMENT ---
 document.addEventListener('DOMContentLoaded', async () => {
@@ -4596,9 +4610,10 @@ async function prepareSessionEditor(param) {
     if (qHeader) qHeader.setAttribute('aria-expanded', 'true');
   }
 
-  // Réinitialiser le calque transparent du Canvas
+  // Réinitialiser le calque transparent du Canvas et la vue zoom/pan
   clearTransparentCanvas();
   canvasUndoHistory = [];
+  resetCanvasView(false);
 
   currentSessionId = null;
 
@@ -5219,34 +5234,231 @@ function setupCranioCheckboxListeners() {
   });
 }
 
-// --- LOGIQUE DU CANVAS D'ANNOTATION (DESSIN/GOMME) ---
+// --- FONCTIONS DE GESTION DU ZOOM ET PAN SUR LE CANVAS ---
+function applyCanvasTransform() {
+  const viewport = document.getElementById('canvas-viewport');
+  if (!viewport) return;
+  viewport.style.transform = `translate(${canvasPanX}px, ${canvasPanY}px) scale(${canvasScale})`;
+
+  const resetBtn = document.getElementById('btn-canvas-reset-zoom');
+  if (resetBtn) {
+    const isZoomedOrPanned = canvasScale !== 1.0 || Math.abs(canvasPanX) > 1 || Math.abs(canvasPanY) > 1;
+    resetBtn.classList.toggle('is-zoomed', isZoomedOrPanned);
+    resetBtn.innerHTML = `🔍 ${Math.round(canvasScale * 100)}%`;
+  }
+}
+
+function resetCanvasView(animate = true) {
+  canvasScale = 1.0;
+  canvasPanX = 0;
+  canvasPanY = 0;
+  isPinching = false;
+  activeCanvasPointers.clear();
+  prePinchDrawingSnapshot = null;
+
+  const viewport = document.getElementById('canvas-viewport');
+  if (viewport) {
+    if (animate) {
+      viewport.style.transition = 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)';
+      setTimeout(() => {
+        if (viewport) viewport.style.transition = '';
+      }, 250);
+    } else {
+      viewport.style.transition = '';
+    }
+  }
+  applyCanvasTransform();
+}
+
+function zoomCanvasAtPoint(clientX, clientY, zoomFactor) {
+  const container = document.getElementById('canvas-zoom-container') || (canvasElement && canvasElement.parentElement);
+  if (!container || !canvasElement) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const focalX = clientX - containerRect.left;
+  const focalY = clientY - containerRect.top;
+
+  const contentFocalX = (focalX - canvasPanX) / canvasScale;
+  const contentFocalY = (focalY - canvasPanY) / canvasScale;
+
+  const targetScale = Math.min(Math.max(canvasScale * zoomFactor, 1.0), 5.0);
+  if (targetScale === 1.0) {
+    canvasScale = 1.0;
+    canvasPanX = 0;
+    canvasPanY = 0;
+  } else {
+    canvasScale = targetScale;
+    let newPanX = focalX - contentFocalX * canvasScale;
+    let newPanY = focalY - contentFocalY * canvasScale;
+
+    const contW = containerRect.width;
+    const contH = containerRect.height;
+    const margin = 80;
+    const minPanX = contW * (1 - canvasScale) - margin;
+    const maxPanX = margin;
+    const minPanY = contH * (1 - canvasScale) - margin;
+    const maxPanY = margin;
+    canvasPanX = Math.min(Math.max(newPanX, minPanX), maxPanX);
+    canvasPanY = Math.min(Math.max(newPanY, minPanY), maxPanY);
+  }
+  applyCanvasTransform();
+}
+
+// --- LOGIQUE DU CANVAS D'ANNOTATION (DESSIN / GOMME / PINCH-TO-ZOOM) ---
 function setupCanvasListeners() {
   canvasElement = document.getElementById('annotation-canvas');
   if (!canvasElement) return;
   
   canvasCtx = canvasElement.getContext('2d');
+  const container = document.getElementById('canvas-zoom-container') || canvasElement.parentElement;
   
-  // Activer les événements unifiés PointerEvents (stylet, tactile, souris) avec capture précise
+  // Activer les événements unifiés PointerEvents (stylet, tactile multi-points, souris)
   if (window.PointerEvent) {
-    canvasElement.addEventListener('pointerdown', (e) => {
+    const handlePointerDown = (e) => {
+      // Ignorer si clic sur le bouton de réinitialisation du zoom
+      if (e.target && e.target.closest && e.target.closest('#btn-canvas-reset-zoom')) return;
+
       e.preventDefault();
       try { canvasElement.setPointerCapture(e.pointerId); } catch (err) {}
-      startDrawingEvent(e);
-    });
-    canvasElement.addEventListener('pointermove', (e) => {
-      if (!isDrawing) return;
+
+      activeCanvasPointers.set(e.pointerId, {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        pointerType: e.pointerType
+      });
+
+      if (activeCanvasPointers.size === 1) {
+        // 1 contact (doigt ou stylet pen) : mode DESSIN
+        if (!isPinching) {
+          // Sauvegarder l'état actuel de la toile pour pouvoir annuler un tracé parasite
+          // si un 2ème doigt se pose juste après pour pincer/zoomer
+          try {
+            prePinchDrawingSnapshot = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
+          } catch (err) {
+            prePinchDrawingSnapshot = null;
+          }
+          startDrawingEvent(e);
+        }
+      } else if (activeCanvasPointers.size >= 2) {
+        // 2 contacts ou plus : mode NAVIGATION (Pinch-to-zoom & Pan)
+        isPinching = true;
+
+        // Bloquer et annuler immédiatement tout tracé d'encre dès que 2 contacts sont détectés
+        if (isDrawing) {
+          isDrawing = false;
+          if (prePinchDrawingSnapshot) {
+            try {
+              canvasCtx.putImageData(prePinchDrawingSnapshot, 0, 0);
+            } catch (err) {}
+            prePinchDrawingSnapshot = null;
+          }
+        }
+
+        // Initialiser la géométrie du pincement
+        const pts = Array.from(activeCanvasPointers.values());
+        const p1 = pts[0];
+        const p2 = pts[1];
+        pinchStartDist = Math.hypot(p1.clientX - p2.clientX, p1.clientY - p2.clientY);
+        pinchStartScale = canvasScale;
+        pinchStartMidX = (p1.clientX + p2.clientX) / 2;
+        pinchStartMidY = (p1.clientY + p2.clientY) / 2;
+
+        const contRect = container.getBoundingClientRect();
+        const focalX = pinchStartMidX - contRect.left;
+        const focalY = pinchStartMidY - contRect.top;
+        pinchContentFocalX = (focalX - canvasPanX) / canvasScale;
+        pinchContentFocalY = (focalY - canvasPanY) / canvasScale;
+      }
+    };
+
+    const handlePointerMove = (e) => {
+      if (!activeCanvasPointers.has(e.pointerId)) return;
       e.preventDefault();
-      drawEvent(e);
-    });
-    canvasElement.addEventListener('pointerup', (e) => {
+
+      activeCanvasPointers.set(e.pointerId, {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        pointerType: e.pointerType
+      });
+
+      if (activeCanvasPointers.size >= 2 || isPinching) {
+        // Mode NAVIGATION : pincement pour zoomer + glisser à deux doigts pour déplacer la vue
+        const pts = Array.from(activeCanvasPointers.values());
+        if (pts.length >= 2 && pinchStartDist > 0) {
+          const p1 = pts[0];
+          const p2 = pts[1];
+          const currDist = Math.hypot(p1.clientX - p2.clientX, p1.clientY - p2.clientY);
+          const currMidX = (p1.clientX + p2.clientX) / 2;
+          const currMidY = (p1.clientY + p2.clientY) / 2;
+
+          const scaleRatio = currDist / pinchStartDist;
+          const targetScale = Math.min(Math.max(pinchStartScale * scaleRatio, 1.0), 5.0);
+          canvasScale = targetScale;
+
+          const contRect = container.getBoundingClientRect();
+          const currFocalX = currMidX - contRect.left;
+          const currFocalY = currMidY - contRect.top;
+
+          let newPanX = currFocalX - pinchContentFocalX * canvasScale;
+          let newPanY = currFocalY - pinchContentFocalY * canvasScale;
+
+          if (canvasScale === 1.0) {
+            newPanX = 0;
+            newPanY = 0;
+          } else {
+            const contW = contRect.width;
+            const contH = contRect.height;
+            const margin = 80;
+            const minPanX = contW * (1 - canvasScale) - margin;
+            const maxPanX = margin;
+            const minPanY = contH * (1 - canvasScale) - margin;
+            const maxPanY = margin;
+            newPanX = Math.min(Math.max(newPanX, minPanX), maxPanX);
+            newPanY = Math.min(Math.max(newPanY, minPanY), maxPanY);
+          }
+
+          canvasPanX = newPanX;
+          canvasPanY = newPanY;
+          applyCanvasTransform();
+        }
+      } else if (activeCanvasPointers.size === 1 && isDrawing && !isPinching) {
+        // Mode DESSIN fluide et précis
+        drawEvent(e);
+      }
+    };
+
+    const handlePointerUp = (e) => {
       try { canvasElement.releasePointerCapture(e.pointerId); } catch (err) {}
-      stopDrawingEvent();
+      activeCanvasPointers.delete(e.pointerId);
+
+      if (activeCanvasPointers.size === 0) {
+        if (isDrawing) {
+          stopDrawingEvent();
+        }
+        isPinching = false;
+        prePinchDrawingSnapshot = null;
+      } else if (activeCanvasPointers.size === 1) {
+        // Un doigt levé mais un autre reste en contact : on reste en mode navigation, pas de reprise de dessin
+        isDrawing = false;
+      }
+    };
+
+    canvasElement.addEventListener('pointerdown', handlePointerDown);
+    canvasElement.addEventListener('pointermove', handlePointerMove);
+    canvasElement.addEventListener('pointerup', handlePointerUp);
+    canvasElement.addEventListener('pointercancel', handlePointerUp);
+    canvasElement.addEventListener('pointerleave', handlePointerUp);
+
+    window.addEventListener('pointerup', (e) => {
+      if (activeCanvasPointers.has(e.pointerId)) {
+        handlePointerUp(e);
+      }
     });
-    canvasElement.addEventListener('pointercancel', (e) => {
-      try { canvasElement.releasePointerCapture(e.pointerId); } catch (err) {}
-      stopDrawingEvent();
+    window.addEventListener('pointercancel', (e) => {
+      if (activeCanvasPointers.has(e.pointerId)) {
+        handlePointerUp(e);
+      }
     });
-    canvasElement.addEventListener('pointerleave', stopDrawingEvent);
   } else {
     // Fallback pour anciens navigateurs sans PointerEvents
     canvasElement.addEventListener('mousedown', startDrawingEvent);
@@ -5256,15 +5468,38 @@ function setupCanvasListeners() {
     
     canvasElement.addEventListener('touchstart', (e) => {
       e.preventDefault();
-      startDrawingEvent(e);
+      if (e.touches.length === 1) {
+        startDrawingEvent(e);
+      }
     }, { passive: false });
     
     canvasElement.addEventListener('touchmove', (e) => {
       e.preventDefault();
-      drawEvent(e);
+      if (e.touches.length === 1 && isDrawing) {
+        drawEvent(e);
+      }
     }, { passive: false });
 
     canvasElement.addEventListener('touchend', stopDrawingEvent);
+  }
+
+  // Zoom à la molette / touchpad sur le conteneur
+  if (container) {
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+      zoomCanvasAtPoint(e.clientX, e.clientY, zoomFactor);
+    }, { passive: false });
+  }
+
+  // Bouton discret "Réinitialiser la vue (100%)"
+  const resetBtn = document.getElementById('btn-canvas-reset-zoom');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      resetCanvasView(true);
+    });
   }
 
   // Palette de couleur

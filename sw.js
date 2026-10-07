@@ -1,13 +1,13 @@
 // Service Worker eKiKare
-const CACHE_NAME = 'ekikare-cache-v1.6.33';
+const CACHE_NAME = 'ekikare-cache-v1.6.34';
 
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './style.css?v=1.6.33',
-  './app.js?v=1.6.33',
-  './db.js?v=1.6.33',
-  './sync-manager.js?v=1.6.33',
+  './style.css?v=1.6.34',
+  './app.js?v=1.6.34',
+  './db.js?v=1.6.34',
+  './sync-manager.js?v=1.6.34',
   './manifest.json',
   './favicon.ico',
   './assets/logo-icon.png',
