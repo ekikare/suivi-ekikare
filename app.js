@@ -26,10 +26,11 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings,
+  getDB,
   initDB
-} from './db.js?v=1.6.40';
+} from './db.js?v=1.6.41';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.40';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.41';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -38,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.40';
+export const APP_VERSION = 'v1.6.41';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7177,7 +7178,7 @@ async function resolveAttachmentResource(resource, fallbackType = '', fallbackNa
 
       // 1. Recherche dans IndexedDB
       try {
-        const db = await initDB();
+        const db = await (typeof initDB === 'function' ? initDB() : getDB());
         const candidateStores = ['sessions', 'attachments', 'files', 'documents', 'settings'];
         for (const sName of candidateStores) {
           if (db.objectStoreNames.contains(sName)) {

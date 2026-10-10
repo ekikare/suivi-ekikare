@@ -499,6 +499,8 @@ export function getDB() {
   });
 }
 
+export const initDB = getDB;
+
 /**
  * Récupère tous les éléments d'un magasin d'objets.
  * @param {string} storeName 
