@@ -2584,7 +2584,8 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
    OFFICIAL A4 PRINT SHEET IN MODAL
    ========================================================================== */
 #dialog-portal-session-cr,
-#dialog-preview-animal-dossier {
+#dialog-preview-animal-dossier,
+#dialog-document-viewer {
   background: rgba(15, 23, 42, 0.88) !important;
   backdrop-filter: blur(16px);
   border: 1px solid var(--glass-border);
@@ -2592,85 +2593,9 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   border-radius: 16px;
 }
 
-/* ==========================================================================
-   VISUALISEUR DE PIÈCES JOINTES & COMPTES-RENDUS JOINTS (FICHE ANIMAL / PORTAIL)
-   ========================================================================== */
-#dialog-document-viewer,
-.modal-document-viewer {
-  width: 95vw !important;
-  max-width: 900px;
-  max-height: 90vh !important;
-  max-height: 90dvh !important;
-  display: flex !important;
-  flex-direction: column !important;
-  margin: 10px auto !important;
-  box-sizing: border-box;
-  padding: 0 !important;
-  overflow: hidden !important;
-  border-radius: 16px;
-  position: relative;
-  background: rgba(15, 23, 42, 0.95) !important;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--glass-border);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-}
-
-#dialog-document-viewer[open],
-.modal-document-viewer[open] {
-  display: flex !important;
-}
-
-#dialog-document-viewer .dialog-header,
-.modal-document-viewer .dialog-header,
-.modal-document-viewer .modal-header {
-  position: sticky !important;
-  top: 0 !important;
-  z-index: 1050 !important;
-  background: rgba(15, 23, 42, 0.98) !important;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--glass-border);
-  padding: 12px 18px !important;
-  margin: 0 !important;
-  display: flex !important;
-  justify-content: space-between !important;
-  align-items: center !important;
-  flex-shrink: 0 !important;
-}
-
-#dialog-document-viewer .btn-close-dialog,
-#dialog-document-viewer .btn-close,
-#dialog-document-viewer .modal-close,
-.modal-document-viewer .btn-close,
-.modal-document-viewer .modal-close {
-  position: relative !important;
-  z-index: 1050 !important;
-  flex-shrink: 0 !important;
-  cursor: pointer !important;
-}
-
-#dialog-document-viewer #doc-viewer-body,
-.modal-pj-body,
-.attachment-preview {
-  flex: 1 1 auto !important;
-  overflow: auto !important;
-  -webkit-overflow-scrolling: touch !important;
-  box-sizing: border-box;
-  width: 100%;
-}
-
-.modal-pj-body img,
-.attachment-preview img,
-#dialog-document-viewer img {
-  max-width: 100% !important;
-  max-height: 70vh !important;
-  width: auto !important;
-  height: auto !important;
-  object-fit: contain !important;
-  display: block !important;
-  margin: 0 auto !important;
-  touch-action: pan-x pan-y pinch-zoom !important;
+/* Masquage strict par défaut tant qu'aucune action d'ouverture n'est déclenchée */
+#dialog-document-viewer:not([open]) {
+  display: none !important;
 }
 
 #dialog-portal-session-cr .official-a4-sheet,
@@ -4265,45 +4190,73 @@ dialog#dialog-cgv-rgpd:not([open]),
     padding: 12px !important;
     font-size: 0.88rem !important;
   }
+}
 
-  /* Responsive Visualiseur Pièces Jointes */
-  #dialog-document-viewer,
-  .modal-document-viewer {
+/* ==========================================================================
+   ISOLATION MOBILE STRICTE - VISUALISEUR DE PIÈCES JOINTES (MOBILE SEULEMENT <= 768px)
+   ========================================================================== */
+@media (max-width: 768px) {
+  #dialog-document-viewer {
     width: 95vw !important;
+    max-width: 95vw !important;
     max-height: 90vh !important;
     max-height: 90dvh !important;
     margin: 10px auto !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+  }
+
+  #dialog-document-viewer[open] {
     display: flex !important;
     flex-direction: column !important;
   }
 
-  #dialog-document-viewer .dialog-header,
-  .modal-document-viewer .dialog-header {
-    padding: 10px 12px !important;
-    gap: 8px !important;
+  #dialog-document-viewer .dialog-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 1050 !important;
+    background: rgba(15, 23, 42, 0.98) !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--glass-border);
+    padding: 10px 14px !important;
+    margin: 0 !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    flex-shrink: 0 !important;
   }
 
   #dialog-document-viewer #doc-viewer-title {
-    max-width: 120px;
+    max-width: 140px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 0.92rem !important;
+    font-size: 0.95rem !important;
   }
 
   #dialog-document-viewer .btn-close-dialog,
   #dialog-document-viewer .btn-close,
-  #dialog-document-viewer .modal-close,
-  .modal-document-viewer .btn-close,
-  .modal-document-viewer .modal-close {
+  #dialog-document-viewer .modal-close {
     position: relative !important;
     z-index: 1050 !important;
+    flex-shrink: 0 !important;
     padding: 4px 8px !important;
     font-size: 1.4rem !important;
     line-height: 1 !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    cursor: pointer !important;
+  }
+
+  #dialog-document-viewer #doc-viewer-body,
+  .modal-pj-body,
+  .attachment-preview {
+    flex: 1 1 auto !important;
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    padding: 10px !important;
   }
 
   .modal-pj-body img,

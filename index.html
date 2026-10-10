@@ -31,7 +31,7 @@
     }
   </script>
   <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="manifest.json?v=1.6.37">
+  <link rel="manifest" href="manifest.json?v=1.6.38">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,17 +39,17 @@
   <meta name="apple-mobile-web-app-title" content="eKiKare">
 
   <!-- Icons (Favicon & Touch Icons) -->
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.37">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.37">
-  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.37">
-  <link rel="shortcut icon" href="favicon.ico?v=1.6.37">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.37">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.38">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.38">
+  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.38">
+  <link rel="shortcut icon" href="favicon.ico?v=1.6.38">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.38">
 
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.37">
+  <link rel="stylesheet" href="style.css?v=1.6.38">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -106,7 +106,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <p class="app-version">eKiKare v1.6.37 &bull; Offline Database</p>
+        <p class="app-version">eKiKare v1.6.38 &bull; Offline Database</p>
       </div>
     </aside>
 
@@ -2363,16 +2363,16 @@
   </dialog>
 
   <!-- Modal Visualisation Document / Compte-Rendu Joint -->
-  <dialog class="app-dialog glass-card modal-document-viewer" id="dialog-document-viewer" style="width: 95vw; max-width: 900px; max-height: 90vh; max-height: 90dvh; display: flex; flex-direction: column; padding: 0; overflow: hidden; margin: 10px auto;">
-    <div class="dialog-header modal-header" style="position: sticky; top: 0; background: rgba(15, 23, 42, 0.96); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 1050; border-bottom: 1px solid var(--glass-border); padding: 12px 16px; margin: 0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
-      <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
-        <span style="font-size: 1.4rem; flex-shrink: 0;" id="doc-viewer-icon">📎</span>
-        <div style="min-width: 0;">
-          <h2 id="doc-viewer-title" style="margin: 0; font-size: 1.15rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Document joint</h2>
-          <p id="doc-viewer-subtitle" style="margin: 2px 0 0 0; font-size: 0.8rem; color: var(--text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</p>
+  <dialog class="app-dialog glass-card" id="dialog-document-viewer" style="max-width: 900px; width: 95%; max-height: 94vh; padding: 20px; overflow-y: auto;">
+    <div class="dialog-header" style="position: sticky; top: -20px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); z-index: 20; border-bottom: 1px solid var(--glass-border); padding: 12px 0; margin: -20px -20px 15px -20px; padding-left: 20px; padding-right: 20px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 1.4rem;" id="doc-viewer-icon">📎</span>
+        <div>
+          <h2 id="doc-viewer-title" style="margin: 0; font-size: 1.15rem; color: #fff;">Document joint</h2>
+          <p id="doc-viewer-subtitle" style="margin: 2px 0 0 0; font-size: 0.8rem; color: var(--text-sub);">-</p>
         </div>
       </div>
-      <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+      <div style="display: flex; align-items: center; gap: 10px;">
         <button type="button" class="btn btn-secondary btn-small" id="btn-share-doc-viewer" style="display: inline-flex; align-items: center; gap: 6px;">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="18" cy="5" r="3"></circle>
@@ -2391,10 +2391,10 @@
           </svg>
           <span class="btn-text">Télécharger</span>
         </button>
-        <button class="btn-close-dialog modal-close btn-close" type="button" aria-label="Fermer" style="margin-left: 6px; z-index: 1050;">&times;</button>
+        <button class="btn-close-dialog" type="button" aria-label="Fermer" style="margin-left: 6px;">&times;</button>
       </div>
     </div>
-    <div id="doc-viewer-body" class="modal-pj-body attachment-preview" style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1 1 auto; min-height: 200px; background: rgba(0,0,0,0.25); overflow: auto; -webkit-overflow-scrolling: touch; padding: 10px; width: 100%; box-sizing: border-box;">
+    <div id="doc-viewer-body" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 10px;">
       <!-- Rendu dynamique -->
     </div>
   </dialog>
@@ -3101,13 +3101,13 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.37"></script>
+  <script type="module" src="app.js?v=1.6.38"></script>
 
   <!-- Service Worker PWA -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1.6.37')
+        navigator.serviceWorker.register('./sw.js?v=1.6.38')
           .then((reg) => {
             console.log('[PWA] Service Worker actif (scope:', reg.scope, ')');
           })

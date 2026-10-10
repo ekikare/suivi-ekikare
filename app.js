@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.37';
+} from './db.js?v=1.6.38';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.37';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.38';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -37,7 +37,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.37';
+export const APP_VERSION = 'v1.6.38';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
