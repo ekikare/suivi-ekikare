@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.38';
+} from './db.js?v=1.6.39';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.38';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.39';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -37,7 +37,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.38';
+export const APP_VERSION = 'v1.6.39';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -6994,6 +6994,62 @@ let extSessionFileData = null;
 let extSessionFileName = null;
 let extSessionFileType = null;
 
+function setupPinchZoom(container, img) {
+  if (!container || !img) return;
+  let scale = 1;
+  let startDist = 0;
+  let lastTap = 0;
+
+  // Double-tap zoom (1x <-> 2.5x)
+  img.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - lastTap < 300 && now - lastTap > 0) {
+      e.preventDefault();
+      scale = scale > 1.2 ? 1 : 2.5;
+      img.style.transition = 'transform 0.25s ease';
+      img.style.transform = `scale(${scale})`;
+      img.style.transformOrigin = 'center center';
+    }
+    lastTap = now;
+  });
+
+  // Touch pinch zoom
+  container.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      startDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+    }
+  }, { passive: true });
+
+  container.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && startDist > 0) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const factor = dist / startDist;
+      scale = Math.min(Math.max(1, scale * factor), 4);
+      startDist = dist;
+      img.style.transition = 'none';
+      img.style.transform = `scale(${scale})`;
+      img.style.transformOrigin = 'center center';
+    }
+  }, { passive: true });
+
+  container.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) {
+      startDist = 0;
+      if (scale < 1.05) {
+        scale = 1;
+        img.style.transition = 'transform 0.2s ease';
+        img.style.transform = 'scale(1)';
+      }
+    }
+  }, { passive: true });
+}
+
 // MODALE VISUALISATION DOCUMENT / COMPTE-RENDU JOINT
 function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
   const dialog = document.getElementById('dialog-document-viewer');
@@ -7037,14 +7093,19 @@ function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
 
     if (isImage) {
       bodyEl.innerHTML = `
-        <div class="attachment-preview modal-pj-body" style="width: 100%; display: flex; justify-content: center; align-items: center; flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; padding: 10px; box-sizing: border-box;">
-          <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="max-width: 100% !important; max-height: 70vh !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto !important; touch-action: pan-x pan-y pinch-zoom !important; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+        <div class="attachment-preview modal-pj-body" style="width: 100%; max-width: 100%; display: flex; justify-content: center; align-items: center; flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y pinch-zoom; padding: 6px; box-sizing: border-box;">
+          <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="width: 100%; max-width: 100%; height: auto; max-height: 70vh; object-fit: contain; display: block; margin: 0 auto; touch-action: pan-x pan-y pinch-zoom; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
         </div>
       `;
+      const img = bodyEl.querySelector('img');
+      const container = bodyEl.querySelector('.modal-pj-body');
+      if (img && container) {
+        setupPinchZoom(container, img);
+      }
     } else if (isPdf) {
       bodyEl.innerHTML = `
-        <div class="attachment-preview modal-pj-body" style="width: 100%; height: 70vh; max-height: 70vh; position: relative; overflow: auto; -webkit-overflow-scrolling: touch;">
-          <iframe src="${blobUrl}" style="width: 100%; height: 100%; border: none; border-radius: 8px; background: #fff;" title="${cleanFilename}"></iframe>
+        <div class="attachment-preview modal-pj-body" style="width: 100%; max-width: 100%; height: 70vh; max-height: 70vh; position: relative; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y pinch-zoom; box-sizing: border-box;">
+          <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: 100%; border: none; border-radius: 8px; background: #fff; touch-action: pan-x pan-y pinch-zoom;" title="${cleanFilename}"></iframe>
         </div>
       `;
     } else {
