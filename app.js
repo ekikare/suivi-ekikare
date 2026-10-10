@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.59';
+} from './db.js?v=1.6.60';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.59';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.60';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.59';
+export const APP_VERSION = 'v1.6.60';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7361,18 +7361,19 @@ export async function openAttachmentModal(attachment, fileType = null, fileName 
   const isPdf = attObj.type?.includes('pdf') || mime?.includes('pdf') || blob.type?.includes('pdf') || (cleanName && cleanName.toLowerCase().endsWith('.pdf'));
   const isImage = (mime && mime.startsWith('image/')) || (blob.type && blob.type.startsWith('image/')) || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanName);
 
+  // Détection exhaustive des UUIDs, hashes et identifiants techniques
   const isUuidPattern = (str) => {
     if (!str || typeof str !== 'string') return false;
-    const noExt = str.replace(/\.[a-z0-9]+$/i, '').trim();
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(noExt) ||
-           /^[0-9a-f]{20,}$/i.test(noExt) ||
-           /^[0-9a-f-]{24,}$/i.test(noExt);
+    const clean = str.toLowerCase().replace(/\.[a-z0-9]+$/i, '').trim();
+    return /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(clean) ||
+           /^[0-9a-f_-]{16,}$/i.test(clean) ||
+           clean.length >= 28;
   };
 
   const isGenericName = (str) => {
     if (!str || typeof str !== 'string') return true;
     const s = str.trim().toLowerCase();
-    return isUuidPattern(s) || s === 'document' || s === 'document.pdf' || s === 'photo.jpg' || s === 'photo' || s === 'fichier' || s === 'fichier.pdf';
+    return isUuidPattern(s) || s === 'document' || s === 'document.pdf' || s === 'photo.jpg' || s === 'photo' || s === 'fichier' || s === 'fichier.pdf' || s.startsWith('blob:') || s.startsWith('data:');
   };
 
   const info = attObj.extraInfo || extraInfo || {};
@@ -7385,6 +7386,11 @@ export async function openAttachmentModal(attachment, fileType = null, fileName 
   } else if (info && info.text) {
     displayName = info.text.split('(')[0].trim() || (isPdf ? 'Compte-rendu de séance (PDF)' : 'Document joint');
   } else {
+    displayName = isPdf ? 'Compte-rendu de séance (PDF)' : (isImage ? 'Photo de séance' : 'Document joint');
+  }
+
+  // Sécurité absolue : si le nom d'affichage obtenu est encore un UUID, le remplacer par un libellé humain
+  if (isUuidPattern(displayName)) {
     displayName = isPdf ? 'Compte-rendu de séance (PDF)' : (isImage ? 'Photo de séance' : 'Document joint');
   }
 
@@ -7415,11 +7421,11 @@ export async function openAttachmentModal(attachment, fileType = null, fileName 
   const isStandalone = !!((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone);
   const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const isPortal = document.documentElement.classList.contains('portal-mode') || !!document.getElementById('portal-view')?.classList.contains('active');
+  const isMobileScreen = window.innerWidth <= 768 && window.innerHeight <= 900;
   const isTablet = isTouchDevice && (Math.min(window.innerWidth, window.innerHeight) >= 600 || Math.max(window.innerWidth, window.innerHeight) >= 900);
-  const isMobile = !isTablet && ((window.innerWidth <= 768) || (isTouchDevice && (window.innerWidth <= 1024 || isPortal)));
 
-  // Cas A : Mobile standard hors PWA (!isStandalone && isMobile) -> nouvel onglet direct
-  if (!isStandalone && isMobile) {
+  // Cas A : Mobile standard hors PWA (smartphone !isStandalone && isMobileScreen && !isTablet) -> nouvel onglet direct
+  if (!isStandalone && isMobileScreen && !isTablet) {
     const link = document.createElement('a');
     link.href = blobUrl;
     link.target = '_blank';
@@ -7434,10 +7440,10 @@ export async function openAttachmentModal(attachment, fileType = null, fileName 
     return;
   }
 
-  // Cas B : Tablette ou PWA Standalone (isStandalone || isTablet || isTouchDevice)
-  // Plein écran propre avec bandeau fixe et injection DIRECTE du document dans .modal-attachment-body
+  // Cas B : Tablette, PWA Standalone ou tout affichage avec visualiseur plein écran
+  // Utilise TOUJOURS #modal-attachment-viewer avec bandeau supérieur fixe et injection DIRECTE du document dans .modal-attachment-body
   const viewer = document.getElementById('modal-attachment-viewer');
-  if (viewer && (isStandalone || isTablet || isTouchDevice || !document.getElementById('dialog-document-viewer'))) {
+  if (viewer) {
     const titleEl = document.getElementById('modal-attachment-title');
     const container = viewer.querySelector('.modal-attachment-body') || document.getElementById('modal-attachment-body');
     const btnDownload = document.getElementById('btn-download-modal-attachment');
@@ -7490,7 +7496,7 @@ export async function openAttachmentModal(attachment, fileType = null, fileName 
       };
     }
 
-    // 2. Injecter DIRECTEMENT le document (ne plus jamais afficher le bloc UUID/secours) :
+    // 2. Injecter DIRECTEMENT le document (ne plus jamais afficher le bloc UUID/secours ni bouton inerte) :
     if (container) {
       container.innerHTML = '';
       if (isPdf) {
@@ -7508,8 +7514,7 @@ export async function openAttachmentModal(attachment, fileType = null, fileName 
     return;
   }
 
-  // Cas C : Desktop PC avec souris (#dialog-document-viewer)
-  // Injection DIRECTE également dans le corps sans carte intermédiaire ni bloc UUID de secours
+  // Cas C : Repli Desktop PC si modal-attachment-viewer n'existe pas
   const dialog = document.getElementById('dialog-document-viewer');
   if (!dialog) {
     triggerDownload(blobUrl, downloadFilename);
@@ -7523,7 +7528,6 @@ export async function openAttachmentModal(attachment, fileType = null, fileName 
     const bodyEl = document.getElementById('doc-viewer-body');
     const downloadBtn = document.getElementById('btn-download-doc-viewer');
     const shareBtn = document.getElementById('btn-share-doc-viewer');
-    const openBtn = document.getElementById('btn-open-doc-viewer');
     const btnZoomOut = document.getElementById('btn-zoom-out-doc-viewer');
     const btnZoomIn = document.getElementById('btn-zoom-in-doc-viewer');
     const btnZoomReset = document.getElementById('btn-zoom-reset-doc-viewer');
@@ -7567,16 +7571,6 @@ export async function openAttachmentModal(attachment, fileType = null, fileName 
         e.stopPropagation();
         currentZoom = 1.0;
         applyZoom();
-      };
-    }
-
-    if (openBtn) {
-      openBtn.onclick = () => {
-        try {
-          window.open(blobUrl, '_blank');
-        } catch (_) {
-          triggerDownload(blobUrl, downloadFilename);
-        }
       };
     }
 

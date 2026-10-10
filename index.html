@@ -31,7 +31,7 @@
     }
   </script>
   <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="manifest.json?v=1.6.59">
+  <link rel="manifest" href="manifest.json?v=1.6.60">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,17 +39,17 @@
   <meta name="apple-mobile-web-app-title" content="eKiKare">
 
   <!-- Icons (Favicon & Touch Icons) -->
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.59">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.59">
-  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.59">
-  <link rel="shortcut icon" href="favicon.ico?v=1.6.59">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.59">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.60">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.60">
+  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.60">
+  <link rel="shortcut icon" href="favicon.ico?v=1.6.60">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.60">
 
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.59">
+  <link rel="stylesheet" href="style.css?v=1.6.60">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -108,7 +108,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <p class="app-version">eKiKare v1.6.59 &bull; Offline Database</p>
+        <p class="app-version">eKiKare v1.6.60 &bull; Offline Database</p>
       </div>
     </aside>
 
@@ -2389,16 +2389,8 @@
         <button type="button" class="btn btn-secondary btn-small" id="btn-zoom-in-doc-viewer" title="Zoomer" aria-label="Zoomer" style="padding: 2px 8px; font-weight: bold; font-size: 0.95rem; min-width: 26px; line-height: 1;">&plus;</button>
       </div>
 
-      <!-- Actions secondaires : Ouvrir, Partager, Télécharger -->
+      <!-- Actions secondaires : Partager, Télécharger (bouton Ouvrir supprimé) -->
       <div class="doc-viewer-actions" style="display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-        <button type="button" class="btn btn-secondary btn-small" id="btn-open-doc-viewer" title="Ouvrir dans un nouvel onglet" style="display: inline-flex; align-items: center; gap: 5px;">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-            <polyline points="15 3 21 3 21 9"></polyline>
-            <line x1="10" y1="14" x2="21" y2="3"></line>
-          </svg>
-          <span class="btn-text">Ouvrir</span>
-        </button>
         <button type="button" class="btn btn-secondary btn-small" id="btn-share-doc-viewer" style="display: inline-flex; align-items: center; gap: 6px;">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="18" cy="5" r="3"></circle>
@@ -3159,19 +3151,28 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.59"></script>
+  <script type="module" src="app.js?v=1.6.60"></script>
 
-  <!-- Service Worker PWA -->
+  <!-- Service Worker PWA avec mise à jour immédiate et rechargement automatique -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1.6.59')
+        navigator.serviceWorker.register('./sw.js?v=1.6.60')
           .then((reg) => {
             console.log('[PWA] Service Worker actif (scope:', reg.scope, ')');
+            try { reg.update(); } catch (_) {}
           })
           .catch((err) => {
             console.warn('[PWA] Enregistrement Service Worker ignoré ou échoué:', err);
           });
+      });
+
+      let isRefreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!isRefreshing) {
+          isRefreshing = true;
+          window.location.reload();
+        }
       });
     }
   </script>
