@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.52';
+} from './db.js?v=1.6.55';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.52';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.55';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.52';
+export const APP_VERSION = 'v1.6.55';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7133,14 +7133,14 @@ async function resolveAttachmentResource(resource, fallbackType = '', fallbackNa
       // 1. Recherche dans IndexedDB
       try {
         const db = await (typeof initDB === 'function' ? initDB() : getDB());
-        const candidateStores = ['sessions', 'attachments', 'files', 'documents', 'settings'];
+        const candidateStores = ['sessions', 'animals', 'clients', 'attachments', 'files', 'documents', 'settings'];
         for (const sName of candidateStores) {
           if (db.objectStoreNames.contains(sName)) {
             // Par getById
             try {
               const rec = await getById(sName, trimmed);
               if (rec) {
-                const subResource = rec.fileData || rec.file_data || rec.data || rec.blob || rec.attachments || rec.url;
+                const subResource = rec.fileData || rec.file_data || rec.data || rec.blob || rec.attachments || rec.photo_data_url || rec.photo || rec.url;
                 if (subResource && subResource !== trimmed) {
                   return await resolveAttachmentResource(subResource, rec.fileType || rec.type || resolvedType, rec.fileName || rec.name || resolvedName);
                 }
@@ -7158,7 +7158,7 @@ async function resolveAttachmentResource(resource, fallbackType = '', fallbackNa
                 (it.attachments && String(it.attachments) === trimmed)
               );
               if (found) {
-                const subResource = found.fileData || found.file_data || found.data || found.blob || found.attachments || found.url;
+                const subResource = found.fileData || found.file_data || found.data || found.blob || found.attachments || found.photo_data_url || found.photo || found.url;
                 if (subResource && subResource !== trimmed) {
                   return await resolveAttachmentResource(subResource, found.fileType || found.type || resolvedType, found.fileName || found.name || resolvedName);
                 }
@@ -7245,36 +7245,64 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     return;
   }
 
-  // 1. Détection mobile / tablette ou vue Espace Client sur écran tactile
+  // 1. Détecter l'environnement
+  const isStandalone = !!((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone);
   const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const isPortal = document.documentElement.classList.contains('portal-mode') || !!document.getElementById('portal-view')?.classList.contains('active');
-  const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
-  const isMobileOrTablet = (window.innerWidth <= 768) || (isTouchDevice && (window.innerWidth <= 1366 || isPortal || isStandalone));
+  const isMobile = (window.innerWidth <= 768) || (isTouchDevice && (window.innerWidth <= 1024 || isPortal));
 
-  if (isMobileOrTablet) {
-    // Résolution complète de la ressource (IndexedDB, base locale, blob, etc.)
-    const resolved = await resolveAttachmentResource(fileData, fileType, fileName);
-    if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
-      showToast("Document non disponible ou introuvable.", "error");
-      return;
-    }
+  // 2. Résolution complète de la ressource (IndexedDB, UUID, base locale, blob, etc.)
+  const resolved = await resolveAttachmentResource(fileData, fileType, fileName);
+  if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
+    showToast("Document non disponible ou introuvable.", "error");
+    return;
+  }
 
-    const { blob, mime, name: resolvedName } = resolved;
-    let blobUrl = resolved.blobUrl;
+  const { blob, mime, name: resolvedName } = resolved;
+  let blobUrl = resolved.blobUrl;
+  if (blob) {
+    blobUrl = URL.createObjectURL(blob);
+  }
+
+  if (!blobUrl) {
+    showToast("Impossible de lire ce document.", "error");
+    return;
+  }
+
+  const cleanFilename = resolvedName || fileName || (mime?.includes('pdf') ? 'document.pdf' : (mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
+  const isImage = (mime && mime.startsWith('image/')) || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename);
+
+  // =========================================================================
+  // Cas A : Sur mobile / Chrome standard (!isStandalone)
+  // Rétablissement STRICT du fonctionnement précédent validé :
+  // Ne PAS ouvrir de modale interne (#modal-attachment-viewer) ni d'iframe.
+  // Ouvrir directement le document dans un NOUVEL ONGLET indépendant.
+  // L'onglet de l'application eKiKare reste ouvert et intact.
+  // =========================================================================
+  if (!isStandalone && isMobile) {
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Maintenir le blobUrl en mémoire pour permettre le chargement complet du nouvel onglet
     if (blob) {
-      blobUrl = URL.createObjectURL(blob);
+      setTimeout(() => {
+        try { URL.revokeObjectURL(blobUrl); } catch (_) {}
+      }, 60000);
     }
+    return;
+  }
 
-    if (!blobUrl) {
-      showToast("Impossible de lire ce document.", "error");
-      return;
-    }
-
+  // =========================================================================
+  // Cas B : Uniquement dans l'application installée (PWA / tablette / isStandalone)
+  // Modale plein écran avec bandeau fixe eKiKare (titre, boutons Télécharger, Partager, Fermer [×])
+  // =========================================================================
+  if (isStandalone) {
     activeAttachmentBlobUrl = blobUrl;
-    const cleanFilename = resolvedName || fileName || (mime?.includes('pdf') ? 'document.pdf' : (mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
-    const isImage = (mime && mime.startsWith('image/')) || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename);
-
-    // Affichage dans la modale plein écran interne (#modal-attachment-viewer)
     const viewer = document.getElementById('modal-attachment-viewer');
     if (viewer) {
       const titleEl = document.getElementById('modal-attachment-title');
@@ -7362,7 +7390,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     }
   }
 
-  // 2. Affichage sur Desktop (PC) : conserve strictement son affichage opérationnel d'origine
+  // 3. Affichage sur Desktop (PC) : conserve strictement son affichage opérationnel d'origine
   const dialog = document.getElementById('dialog-document-viewer');
   if (!dialog) {
     showToast("Visionneuse de document non disponible.", "error");
