@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.56';
+} from './db.js?v=1.6.57';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.56';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.57';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.56';
+export const APP_VERSION = 'v1.6.57';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7294,27 +7294,131 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
   const isImage = (mime && mime.startsWith('image/')) || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename);
   const isPdf = mime === 'application/pdf' || mime?.includes('pdf') || cleanFilename.toLowerCase().endsWith('.pdf');
 
-  // Fonctions utilitaires d'action réutilisables (téléchargement et ouverture fiable)
-  const triggerDownload = (url, filename) => {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    showToast(`Téléchargement lancé : ${filename}`);
+  // Détection des identifiants techniques / UUIDs hexadécimaux
+  const isUuidPattern = (str) => {
+    if (!str || typeof str !== 'string') return false;
+    const noExt = str.replace(/\.[a-z0-9]+$/i, '').trim();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(noExt) ||
+           /^[0-9a-f]{20,}$/i.test(noExt) ||
+           /^[0-9a-f-]{24,}$/i.test(noExt);
   };
 
-  const triggerOpenOrDownload = (url, filename) => {
+  const isGenericName = (str) => {
+    if (!str || typeof str !== 'string') return true;
+    const s = str.trim().toLowerCase();
+    return isUuidPattern(s) || s === 'document' || s === 'document.pdf' || s === 'photo.jpg' || s === 'photo' || s === 'fichier' || s === 'fichier.pdf';
+  };
+
+  // Calcul du nom d'affichage lisible (pour remplacer l'UUID hexadécimal brut)
+  let displayName = '';
+  if (!isGenericName(fileName)) {
+    displayName = fileName;
+  } else if (!isGenericName(resolvedName)) {
+    displayName = resolvedName;
+  } else if (extraInfo && extraInfo.subtitle) {
+    const cleanSub = extraInfo.subtitle.replace(/^Séance\s*du\s*/i, '').trim();
+    displayName = isPdf ? `Compte-rendu (${cleanSub})` : `Document (${cleanSub})`;
+  } else if (extraInfo && extraInfo.text) {
+    displayName = extraInfo.text.split('(')[0].trim() || (isPdf ? 'Compte-rendu de séance (PDF)' : 'Document joint');
+  } else {
+    displayName = isPdf ? 'Compte-rendu de séance (PDF)' : (isImage ? 'Photo de séance' : 'Document joint');
+  }
+
+  // Nom de fichier propre et sécurisé pour le téléchargement
+  let downloadFilename = cleanFilename;
+  if (isGenericName(cleanFilename)) {
+    const ext = isPdf ? '.pdf' : (isImage ? (mime === 'image/png' ? '.png' : '.jpg') : '');
+    const prefix = isPdf ? 'Compte-rendu' : (isImage ? 'Photo' : 'Document');
+    const safeTag = cleanFilename.replace(/[^0-9a-zA-Z]/g, '').slice(0, 8);
+    downloadFilename = `${prefix}${safeTag ? '_' + safeTag : ''}${ext}`;
+  }
+
+  // Fonctions utilitaires d'action réutilisables (téléchargement et ouverture fiable)
+  const triggerDownload = (url, filename) => {
+    try {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'document';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast(`Téléchargement lancé : ${filename || 'document'}`);
+    } catch (err) {
+      console.warn('[triggerDownload] Erreur téléchargement:', err);
+      try { window.open(url, '_blank'); } catch (_) {}
+    }
+  };
+
+  const triggerAttachmentAction = (url, filename) => {
+    // 1) Si possible, ouvrir via window.open(blobUrl, '_blank')
     let opened = false;
     try {
       const w = window.open(url, '_blank');
-      if (w && !w.closed) opened = true;
+      if (w && typeof w.closed !== 'undefined' && !w.closed) {
+        opened = true;
+      }
     } catch (_) {}
+
+    // 2) Sinon, déclencher le téléchargement / visualisation immédiate du document
     if (!opened) {
       triggerDownload(url, filename);
     }
   };
+
+  // Helper pour lier les boutons [ Visualiser / Ouvrir ] et [ Télécharger ] dans tout conteneur injecté
+  const bindModalCardButtons = (container) => {
+    if (!container) return;
+    const btnOpenList = container.querySelectorAll('#btn-open-attachment, .btn-open-pj, #btn-open-fallback-doc');
+    btnOpenList.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerAttachmentAction(blobUrl, downloadFilename);
+      });
+    });
+
+    const btnDownloadList = container.querySelectorAll('#btn-download-attachment, .btn-download-pj, #btn-download-fallback-doc');
+    btnDownloadList.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerDownload(blobUrl, downloadFilename);
+      });
+    });
+  };
+
+  // Helper pour générer la carte HTML de document moderne avec boutons au centre
+  const createDocumentCardHtml = () => `
+    <div class="attachment-doc-card glass-card">
+      <div class="attachment-doc-icon">
+        ${isPdf ? '📄' : (isImage ? '🖼️' : '📎')}
+      </div>
+      <h3 class="attachment-doc-name">
+        ${escapeHtml(displayName)}
+      </h3>
+      <p class="attachment-doc-meta">
+        ${isPdf ? 'Document PDF' : (isImage ? 'Image' : 'Fichier joint')}${blob?.size ? ` &bull; ${(blob.size / 1024).toFixed(1)} Ko` : ''}
+      </p>
+      <div class="attachment-doc-actions">
+        <button type="button" class="btn btn-primary btn-open-pj" id="btn-open-attachment" title="Visualiser ou ouvrir le document">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <line x1="10" y1="14" x2="21" y2="3"></line>
+          </svg>
+          <span>Visualiser / Ouvrir</span>
+        </button>
+        <button type="button" class="btn btn-secondary btn-download-pj" id="btn-download-attachment" title="Télécharger le document">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>Télécharger</span>
+        </button>
+      </div>
+    </div>
+  `;
 
   // =========================================================================
   // Cas A : Sur mobile / Chrome standard (!isStandalone)
@@ -7351,19 +7455,28 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     if (viewer) {
       const titleEl = document.getElementById('modal-attachment-title');
       const bodyEl = document.getElementById('modal-attachment-body');
+      const btnOpenHeader = document.getElementById('btn-open-modal-attachment');
       const btnDownload = document.getElementById('btn-download-modal-attachment');
       const btnShare = document.getElementById('btn-share-modal-attachment');
       const btnClose = document.getElementById('btn-close-modal-attachment');
 
       if (titleEl) {
-        titleEl.textContent = cleanFilename;
-        titleEl.title = cleanFilename;
+        titleEl.textContent = displayName;
+        titleEl.title = displayName;
+      }
+
+      // Configuration bouton Ouvrir du bandeau
+      if (btnOpenHeader) {
+        btnOpenHeader.onclick = (e) => {
+          e.preventDefault();
+          triggerAttachmentAction(blobUrl, downloadFilename);
+        };
       }
 
       // Configuration bouton Télécharger
       if (btnDownload) {
         btnDownload.onclick = () => {
-          triggerDownload(blobUrl, cleanFilename);
+          triggerDownload(blobUrl, downloadFilename);
         };
       }
 
@@ -7375,19 +7488,19 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
           btnShare.onclick = async () => {
             try {
               if (blob && navigator.canShare) {
-                const file = new File([blob], cleanFilename, { type: mime || 'application/octet-stream' });
+                const file = new File([blob], downloadFilename, { type: mime || 'application/octet-stream' });
                 if (navigator.canShare({ files: [file] })) {
                   await navigator.share({
                     files: [file],
-                    title: cleanFilename,
-                    text: extraInfo.text || `Document ${cleanFilename}`
+                    title: displayName,
+                    text: extraInfo.text || `Document ${displayName}`
                   });
                   return;
                 }
               }
               await navigator.share({
-                title: cleanFilename,
-                text: extraInfo.text || `Document ${cleanFilename}`,
+                title: displayName,
+                text: extraInfo.text || `Document ${displayName}`,
                 url: window.location.href
               });
             } catch (e) {
@@ -7404,21 +7517,33 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
         };
       }
 
-      // Intégration directe via balise native (iframe pour PDF, img pour image)
+      // Intégration dans le corps de la modale PWA tablette :
+      // Carte d'action au centre avec boutons fonctionnels [ Visualiser / Ouvrir ] et [ Télécharger ]
       if (bodyEl) {
         bodyEl.innerHTML = '';
         if (isImage) {
           bodyEl.innerHTML = `
-            <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: auto; background: #000;">
-              <img src="${blobUrl}" alt="${escapeHtml(cleanFilename)}" style="max-width: 100%; max-height: 100%; margin: auto; display: block; object-fit: contain;">
+            <div style="width: 100%; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow-y: auto; padding: 16px; box-sizing: border-box;">
+              ${createDocumentCardHtml()}
+              <div style="width: 100%; max-width: 900px; display: flex; align-items: center; justify-content: center; margin: 12px auto;">
+                <img src="${blobUrl}" alt="${escapeHtml(displayName)}" style="max-width: 100%; max-height: calc(100vh - 280px); object-fit: contain; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.5);">
+              </div>
             </div>
           `;
         } else {
-          // Document PDF ou autre visualisable via le moteur natif de l'iframe
+          // Document PDF : carte document explicite au centre + prévisualisation iframe native
           bodyEl.innerHTML = `
-            <iframe src="${blobUrl}" style="width: 100%; height: 100%; border: none; background: #fff;" title="${escapeHtml(cleanFilename)}"></iframe>
+            <div style="width: 100%; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow-y: auto; -webkit-overflow-scrolling: touch; box-sizing: border-box; padding: 16px;">
+              ${createDocumentCardHtml()}
+              <div style="width: 100%; flex: 1 1 auto; min-height: 60vh; max-width: 1000px; margin: 12px auto 20px auto; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.4); background: #ffffff;">
+                <iframe src="${blobUrl}" style="width: 100%; height: 100%; min-height: 60vh; border: none; background: #ffffff;" title="${escapeHtml(displayName)}"></iframe>
+              </div>
+            </div>
           `;
         }
+
+        // Brancher immédiatement les écouteurs de clic sur les boutons injectés dans le corps
+        bindModalCardButtons(bodyEl);
       }
 
       viewer.classList.remove('hidden');
@@ -7433,7 +7558,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
   // =========================================================================
   const dialog = document.getElementById('dialog-document-viewer');
   if (!dialog) {
-    triggerOpenOrDownload(blobUrl, cleanFilename);
+    triggerAttachmentAction(blobUrl, downloadFilename);
     return;
   }
 
@@ -7450,7 +7575,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     const btnZoomReset = document.getElementById('btn-zoom-reset-doc-viewer');
     const zoomLevelEl = document.getElementById('doc-viewer-zoom-level');
 
-    if (titleEl) titleEl.textContent = cleanFilename;
+    if (titleEl) titleEl.textContent = displayName;
     if (subtitleEl) {
       subtitleEl.textContent = extraInfo.subtitle || (blob ? `${mime} • ${(blob.size / 1024).toFixed(1)} Ko` : `${mime}`);
     }
@@ -7495,14 +7620,14 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       };
     }
 
-    // Bouton "Ouvrir" dans la barre d'outils (lié impérativement à la même fonction d'ouverture / téléchargement que le bouton Télécharger)
+    // Bouton "Ouvrir" dans la barre d'outils
     if (openBtn) {
-      openBtn.onclick = () => triggerOpenOrDownload(blobUrl, cleanFilename);
+      openBtn.onclick = () => triggerAttachmentAction(blobUrl, downloadFilename);
     }
 
     // Télécharger (utilise directement la même variable blobUrl)
     if (downloadBtn) {
-      downloadBtn.onclick = () => triggerDownload(blobUrl, cleanFilename);
+      downloadBtn.onclick = () => triggerDownload(blobUrl, downloadFilename);
     }
 
     // Partager
@@ -7510,24 +7635,24 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       shareBtn.onclick = async () => {
         try {
           if (blob) {
-            const file = new File([blob], cleanFilename, { type: mime || 'application/octet-stream' });
+            const file = new File([blob], downloadFilename, { type: mime || 'application/octet-stream' });
             if (navigator.canShare && navigator.canShare({ files: [file] })) {
               await navigator.share({
                 files: [file],
-                title: cleanFilename,
-                text: extraInfo.text || `Document ${cleanFilename}`
+                title: displayName,
+                text: extraInfo.text || `Document ${displayName}`
               });
               return;
             }
           }
           if (navigator.share) {
             await navigator.share({
-              title: cleanFilename,
-              text: extraInfo.text || `Document ${cleanFilename}`,
+              title: displayName,
+              text: extraInfo.text || `Document ${displayName}`,
               url: window.location.href
             });
           } else {
-            triggerDownload(blobUrl, cleanFilename);
+            triggerDownload(blobUrl, downloadFilename);
           }
         } catch (e) {
           if (e.name !== 'AbortError') console.warn('Share error:', e);
@@ -7535,13 +7660,17 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       };
     }
 
-    // Rendu direct du document résolu dans le corps de la modale sans aucun fallback avec UUID texte
+    // Rendu direct du document résolu dans le corps de la modale
     if (isImage) {
       bodyEl.innerHTML = `
-        <div class="zoomable-document-content" style="position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; margin: 0 auto;">
-          <img src="${blobUrl}" alt="${escapeHtml(cleanFilename)}" class="attachment-img" style="max-width: 100%; max-height: 100%; object-fit: contain; margin: auto; display: block; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+        <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+          ${createDocumentCardHtml()}
+          <div class="zoomable-document-content" style="position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; margin: 0 auto;">
+            <img src="${blobUrl}" alt="${escapeHtml(displayName)}" class="attachment-img" style="max-width: 100%; max-height: 100%; object-fit: contain; margin: auto; display: block; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+          </div>
         </div>
       `;
+      bindModalCardButtons(bodyEl);
       applyZoom();
     } else if (isPdf && window.pdfjsLib && !('ontouchstart' in window) && window.innerWidth > 1024) {
       // Desktop PC classique avec souris : rendu haute fidélité PDF.js avec zoom
@@ -7590,19 +7719,27 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
 
       if (!renderedViaPdfJs) {
         bodyEl.innerHTML = `
-          <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; height: 100%; min-height: 75vh; margin: 0 auto;">
-            <iframe src="${blobUrl}" style="width: 100%; height: 100%; min-height: 75vh; border: none; border-radius: 8px; background: #fff;" title="${escapeHtml(cleanFilename)}"></iframe>
+          <div style="display: flex; flex-direction: column; align-items: center; width: 100%; height: 100%;">
+            ${createDocumentCardHtml()}
+            <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; height: 100%; min-height: 70vh; margin: 10px auto;">
+              <iframe src="${blobUrl}" style="width: 100%; height: 100%; min-height: 70vh; border: none; border-radius: 8px; background: #fff;" title="${escapeHtml(displayName)}"></iframe>
+            </div>
           </div>
         `;
+        bindModalCardButtons(bodyEl);
       }
       applyZoom();
     } else {
-      // Intégration directe via iframe native : laisse le navigateur gérer le zoom et le scroll sans bug
+      // Intégration sur tablette ou repli iframe native : carte explicite + iframe
       bodyEl.innerHTML = `
-        <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; height: 100%; min-height: 75vh; margin: 0 auto;">
-          <iframe src="${blobUrl}" style="width: 100%; height: 100%; min-height: 75vh; border: none; border-radius: 8px; background: #fff;" title="${escapeHtml(cleanFilename)}"></iframe>
+        <div style="display: flex; flex-direction: column; align-items: center; width: 100%; height: 100%;">
+          ${createDocumentCardHtml()}
+          <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; height: 100%; min-height: 70vh; margin: 10px auto;">
+            <iframe src="${blobUrl}" style="width: 100%; height: 100%; min-height: 70vh; border: none; border-radius: 8px; background: #fff;" title="${escapeHtml(displayName)}"></iframe>
+          </div>
         </div>
       `;
+      bindModalCardButtons(bodyEl);
       applyZoom();
     }
 

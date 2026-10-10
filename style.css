@@ -2806,12 +2806,16 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   flex: 1 1 auto !important;
   width: 100% !important;
   height: calc(100vh - 50px) !important;
-  overflow: hidden !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y pinch-zoom !important;
   position: relative !important;
-  background: #000000 !important;
+  background: #0b1120 !important;
   display: flex !important;
+  flex-direction: column !important;
   align-items: center !important;
-  justify-content: center !important;
+  justify-content: flex-start !important;
   margin: 0 !important;
   padding: 0 !important;
   box-sizing: border-box !important;
@@ -2830,6 +2834,75 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   margin: auto !important;
   display: block !important;
   object-fit: contain !important;
+}
+
+/* Carte document moderne et explicite pour tablette et mobile */
+.attachment-doc-card {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  max-width: 520px !important;
+  width: 94% !important;
+  margin: 16px auto !important;
+  padding: 24px 18px !important;
+  background: rgba(15, 23, 42, 0.92) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.attachment-doc-card .attachment-doc-icon {
+  font-size: 3.5rem !important;
+  line-height: 1 !important;
+  margin-bottom: 12px !important;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4)) !important;
+}
+
+.attachment-doc-card .attachment-doc-name {
+  margin: 0 0 6px 0 !important;
+  font-size: 1.15rem !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  word-break: break-word !important;
+  line-height: 1.4 !important;
+}
+
+.attachment-doc-card .attachment-doc-meta {
+  margin: 0 0 18px 0 !important;
+  font-size: 0.85rem !important;
+  color: #94a3b8 !important;
+}
+
+.attachment-doc-card .attachment-doc-actions {
+  display: flex !important;
+  gap: 12px !important;
+  justify-content: center !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  width: 100% !important;
+}
+
+.attachment-doc-card .btn-open-pj,
+.attachment-doc-card .btn-download-pj {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  padding: 10px 20px !important;
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+  min-height: 44px !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+  flex: 1 1 180px !important;
+  max-width: 230px !important;
+  box-sizing: border-box !important;
 }
 
 #dialog-portal-session-cr .official-a4-sheet,
