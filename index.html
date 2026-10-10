@@ -31,7 +31,7 @@
     }
   </script>
   <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="manifest.json?v=1.6.41">
+  <link rel="manifest" href="manifest.json?v=1.6.42">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,17 +39,17 @@
   <meta name="apple-mobile-web-app-title" content="eKiKare">
 
   <!-- Icons (Favicon & Touch Icons) -->
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.41">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.41">
-  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.41">
-  <link rel="shortcut icon" href="favicon.ico?v=1.6.41">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.41">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.42">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.42">
+  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.42">
+  <link rel="shortcut icon" href="favicon.ico?v=1.6.42">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.42">
 
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.41">
+  <link rel="stylesheet" href="style.css?v=1.6.42">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -108,7 +108,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <p class="app-version">eKiKare v1.6.41 &bull; Offline Database</p>
+        <p class="app-version">eKiKare v1.6.42 &bull; Offline Database</p>
       </div>
     </aside>
 
@@ -2365,22 +2365,32 @@
   </dialog>
 
   <!-- Modal Visualisation Document / Compte-Rendu Joint -->
-  <dialog class="app-dialog glass-card" id="dialog-document-viewer" style="max-width: 900px; width: 95%; max-height: 94vh; padding: 20px; overflow-y: auto;">
-    <div class="dialog-header" style="position: sticky; top: -20px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); z-index: 20; border-bottom: 1px solid var(--glass-border); padding: 12px 0; margin: -20px -20px 15px -20px; padding-left: 20px; padding-right: 20px; display: flex; justify-content: space-between; align-items: center;">
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <span style="font-size: 1.4rem;" id="doc-viewer-icon">📎</span>
-        <div>
-          <h2 id="doc-viewer-title" style="margin: 0; font-size: 1.15rem; color: #fff;">Document joint</h2>
-          <p id="doc-viewer-subtitle" style="margin: 2px 0 0 0; font-size: 0.8rem; color: var(--text-sub);">-</p>
+  <dialog class="app-dialog glass-card modal-dialog modal-content" id="dialog-document-viewer">
+    <!-- En-tête : Titre à gauche et bouton [×] fixe à droite -->
+    <div class="dialog-header modal-header" style="position: sticky; top: 0; background: rgba(15, 23, 42, 0.96); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 20; border-bottom: 1px solid var(--glass-border); padding: 10px 14px; margin: 0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; box-sizing: border-box; width: 100%;">
+      <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; min-width: 0; flex: 1 1 auto;">
+        <span style="font-size: 1.4rem; flex-shrink: 0;" id="doc-viewer-icon">📎</span>
+        <div style="overflow: hidden; min-width: 0;">
+          <h2 id="doc-viewer-title" style="margin: 0; font-size: 1.15rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Document joint</h2>
+          <p id="doc-viewer-subtitle" style="margin: 2px 0 0 0; font-size: 0.8rem; color: var(--text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</p>
         </div>
       </div>
-      <div class="doc-viewer-toolbar" style="display: flex; align-items: center; gap: 8px;">
-        <!-- Contrôles de zoom tactile [-] et [+] -->
-        <div class="doc-viewer-zoom-controls" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);">
-          <button type="button" class="btn btn-secondary btn-small" id="btn-zoom-out-doc-viewer" title="Dézoomer" aria-label="Dézoomer" style="padding: 2px 8px; font-weight: bold; font-size: 0.95rem; min-width: 26px; line-height: 1;">&minus;</button>
-          <span id="doc-viewer-zoom-level" style="font-size: 0.75rem; color: var(--text-sub); min-width: 36px; text-align: center; font-variant-numeric: tabular-nums;">100%</span>
-          <button type="button" class="btn btn-secondary btn-small" id="btn-zoom-in-doc-viewer" title="Zoomer" aria-label="Zoomer" style="padding: 2px 8px; font-weight: bold; font-size: 0.95rem; min-width: 26px; line-height: 1;">&plus;</button>
-        </div>
+      <button class="btn-close-dialog" type="button" aria-label="Fermer" style="flex-shrink: 0; margin-left: 12px; font-size: 1.5rem; line-height: 1; cursor: pointer; background: transparent; border: none; color: #fff;">&times;</button>
+    </div>
+
+    <!-- Barre d'outils dédiée sous l'en-tête : contrôles de zoom et actions secondaires -->
+    <div class="modal-pj-toolbar" id="doc-viewer-toolbar" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 8px 14px; background: rgba(15, 23, 42, 0.85); border-bottom: 1px solid var(--glass-border); margin: 0; flex-shrink: 0; box-sizing: border-box; width: 100%;">
+      <!-- Contrôles de zoom tactile : [-], [100% / Ajuster], [+] -->
+      <div class="doc-viewer-zoom-controls" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);">
+        <button type="button" class="btn btn-secondary btn-small" id="btn-zoom-out-doc-viewer" title="Dézoomer" aria-label="Dézoomer" style="padding: 2px 8px; font-weight: bold; font-size: 0.95rem; min-width: 26px; line-height: 1;">&minus;</button>
+        <button type="button" class="btn btn-secondary btn-small" id="btn-zoom-reset-doc-viewer" title="Réinitialiser le zoom (100% / Ajuster)" aria-label="Ajuster à 100%" style="padding: 2px 8px; font-size: 0.78rem; min-width: 65px; text-align: center; font-variant-numeric: tabular-nums;">
+          <span id="doc-viewer-zoom-level">100%</span>
+        </button>
+        <button type="button" class="btn btn-secondary btn-small" id="btn-zoom-in-doc-viewer" title="Zoomer" aria-label="Zoomer" style="padding: 2px 8px; font-weight: bold; font-size: 0.95rem; min-width: 26px; line-height: 1;">&plus;</button>
+      </div>
+
+      <!-- Actions secondaires : Ouvrir, Partager, Télécharger -->
+      <div class="doc-viewer-actions" style="display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;">
         <button type="button" class="btn btn-secondary btn-small" id="btn-open-doc-viewer" title="Ouvrir dans un nouvel onglet" style="display: inline-flex; align-items: center; gap: 5px;">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
@@ -2407,10 +2417,11 @@
           </svg>
           <span class="btn-text">Télécharger</span>
         </button>
-        <button class="btn-close-dialog" type="button" aria-label="Fermer" style="margin-left: 6px;">&times;</button>
       </div>
     </div>
-    <div id="doc-viewer-body" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 10px;">
+
+    <!-- Conteneur défilable du document -->
+    <div id="doc-viewer-body" class="modal-pj-body" style="display: flex; flex-direction: column; align-items: center; justify-content: flex-start; flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; min-height: 250px; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 10px; box-sizing: border-box; width: 100%;">
       <!-- Rendu dynamique -->
     </div>
   </dialog>
@@ -3117,13 +3128,13 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.41"></script>
+  <script type="module" src="app.js?v=1.6.42"></script>
 
   <!-- Service Worker PWA -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1.6.41')
+        navigator.serviceWorker.register('./sw.js?v=1.6.42')
           .then((reg) => {
             console.log('[PWA] Service Worker actif (scope:', reg.scope, ')');
           })

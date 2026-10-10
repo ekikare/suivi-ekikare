@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.41';
+} from './db.js?v=1.6.42';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.41';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.42';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.41';
+export const APP_VERSION = 'v1.6.42';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -6998,7 +6998,7 @@ let extSessionFileName = null;
 let extSessionFileType = null;
 
 function setupPinchZoom(container, targetEl, onScaleChange = null) {
-  if (!container || !targetEl) return;
+  if (!container || !targetEl) return null;
   let scale = 1;
   let startDist = 0;
   let lastTap = 0;
@@ -7017,18 +7017,20 @@ function setupPinchZoom(container, targetEl, onScaleChange = null) {
     lastTap = now;
   });
 
-  // Touch pinch zoom
+  // Touch pinch zoom - intercepter strictement à 2 doigts et empêcher le zoom natif de la modale/page
   container.addEventListener('touchstart', (e) => {
     if (e.touches.length === 2) {
+      e.preventDefault();
       startDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
     }
-  }, { passive: true });
+  }, { passive: false });
 
   container.addEventListener('touchmove', (e) => {
     if (e.touches.length === 2 && startDist > 0) {
+      e.preventDefault();
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
@@ -7042,13 +7044,24 @@ function setupPinchZoom(container, targetEl, onScaleChange = null) {
       targetEl.style.transformOrigin = 'top center';
       if (typeof onScaleChange === 'function') onScaleChange(scale);
     }
-  }, { passive: true });
+  }, { passive: false });
 
   container.addEventListener('touchend', (e) => {
     if (e.touches.length < 2) {
       startDist = 0;
     }
   }, { passive: true });
+
+  return {
+    setScale: (newScale, triggerCallback = true) => {
+      scale = Math.min(Math.max(0.4, newScale), 3.5);
+      targetEl.style.transition = 'transform 0.15s ease';
+      targetEl.style.transform = `scale(${scale})`;
+      targetEl.style.transformOrigin = 'top center';
+      if (triggerCallback && typeof onScaleChange === 'function') onScaleChange(scale);
+    },
+    getScale: () => scale
+  };
 }
 
 /**
@@ -7273,6 +7286,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     const openBtn = document.getElementById('btn-open-doc-viewer');
     const btnZoomOut = document.getElementById('btn-zoom-out-doc-viewer');
     const btnZoomIn = document.getElementById('btn-zoom-in-doc-viewer');
+    const btnZoomReset = document.getElementById('btn-zoom-reset-doc-viewer');
     const zoomLevelEl = document.getElementById('doc-viewer-zoom-level');
 
     // Afficher immédiatement le dialogue avec un état de chargement
@@ -7321,9 +7335,10 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       iconEl.textContent = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
     }
 
-    // Gestion du zoom dynamique
+    // Gestion du zoom dynamique ciblant STRICTEMENT le document interne
     let currentZoom = 1.0;
     let currentViewerTarget = null;
+    let pinchController = null;
     const updateZoomDisplay = () => {
       if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
     };
@@ -7331,9 +7346,13 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
 
     const applyZoom = () => {
       if (!currentViewerTarget) return;
-      currentViewerTarget.style.transition = 'transform 0.15s ease';
-      currentViewerTarget.style.transform = `scale(${currentZoom})`;
-      currentViewerTarget.style.transformOrigin = 'top center';
+      if (pinchController && typeof pinchController.setScale === 'function') {
+        pinchController.setScale(currentZoom, false);
+      } else {
+        currentViewerTarget.style.transition = 'transform 0.15s ease';
+        currentViewerTarget.style.transform = `scale(${currentZoom})`;
+        currentViewerTarget.style.transformOrigin = 'top center';
+      }
       updateZoomDisplay();
     };
 
@@ -7353,6 +7372,14 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       };
     }
 
+    if (btnZoomReset) {
+      btnZoomReset.onclick = (e) => {
+        e.stopPropagation();
+        currentZoom = 1.0;
+        applyZoom();
+      };
+    }
+
     // Bouton "Ouvrir" dans la barre d'outils
     if (openBtn) {
       openBtn.onclick = () => {
@@ -7363,27 +7390,25 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     // Rendu selon le type de fichier
     if (isImage) {
       bodyEl.innerHTML = `
-        <div class="attachment-preview modal-pj-body" id="doc-viewer-scroll-container" style="width: 100%; max-width: 100%; display: flex; justify-content: center; align-items: center; flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y pinch-zoom; padding: 6px; box-sizing: border-box;">
-          <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="width: 100%; max-width: 100%; height: auto; max-height: 70vh; object-fit: contain; display: block; margin: 0 auto; touch-action: pan-x pan-y pinch-zoom; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+        <div class="attachment-preview" style="width: 100%; max-width: 100%; display: flex; justify-content: center; align-items: flex-start; padding: 6px; box-sizing: border-box;">
+          <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="width: 100%; max-width: 100%; height: auto; max-height: 75vh; object-fit: contain; display: block; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transform-origin: top center; transition: transform 0.15s ease;">
         </div>
       `;
       const img = bodyEl.querySelector('img');
-      const container = bodyEl.querySelector('#doc-viewer-scroll-container');
       currentViewerTarget = img;
-      if (img && container) {
-        setupPinchZoom(container, img, (newScale) => {
-          currentZoom = newScale;
+      if (img && bodyEl) {
+        pinchController = setupPinchZoom(bodyEl, img, (newScale) => {
+          currentZoom = Number(newScale.toFixed(2));
           updateZoomDisplay();
         });
       }
     } else if (isPdf) {
       bodyEl.innerHTML = `
-        <div class="attachment-preview modal-pj-body" id="doc-viewer-scroll-container" style="width: 100%; max-width: 100%; min-height: 70vh; height: auto; position: relative; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y pinch-zoom; box-sizing: border-box; text-align: center;">
-          <div id="pdf-canvas-container" style="display: inline-block; width: 100%; max-width: 100%; margin: 0 auto;"></div>
+        <div class="attachment-preview" style="width: 100%; max-width: 100%; min-height: 70vh; height: auto; position: relative; box-sizing: border-box; text-align: center;">
+          <div id="pdf-canvas-container" style="display: inline-block; width: 100%; max-width: 100%; margin: 0 auto; transform-origin: top center; transition: transform 0.15s ease;"></div>
         </div>
       `;
       const container = bodyEl.querySelector('#pdf-canvas-container');
-      const scrollWrapper = bodyEl.querySelector('#doc-viewer-scroll-container');
       currentViewerTarget = container;
 
       let renderedViaPdfJs = false;
@@ -7398,7 +7423,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
           for (let pNum = 1; pNum <= maxPages; pNum++) {
             const page = await pdfDoc.getPage(pNum);
             const unscaledViewport = page.getViewport({ scale: 1 });
-            const availWidth = bodyEl.clientWidth ? Math.max(bodyEl.clientWidth - 16, 280) : (window.innerWidth - 32);
+            const availWidth = bodyEl.clientWidth ? Math.max(bodyEl.clientWidth - 24, 280) : (window.innerWidth - 32);
             const fitScale = availWidth / unscaledViewport.width;
             const viewport = page.getViewport({ scale: fitScale });
 
@@ -7425,15 +7450,18 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       }
 
       if (!renderedViaPdfJs) {
-        scrollWrapper.innerHTML = `
-          <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: auto; min-height: 70vh; border: none; border-radius: 8px; background: #fff; touch-action: pan-x pan-y pinch-zoom;" title="${cleanFilename}"></iframe>
-        `;
-        currentViewerTarget = scrollWrapper.querySelector('iframe');
+        const previewEl = bodyEl.querySelector('.attachment-preview');
+        if (previewEl) {
+          previewEl.innerHTML = `
+            <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: auto; min-height: 70vh; border: none; border-radius: 8px; background: #fff;" title="${cleanFilename}"></iframe>
+          `;
+          currentViewerTarget = previewEl.querySelector('iframe');
+        }
       }
 
-      if (scrollWrapper && currentViewerTarget) {
-        setupPinchZoom(scrollWrapper, currentViewerTarget, (newScale) => {
-          currentZoom = newScale;
+      if (bodyEl && currentViewerTarget) {
+        pinchController = setupPinchZoom(bodyEl, currentViewerTarget, (newScale) => {
+          currentZoom = Number(newScale.toFixed(2));
           updateZoomDisplay();
         });
       }
@@ -7540,6 +7568,13 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
         e.clientY > rect.bottom
       ) {
         dialog.close();
+      }
+    };
+
+    dialog.onclose = () => {
+      currentZoom = 1.0;
+      if (currentViewerTarget) {
+        currentViewerTarget.style.transform = '';
       }
     };
   } catch (err) {
