@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.45';
+} from './db.js?v=1.6.48';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.45';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.48';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.45';
+export const APP_VERSION = 'v1.6.48';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -6997,240 +6997,36 @@ let extSessionFileData = null;
 let extSessionFileName = null;
 let extSessionFileType = null;
 
-function setupPinchZoom(container, targetEl, wrapperEl, onScaleChange = null, initialScale = 1.0) {
-  if (!container || !targetEl) return null;
-
-  let currentScale = Math.min(Math.max(1.0, initialScale || 1.0), 3.0);
-  let baseWidth = 0;
-  let baseHeight = 0;
-  let isPinching = false;
-  let pinchStartDist = 0;
-  let pinchStartScale = 1.0;
-
-  function measureBase() {
-    const availW = container.clientWidth ? Math.max(container.clientWidth - 20, 260) : 340;
-    if (targetEl.tagName === 'IMG') {
-      const natW = targetEl.naturalWidth;
-      const natH = targetEl.naturalHeight;
-      if (natW && natH) {
-        baseWidth = Math.min(availW, natW);
-        baseHeight = Math.round(baseWidth * (natH / natW));
-      } else {
-        baseWidth = targetEl.offsetWidth || availW;
-        baseHeight = targetEl.offsetHeight || Math.round(baseWidth * 1.33);
-      }
-    } else {
-      // PDF canvas container ou autre conteneur
-      baseWidth = targetEl.offsetWidth || availW;
-      baseHeight = targetEl.offsetHeight || 500;
-    }
+/**
+ * Initialise le visualiseur de zoom tactile via la librairie standard PinchZoom
+ * sur le conteneur du document (.zoomable-document-content).
+ */
+function initDocPinchZoom(element) {
+  if (!element) return null;
+  const PZ = typeof window !== 'undefined' && (window.PinchZoom?.default || window.PinchZoom);
+  if (typeof PZ !== 'function') {
+    console.warn("[initDocPinchZoom] Librairie PinchZoom non disponible sur window.");
+    return null;
   }
 
-  function applyScale(scaleVal, withTransition = false) {
-    currentScale = Math.min(Math.max(1.0, Number(scaleVal.toFixed(2))), 3.0);
-    if (baseWidth === 0 || baseHeight === 0) {
-      measureBase();
-    }
-
-    const transitionProp = withTransition ? 'transform 0.15s ease' : 'none';
-    targetEl.style.transition = transitionProp;
-    targetEl.style.transformOrigin = '0 0';
-    targetEl.style.transform = `scale(${currentScale})`;
-
-    if (wrapperEl && baseWidth > 0 && baseHeight > 0) {
-      wrapperEl.style.transition = withTransition ? 'width 0.15s ease, height 0.15s ease' : 'none';
-      const scaledW = Math.round(baseWidth * currentScale);
-      const scaledH = Math.round(baseHeight * currentScale);
-
-      wrapperEl.style.width = `${scaledW}px`;
-      wrapperEl.style.minWidth = `${scaledW}px`;
-      wrapperEl.style.height = `${scaledH}px`;
-      wrapperEl.style.minHeight = `${scaledH}px`;
-
-      if (currentScale > 1.0) {
-        wrapperEl.style.margin = '0';
-        container.style.textAlign = 'left';
-      } else {
-        wrapperEl.style.margin = '0 auto';
-        container.style.textAlign = 'center';
+  try {
+    return new PZ(element, {
+      tapZoomFactor: 2,
+      zoomFactor: 0.8,
+      maxZoom: 4,
+      minZoom: 1,
+      draggableUnzoomed: false,
+      onZoomUpdate: function(instance) {
+        const zoomLevelEl = document.getElementById('doc-viewer-zoom-level');
+        if (zoomLevelEl && instance) {
+          zoomLevelEl.textContent = `${Math.round((instance.zoomFactor || 1) * 100)}%`;
+        }
       }
-    }
-
-    if (typeof onScaleChange === 'function') {
-      onScaleChange(currentScale);
-    }
+    });
+  } catch (err) {
+    console.warn("[initDocPinchZoom] Erreur lors de l'initialisation de PinchZoom:", err);
+    return null;
   }
-
-  // Mesure initiale à froid ou au chargement de l'image
-  if (targetEl.tagName === 'IMG' && !targetEl.complete) {
-    targetEl.addEventListener('load', () => {
-      measureBase();
-      applyScale(currentScale, false);
-    }, { once: true });
-  } else {
-    setTimeout(() => {
-      measureBase();
-      applyScale(currentScale, false);
-    }, 20);
-  }
-
-  // 1. Touch pinch zoom (2 doigts) - point focal et scroll stabilisés par ratio relatif
-  container.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 2) {
-      e.preventDefault();
-      isPinching = true;
-      const touch1 = e.touches[0];
-      const touch2 = e.touches[1];
-      pinchStartDist = Math.hypot(
-        touch1.clientX - touch2.clientX,
-        touch1.clientY - touch2.clientY
-      );
-      pinchStartScale = currentScale;
-    }
-  }, { passive: false });
-
-  container.addEventListener('touchmove', (e) => {
-    if (e.touches.length === 2 && isPinching && pinchStartDist > 0) {
-      e.preventDefault();
-
-      const touch1 = e.touches[0];
-      const touch2 = e.touches[1];
-      const currentDist = Math.hypot(
-        touch1.clientX - touch2.clientX,
-        touch1.clientY - touch2.clientY
-      );
-      const factor = currentDist / pinchStartDist;
-      const targetScale = Math.min(Math.max(1.0, pinchStartScale * factor), 3.0);
-      const newScale = Number(targetScale.toFixed(2));
-
-      if (newScale !== currentScale) {
-        // 1. Stabilisation du scroll vertical et horizontal lors du zoom par ratio relatif
-        const maxScrollY = container.scrollHeight - container.clientHeight;
-        const maxScrollX = container.scrollWidth - container.clientWidth;
-        const scrollRatioY = maxScrollY > 0 ? (container.scrollTop / maxScrollY) : 0;
-        const scrollRatioX = maxScrollX > 0 ? (container.scrollLeft / maxScrollX) : 0;
-
-        // Appliquer le nouveau scale sur le document
-        applyScale(newScale, false);
-
-        // Réajuster immédiatement le scroll selon le même ratio relatif :
-        const newMaxScrollY = container.scrollHeight - container.clientHeight;
-        const newMaxScrollX = container.scrollWidth - container.clientWidth;
-        if (newMaxScrollY > 0) {
-          container.scrollTop = scrollRatioY * newMaxScrollY;
-        }
-        if (newMaxScrollX > 0) {
-          container.scrollLeft = scrollRatioX * newMaxScrollX;
-        }
-      }
-    }
-  }, { passive: false });
-
-  container.addEventListener('touchend', (e) => {
-    if (isPinching && e.touches.length < 2) {
-      isPinching = false;
-      pinchStartDist = 0;
-      // Persistance de l'échelle finale et du scroll calculé sans réinitialisation
-      applyScale(currentScale, true);
-    }
-  }, { passive: true });
-
-  container.addEventListener('touchcancel', () => {
-    if (isPinching) {
-      isPinching = false;
-      pinchStartDist = 0;
-      applyScale(currentScale, true);
-    }
-  }, { passive: true });
-
-  // 2. Déplacement fluide à la souris quand zoom > 1 (desktop pan)
-  let isMouseDown = false;
-  let startX = 0;
-  let startY = 0;
-  let startScrollLeft = 0;
-  let startScrollTop = 0;
-
-  container.addEventListener('mousedown', (e) => {
-    if (currentScale > 1.0 && e.button === 0) {
-      isMouseDown = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      startScrollLeft = container.scrollLeft;
-      startScrollTop = container.scrollTop;
-      container.style.cursor = 'grab';
-    }
-  });
-
-  window.addEventListener('mousemove', (e) => {
-    if (isMouseDown && currentScale > 1.0) {
-      e.preventDefault();
-      container.style.cursor = 'grabbing';
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      container.scrollLeft = startScrollLeft - dx;
-      container.scrollTop = startScrollTop - dy;
-    }
-  });
-
-  window.addEventListener('mouseup', () => {
-    if (isMouseDown) {
-      isMouseDown = false;
-      container.style.cursor = currentScale > 1.0 ? 'grab' : 'default';
-    }
-  });
-
-  window.addEventListener('resize', () => {
-    if (currentScale === 1.0) {
-      measureBase();
-      applyScale(1.0, false);
-    }
-  });
-
-  return {
-    setScale: (newScale, withTransition = true) => {
-      const targetScale = Math.min(Math.max(1.0, Number(newScale.toFixed(2))), 3.0);
-      if (targetScale !== currentScale) {
-        const maxScrollY = container.scrollHeight - container.clientHeight;
-        const maxScrollX = container.scrollWidth - container.clientWidth;
-        const scrollRatioY = maxScrollY > 0 ? (container.scrollTop / maxScrollY) : 0;
-        const scrollRatioX = maxScrollX > 0 ? (container.scrollLeft / maxScrollX) : 0;
-
-        applyScale(targetScale, withTransition);
-
-        const newMaxScrollY = container.scrollHeight - container.clientHeight;
-        const newMaxScrollX = container.scrollWidth - container.clientWidth;
-        if (newMaxScrollY > 0) {
-          container.scrollTop = scrollRatioY * newMaxScrollY;
-        } else {
-          container.scrollTop = 0;
-        }
-        if (targetScale > 1.0 && newMaxScrollX > 0) {
-          container.scrollLeft = scrollRatioX * newMaxScrollX;
-        } else {
-          container.scrollLeft = 0;
-        }
-      } else {
-        applyScale(targetScale, withTransition);
-      }
-    },
-    getScale: () => currentScale,
-    reset: () => {
-      const maxScrollY = container.scrollHeight - container.clientHeight;
-      const scrollRatioY = maxScrollY > 0 ? (container.scrollTop / maxScrollY) : 0;
-      applyScale(1.0, true);
-      container.scrollLeft = 0;
-      const newMaxScrollY = container.scrollHeight - container.clientHeight;
-      if (newMaxScrollY > 0) {
-        container.scrollTop = scrollRatioY * newMaxScrollY;
-      } else {
-        container.scrollTop = 0;
-      }
-    },
-    recalculate: () => {
-      measureBase();
-      applyScale(currentScale, false);
-    }
-  };
 }
 
 /**
@@ -7504,20 +7300,19 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       iconEl.textContent = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
     }
 
-    // Gestion du zoom dynamique ciblant STRICTEMENT le document interne
-    let currentZoom = 1.0;
+    // Gestion du zoom dynamique via la librairie standard PinchZoom
     let pinchController = null;
     const updateZoomDisplay = () => {
-      if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
+      const zoom = pinchController && typeof pinchController.getZoom === 'function' ? pinchController.getZoom() : 1.0;
+      if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(zoom * 100)}%`;
     };
     updateZoomDisplay();
 
     if (btnZoomOut) {
       btnZoomOut.onclick = (e) => {
         e.stopPropagation();
-        currentZoom = Math.max(1.0, Number((currentZoom - 0.25).toFixed(2)));
-        if (pinchController) {
-          pinchController.setScale(currentZoom, true);
+        if (pinchController && typeof pinchController.zoomOut === 'function') {
+          pinchController.zoomOut();
         }
         updateZoomDisplay();
       };
@@ -7526,9 +7321,8 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     if (btnZoomIn) {
       btnZoomIn.onclick = (e) => {
         e.stopPropagation();
-        currentZoom = Math.min(3.0, Number((currentZoom + 0.25).toFixed(2)));
-        if (pinchController) {
-          pinchController.setScale(currentZoom, true);
+        if (pinchController && typeof pinchController.zoomIn === 'function') {
+          pinchController.zoomIn();
         }
         updateZoomDisplay();
       };
@@ -7537,13 +7331,20 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     if (btnZoomReset) {
       btnZoomReset.onclick = (e) => {
         e.stopPropagation();
-        currentZoom = 1.0;
-        if (pinchController) {
+        if (pinchController && typeof pinchController.reset === 'function') {
           pinchController.reset();
         }
         updateZoomDisplay();
       };
     }
+
+    // Nettoyage de l'instance PinchZoom à la fermeture du dialogue
+    dialog.addEventListener('close', () => {
+      if (pinchController && typeof pinchController.destroy === 'function') {
+        pinchController.destroy();
+        pinchController = null;
+      }
+    }, { once: true });
 
     // Bouton "Ouvrir" dans la barre d'outils
     if (openBtn) {
@@ -7555,26 +7356,22 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     // Rendu selon le type de fichier
     if (isImage) {
       bodyEl.innerHTML = `
-        <div id="doc-viewer-zoom-wrapper" style="position: relative; display: inline-block; vertical-align: top; box-sizing: border-box; margin: 0 auto;">
-          <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="display: block; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transform-origin: 0 0;">
+        <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; margin: 0 auto;">
+          <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="display: block; width: 100%; max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
         </div>
       `;
-      const img = bodyEl.querySelector('img');
-      const wrapper = bodyEl.querySelector('#doc-viewer-zoom-wrapper');
-      if (img && wrapper) {
-        pinchController = setupPinchZoom(bodyEl, img, wrapper, (newScale) => {
-          currentZoom = Number(newScale.toFixed(2));
-          updateZoomDisplay();
-        }, currentZoom);
+      const zoomableEl = bodyEl.querySelector('.zoomable-document-content');
+      if (zoomableEl) {
+        pinchController = initDocPinchZoom(zoomableEl);
       }
     } else if (isPdf) {
       bodyEl.innerHTML = `
-        <div id="doc-viewer-zoom-wrapper" style="position: relative; display: inline-block; vertical-align: top; box-sizing: border-box; margin: 0 auto; min-height: 70vh;">
-          <div id="pdf-canvas-container" style="display: block; width: 100%; margin: 0; transform-origin: 0 0;"></div>
+        <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; margin: 0 auto; min-height: 70vh;">
+          <div id="pdf-canvas-container" style="display: block; width: 100%; margin: 0;"></div>
         </div>
       `;
       const container = bodyEl.querySelector('#pdf-canvas-container');
-      const wrapper = bodyEl.querySelector('#doc-viewer-zoom-wrapper');
+      const zoomableEl = bodyEl.querySelector('.zoomable-document-content');
 
       let renderedViaPdfJs = false;
       if (window.pdfjsLib) {
@@ -7615,21 +7412,13 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       }
 
       if (!renderedViaPdfJs) {
-        wrapper.innerHTML = `
-          <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: auto; min-height: 70vh; border: none; border-radius: 8px; background: #fff; transform-origin: 0 0;" title="${cleanFilename}"></iframe>
+        zoomableEl.innerHTML = `
+          <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: auto; min-height: 70vh; border: none; border-radius: 8px; background: #fff;" title="${cleanFilename}"></iframe>
         `;
-        const iframe = wrapper.querySelector('iframe');
-        if (bodyEl && iframe && wrapper) {
-          pinchController = setupPinchZoom(bodyEl, iframe, wrapper, (newScale) => {
-            currentZoom = Number(newScale.toFixed(2));
-            updateZoomDisplay();
-          }, currentZoom);
-        }
-      } else if (bodyEl && container && wrapper) {
-        pinchController = setupPinchZoom(bodyEl, container, wrapper, (newScale) => {
-          currentZoom = Number(newScale.toFixed(2));
-          updateZoomDisplay();
-        }, currentZoom);
+      }
+
+      if (zoomableEl) {
+        pinchController = initDocPinchZoom(zoomableEl);
       }
     } else {
       // Fallback avec bouton "Ouvrir" fonctionnel

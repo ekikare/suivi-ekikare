@@ -2685,12 +2685,22 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   touch-action: pan-x pan-y pinch-zoom !important;
 }
 
-#dialog-document-viewer #doc-viewer-zoom-wrapper {
+#dialog-document-viewer #doc-viewer-zoom-wrapper,
+#dialog-document-viewer .zoomable-document-content,
+.zoomable-document-content {
   position: relative !important;
-  display: inline-block !important;
+  display: block !important;
   vertical-align: top !important;
   box-sizing: border-box !important;
-  margin: 0 auto;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 auto !important;
+}
+
+.pinch-zoom-container {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 auto !important;
 }
 
 #dialog-portal-session-cr .official-a4-sheet,
@@ -4386,15 +4396,26 @@ dialog#dialog-cgv-rgpd:not([open]),
     text-align: center;
   }
 
-  #dialog-document-viewer #doc-viewer-zoom-wrapper {
+  #dialog-document-viewer #doc-viewer-zoom-wrapper,
+  #dialog-document-viewer .zoomable-document-content,
+  .zoomable-document-content {
     position: relative !important;
-    display: inline-block !important;
+    display: block !important;
     vertical-align: top !important;
     box-sizing: border-box !important;
-    margin: 0 auto;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
   }
 
-  #dialog-document-viewer #doc-viewer-zoom-wrapper img {
+  .pinch-zoom-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+  }
+
+  #dialog-document-viewer #doc-viewer-zoom-wrapper img,
+  #dialog-document-viewer .zoomable-document-content img {
     max-height: none !important;
   }
 
