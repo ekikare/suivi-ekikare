@@ -3981,55 +3981,40 @@ body.is-printing .collapsible-icon {
   padding: 12px 14px;
 }
 
-/* Modale CGV & RGPD - Conteneur principal à défilement unique (Piste 1) */
-dialog#dialog-cgv-rgpd {
+/* Modale CGV & RGPD - Scroll interne ciblé et bouton de validation toujours visible */
+dialog#dialog-cgv-rgpd,
+#modal-cgv {
   max-width: 740px;
   width: 94%;
-  height: auto;
-  max-height: 90vh;
-  max-height: 90dvh;
+  height: 80vh !important;
+  max-height: 80vh !important;
+  max-height: 80dvh !important;
   box-sizing: border-box;
-  padding: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
   border-radius: 16px;
   border: 1px solid rgba(217, 107, 39, 0.4);
-  scrollbar-width: thin;
-  scrollbar-color: #D96B27 rgba(15, 23, 42, 0.6);
 }
 
-dialog#dialog-cgv-rgpd::-webkit-scrollbar {
-  width: 8px;
+dialog#dialog-cgv-rgpd[open],
+#modal-cgv[open] {
+  display: flex !important;
 }
 
-dialog#dialog-cgv-rgpd::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
-  border-radius: 4px;
-}
-
-dialog#dialog-cgv-rgpd::-webkit-scrollbar-thumb {
-  background: #D96B27;
-  border-radius: 4px;
-  border: 2px solid rgba(15, 23, 42, 0.6);
-}
-
-dialog#dialog-cgv-rgpd::-webkit-scrollbar-thumb:hover {
-  background: #f59e0b;
-}
-
-dialog#dialog-cgv-rgpd[open] {
-  display: block !important;
-}
-
-dialog#dialog-cgv-rgpd:not([open]) {
+dialog#dialog-cgv-rgpd:not([open]),
+#modal-cgv:not([open]) {
   display: none !important;
 }
 
 /* En-tête fixé en haut (titre + onglets CGV / RGPD) */
-#dialog-cgv-rgpd .cgv-sticky-header {
+#dialog-cgv-rgpd .cgv-sticky-header,
+#modal-cgv .modal-header {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 20;
+  flex-shrink: 0;
   background: #0f172a;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -4042,26 +4027,114 @@ dialog#dialog-cgv-rgpd:not([open]) {
   background: #0f172a;
 }
 
-/* Zone de texte des articles : toute sa longueur naturelle */
-.cgv-content-body {
-  padding: 24px 24px 32px 24px;
+/* Corps de la modale en conteneur flex */
+#dialog-cgv-rgpd .cgv-content-body,
+#modal-cgv .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px 12px 20px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Zone de texte légal avec défilement interne */
+#dialog-cgv-rgpd .cgv-panel,
+#dialog-cgv-rgpd #panel-cgv,
+#dialog-cgv-rgpd #panel-rgpd,
+#modal-cgv .legal-text {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  padding-right: 6px;
   font-size: 0.88rem;
   line-height: 1.6;
   color: #cbd5e1;
+  scrollbar-width: thin;
+  scrollbar-color: #D96B27 rgba(15, 23, 42, 0.6);
 }
 
-/* Bloc d'engagement (cases à cocher + bouton de validation) dans le flux naturel */
-#cgv-blocking-footer {
-  margin-top: 2rem;
-  padding: 1.5rem 0 0.5rem 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: transparent;
+#dialog-cgv-rgpd .cgv-panel::-webkit-scrollbar,
+#dialog-cgv-rgpd #panel-cgv::-webkit-scrollbar,
+#dialog-cgv-rgpd #panel-rgpd::-webkit-scrollbar {
+  width: 6px;
 }
 
-#cgv-consultation-footer {
-  margin-top: 2rem;
-  padding: 1.5rem 0 0.5rem 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: transparent;
+#dialog-cgv-rgpd .cgv-panel::-webkit-scrollbar-track,
+#dialog-cgv-rgpd #panel-cgv::-webkit-scrollbar-track,
+#dialog-cgv-rgpd #panel-rgpd::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 3px;
+}
+
+#dialog-cgv-rgpd .cgv-panel::-webkit-scrollbar-thumb,
+#dialog-cgv-rgpd #panel-cgv::-webkit-scrollbar-thumb,
+#dialog-cgv-rgpd #panel-rgpd::-webkit-scrollbar-thumb {
+  background: #D96B27;
+  border-radius: 3px;
+}
+
+#dialog-cgv-rgpd .cgv-panel::-webkit-scrollbar-thumb:hover,
+#dialog-cgv-rgpd #panel-cgv::-webkit-scrollbar-thumb:hover,
+#dialog-cgv-rgpd #panel-rgpd::-webkit-scrollbar-thumb:hover {
+  background: #f59e0b;
+}
+
+/* Pied de modale : FIXÉ ET VISIBLE AU BAS DE LA BOÎTE DE DIALOGUE */
+#dialog-cgv-rgpd #cgv-blocking-footer,
+#modal-cgv .modal-footer {
+  flex-shrink: 0;
+  margin-top: 10px;
+  padding: 12px 0 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0f172a;
+}
+
+#dialog-cgv-rgpd #cgv-consultation-footer {
+  flex-shrink: 0;
+  margin-top: 10px;
+  padding: 12px 0 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0f172a;
+}
+
+@media (max-width: 640px) {
+  dialog#dialog-cgv-rgpd,
+  #modal-cgv {
+    width: 96% !important;
+    height: 80vh !important;
+    max-height: 80vh !important;
+    max-height: 80dvh !important;
+  }
+  #dialog-cgv-rgpd .dialog-header {
+    padding: 12px 14px !important;
+  }
+  #dialog-cgv-rgpd .cgv-tabs-bar {
+    padding: 6px 14px 0 14px !important;
+  }
+  #dialog-cgv-rgpd .cgv-tab-btn {
+    font-size: 0.8rem !important;
+    padding: 6px 10px !important;
+  }
+  #dialog-cgv-rgpd .cgv-content-body {
+    padding: 10px 14px 8px 14px !important;
+  }
+  #dialog-cgv-rgpd .cgv-panel {
+    font-size: 0.82rem !important;
+  }
+  #dialog-cgv-rgpd #cgv-blocking-footer {
+    padding-top: 8px !important;
+    margin-top: 6px !important;
+  }
+  #dialog-cgv-rgpd #cgv-blocking-footer label span {
+    font-size: 0.78rem !important;
+    line-height: 1.35 !important;
+  }
+  #dialog-cgv-rgpd #btn-submit-cgv-rgpd {
+    padding: 10px !important;
+    font-size: 0.88rem !important;
+  }
 }
 

@@ -31,7 +31,7 @@
     }
   </script>
   <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="manifest.json?v=1.6.34">
+  <link rel="manifest" href="manifest.json?v=1.6.35">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,17 +39,17 @@
   <meta name="apple-mobile-web-app-title" content="eKiKare">
 
   <!-- Icons (Favicon & Touch Icons) -->
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.34">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.34">
-  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.34">
-  <link rel="shortcut icon" href="favicon.ico?v=1.6.34">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.34">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.35">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.35">
+  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.35">
+  <link rel="shortcut icon" href="favicon.ico?v=1.6.35">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.35">
 
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.34">
+  <link rel="stylesheet" href="style.css?v=1.6.35">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -2714,7 +2714,7 @@
   </dialog>
 
   <!-- MODALE CGV & RGPD (ACCEPTATION BLOQUANTE & CONSULTATION) -->
-  <dialog class="app-dialog glass-card" id="dialog-cgv-rgpd" style="max-width: 740px; width: 94%; max-height: 90vh; max-height: 90dvh; overflow-y: auto; border-color: rgba(217, 107, 39, 0.4); padding: 0;">
+  <dialog class="app-dialog glass-card" id="dialog-cgv-rgpd" style="max-width: 740px; width: 94%; max-height: 80vh; max-height: 80dvh; overflow: hidden; border-color: rgba(217, 107, 39, 0.4); padding: 0;">
     <div class="cgv-sticky-header" style="position: sticky; top: 0; z-index: 10; background: #0f172a; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
       <div class="dialog-header" style="padding: 18px 24px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center; background: #0f172a;">
         <div style="display: flex; align-items: center; gap: 12px;">
@@ -3101,13 +3101,13 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.34"></script>
+  <script type="module" src="app.js?v=1.6.35"></script>
 
   <!-- Service Worker PWA -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1.6.34')
+        navigator.serviceWorker.register('./sw.js?v=1.6.35')
           .then((reg) => {
             console.log('[PWA] Service Worker actif (scope:', reg.scope, ')');
           })
