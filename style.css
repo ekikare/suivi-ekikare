@@ -2675,16 +2675,22 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   overflow: auto !important;
   -webkit-overflow-scrolling: touch !important;
   flex: 1 1 auto !important;
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  justify-content: flex-start !important;
+  display: block !important;
+  text-align: center;
   box-sizing: border-box !important;
   width: 100% !important;
   max-width: 100% !important;
   padding: 10px !important;
   margin: 0 !important;
   touch-action: pan-x pan-y pinch-zoom !important;
+}
+
+#dialog-document-viewer #doc-viewer-zoom-wrapper {
+  position: relative !important;
+  display: inline-block !important;
+  vertical-align: top !important;
+  box-sizing: border-box !important;
+  margin: 0 auto;
 }
 
 #dialog-portal-session-cr .official-a4-sheet,
@@ -4376,6 +4382,29 @@ dialog#dialog-cgv-rgpd:not([open]),
     max-width: 100% !important;
     padding: 8px !important;
     margin: 0 !important;
+    display: block !important;
+    text-align: center;
+  }
+
+  #dialog-document-viewer #doc-viewer-zoom-wrapper {
+    position: relative !important;
+    display: inline-block !important;
+    vertical-align: top !important;
+    box-sizing: border-box !important;
+    margin: 0 auto;
+  }
+
+  #dialog-document-viewer #doc-viewer-zoom-wrapper img {
+    max-height: none !important;
+  }
+
+  #dialog-document-viewer .pdf-page-canvas {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    display: block !important;
+    margin: 0 auto 12px auto !important;
   }
 
   /* 1. Ajustement par défaut à 100% de la largeur du document joint */
@@ -4390,7 +4419,6 @@ dialog#dialog-cgv-rgpd:not([open]),
     width: 100% !important;
     max-width: 100% !important;
     height: auto !important;
-    max-height: 70vh !important;
     object-fit: contain !important;
     display: block !important;
     margin: 0 auto !important;

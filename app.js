@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.42';
+} from './db.js?v=1.6.43';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.42';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.43';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.42';
+export const APP_VERSION = 'v1.6.43';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -6997,70 +6997,183 @@ let extSessionFileData = null;
 let extSessionFileName = null;
 let extSessionFileType = null;
 
-function setupPinchZoom(container, targetEl, onScaleChange = null) {
+function setupPinchZoom(container, targetEl, wrapperEl, onScaleChange = null, initialScale = 1.0) {
   if (!container || !targetEl) return null;
-  let scale = 1;
-  let startDist = 0;
-  let lastTap = 0;
 
-  // Double-tap zoom (1x <-> 2x)
-  targetEl.addEventListener('touchend', (e) => {
-    const now = Date.now();
-    if (now - lastTap < 300 && now - lastTap > 0) {
-      e.preventDefault();
-      scale = scale > 1.2 ? 1 : 2;
-      targetEl.style.transition = 'transform 0.25s ease';
-      targetEl.style.transform = `scale(${scale})`;
-      targetEl.style.transformOrigin = 'top center';
-      if (typeof onScaleChange === 'function') onScaleChange(scale);
+  let currentScale = Math.min(Math.max(1.0, initialScale || 1.0), 3.0);
+  let baseWidth = 0;
+  let baseHeight = 0;
+  let isPinching = false;
+  let pinchStartDist = 0;
+  let pinchStartScale = 1.0;
+
+  function measureBase() {
+    const availW = container.clientWidth ? Math.max(container.clientWidth - 20, 260) : 340;
+    if (targetEl.tagName === 'IMG') {
+      const natW = targetEl.naturalWidth;
+      const natH = targetEl.naturalHeight;
+      if (natW && natH) {
+        baseWidth = Math.min(availW, natW);
+        baseHeight = Math.round(baseWidth * (natH / natW));
+      } else {
+        baseWidth = targetEl.offsetWidth || availW;
+        baseHeight = targetEl.offsetHeight || Math.round(baseWidth * 1.33);
+      }
+    } else {
+      // PDF canvas container ou autre conteneur
+      baseWidth = targetEl.offsetWidth || availW;
+      baseHeight = targetEl.offsetHeight || 500;
     }
-    lastTap = now;
-  });
+  }
 
-  // Touch pinch zoom - intercepter strictement à 2 doigts et empêcher le zoom natif de la modale/page
+  function applyScale(scaleVal, withTransition = false) {
+    currentScale = Math.min(Math.max(1.0, Number(scaleVal.toFixed(2))), 3.0);
+    if (baseWidth === 0 || baseHeight === 0) {
+      measureBase();
+    }
+
+    const transitionProp = withTransition ? 'transform 0.15s ease' : 'none';
+    targetEl.style.transition = transitionProp;
+    targetEl.style.transformOrigin = '0 0';
+    targetEl.style.transform = `scale(${currentScale})`;
+
+    if (wrapperEl && baseWidth > 0 && baseHeight > 0) {
+      wrapperEl.style.transition = withTransition ? 'width 0.15s ease, height 0.15s ease' : 'none';
+      const scaledW = Math.round(baseWidth * currentScale);
+      const scaledH = Math.round(baseHeight * currentScale);
+
+      wrapperEl.style.width = `${scaledW}px`;
+      wrapperEl.style.minWidth = `${scaledW}px`;
+      wrapperEl.style.height = `${scaledH}px`;
+      wrapperEl.style.minHeight = `${scaledH}px`;
+
+      if (currentScale > 1.0) {
+        wrapperEl.style.margin = '0';
+        container.style.textAlign = 'left';
+      } else {
+        wrapperEl.style.margin = '0 auto';
+        container.style.textAlign = 'center';
+      }
+    }
+
+    if (typeof onScaleChange === 'function') {
+      onScaleChange(currentScale);
+    }
+  }
+
+  // Mesure initiale à froid ou au chargement de l'image
+  if (targetEl.tagName === 'IMG' && !targetEl.complete) {
+    targetEl.addEventListener('load', () => {
+      measureBase();
+      applyScale(currentScale, false);
+    }, { once: true });
+  } else {
+    setTimeout(() => {
+      measureBase();
+      applyScale(currentScale, false);
+    }, 20);
+  }
+
+  // 1. Touch pinch zoom (2 doigts) - suppression totale du double-tap conflictuel
   container.addEventListener('touchstart', (e) => {
     if (e.touches.length === 2) {
       e.preventDefault();
-      startDist = Math.hypot(
+      isPinching = true;
+      pinchStartDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
+      pinchStartScale = currentScale;
     }
   }, { passive: false });
 
   container.addEventListener('touchmove', (e) => {
-    if (e.touches.length === 2 && startDist > 0) {
+    if (e.touches.length === 2 && isPinching && pinchStartDist > 0) {
       e.preventDefault();
-      const dist = Math.hypot(
+      const currentDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      const factor = dist / startDist;
-      // Permettre de dézoomer jusqu'à 0.4x pour voir l'ensemble de la page sur mobile
-      scale = Math.min(Math.max(0.4, scale * factor), 3.5);
-      startDist = dist;
-      targetEl.style.transition = 'none';
-      targetEl.style.transform = `scale(${scale})`;
-      targetEl.style.transformOrigin = 'top center';
-      if (typeof onScaleChange === 'function') onScaleChange(scale);
+      const factor = currentDist / pinchStartDist;
+      const targetScale = Math.min(Math.max(1.0, pinchStartScale * factor), 3.0);
+      applyScale(targetScale, false);
     }
   }, { passive: false });
 
   container.addEventListener('touchend', (e) => {
-    if (e.touches.length < 2) {
-      startDist = 0;
+    if (isPinching && e.touches.length < 2) {
+      isPinching = false;
+      pinchStartDist = 0;
+      // Persistance stricte de l'échelle finale : aucun saut ni réinitialisation
+      applyScale(currentScale, true);
     }
   }, { passive: true });
 
+  container.addEventListener('touchcancel', () => {
+    if (isPinching) {
+      isPinching = false;
+      pinchStartDist = 0;
+      applyScale(currentScale, true);
+    }
+  }, { passive: true });
+
+  // 2. Déplacement fluide à la souris quand zoom > 1 (desktop pan)
+  let isMouseDown = false;
+  let startX = 0;
+  let startY = 0;
+  let startScrollLeft = 0;
+  let startScrollTop = 0;
+
+  container.addEventListener('mousedown', (e) => {
+    if (currentScale > 1.0 && e.button === 0) {
+      isMouseDown = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startScrollLeft = container.scrollLeft;
+      startScrollTop = container.scrollTop;
+      container.style.cursor = 'grab';
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (isMouseDown && currentScale > 1.0) {
+      e.preventDefault();
+      container.style.cursor = 'grabbing';
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      container.scrollLeft = startScrollLeft - dx;
+      container.scrollTop = startScrollTop - dy;
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isMouseDown) {
+      isMouseDown = false;
+      container.style.cursor = currentScale > 1.0 ? 'grab' : 'default';
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    if (currentScale === 1.0) {
+      measureBase();
+      applyScale(1.0, false);
+    }
+  });
+
   return {
-    setScale: (newScale, triggerCallback = true) => {
-      scale = Math.min(Math.max(0.4, newScale), 3.5);
-      targetEl.style.transition = 'transform 0.15s ease';
-      targetEl.style.transform = `scale(${scale})`;
-      targetEl.style.transformOrigin = 'top center';
-      if (triggerCallback && typeof onScaleChange === 'function') onScaleChange(scale);
+    setScale: (newScale, withTransition = true) => {
+      applyScale(newScale, withTransition);
     },
-    getScale: () => scale
+    getScale: () => currentScale,
+    reset: () => {
+      applyScale(1.0, true);
+      container.scrollLeft = 0;
+      container.scrollTop = 0;
+    },
+    recalculate: () => {
+      measureBase();
+      applyScale(currentScale, false);
+    }
   };
 }
 
@@ -7337,38 +7450,31 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
 
     // Gestion du zoom dynamique ciblant STRICTEMENT le document interne
     let currentZoom = 1.0;
-    let currentViewerTarget = null;
     let pinchController = null;
     const updateZoomDisplay = () => {
       if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
     };
     updateZoomDisplay();
 
-    const applyZoom = () => {
-      if (!currentViewerTarget) return;
-      if (pinchController && typeof pinchController.setScale === 'function') {
-        pinchController.setScale(currentZoom, false);
-      } else {
-        currentViewerTarget.style.transition = 'transform 0.15s ease';
-        currentViewerTarget.style.transform = `scale(${currentZoom})`;
-        currentViewerTarget.style.transformOrigin = 'top center';
-      }
-      updateZoomDisplay();
-    };
-
     if (btnZoomOut) {
       btnZoomOut.onclick = (e) => {
         e.stopPropagation();
-        currentZoom = Math.max(0.4, Number((currentZoom - 0.2).toFixed(2)));
-        applyZoom();
+        currentZoom = Math.max(1.0, Number((currentZoom - 0.25).toFixed(2)));
+        if (pinchController) {
+          pinchController.setScale(currentZoom, true);
+        }
+        updateZoomDisplay();
       };
     }
 
     if (btnZoomIn) {
       btnZoomIn.onclick = (e) => {
         e.stopPropagation();
-        currentZoom = Math.min(3.5, Number((currentZoom + 0.2).toFixed(2)));
-        applyZoom();
+        currentZoom = Math.min(3.0, Number((currentZoom + 0.25).toFixed(2)));
+        if (pinchController) {
+          pinchController.setScale(currentZoom, true);
+        }
+        updateZoomDisplay();
       };
     }
 
@@ -7376,7 +7482,10 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       btnZoomReset.onclick = (e) => {
         e.stopPropagation();
         currentZoom = 1.0;
-        applyZoom();
+        if (pinchController) {
+          pinchController.reset();
+        }
+        updateZoomDisplay();
       };
     }
 
@@ -7390,26 +7499,26 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     // Rendu selon le type de fichier
     if (isImage) {
       bodyEl.innerHTML = `
-        <div class="attachment-preview" style="width: 100%; max-width: 100%; display: flex; justify-content: center; align-items: flex-start; padding: 6px; box-sizing: border-box;">
-          <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="width: 100%; max-width: 100%; height: auto; max-height: 75vh; object-fit: contain; display: block; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transform-origin: top center; transition: transform 0.15s ease;">
+        <div id="doc-viewer-zoom-wrapper" style="position: relative; display: inline-block; vertical-align: top; box-sizing: border-box; margin: 0 auto;">
+          <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="display: block; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transform-origin: 0 0;">
         </div>
       `;
       const img = bodyEl.querySelector('img');
-      currentViewerTarget = img;
-      if (img && bodyEl) {
-        pinchController = setupPinchZoom(bodyEl, img, (newScale) => {
+      const wrapper = bodyEl.querySelector('#doc-viewer-zoom-wrapper');
+      if (img && wrapper) {
+        pinchController = setupPinchZoom(bodyEl, img, wrapper, (newScale) => {
           currentZoom = Number(newScale.toFixed(2));
           updateZoomDisplay();
-        });
+        }, currentZoom);
       }
     } else if (isPdf) {
       bodyEl.innerHTML = `
-        <div class="attachment-preview" style="width: 100%; max-width: 100%; min-height: 70vh; height: auto; position: relative; box-sizing: border-box; text-align: center;">
-          <div id="pdf-canvas-container" style="display: inline-block; width: 100%; max-width: 100%; margin: 0 auto; transform-origin: top center; transition: transform 0.15s ease;"></div>
+        <div id="doc-viewer-zoom-wrapper" style="position: relative; display: inline-block; vertical-align: top; box-sizing: border-box; margin: 0 auto; min-height: 70vh;">
+          <div id="pdf-canvas-container" style="display: block; width: 100%; margin: 0; transform-origin: 0 0;"></div>
         </div>
       `;
       const container = bodyEl.querySelector('#pdf-canvas-container');
-      currentViewerTarget = container;
+      const wrapper = bodyEl.querySelector('#doc-viewer-zoom-wrapper');
 
       let renderedViaPdfJs = false;
       if (window.pdfjsLib) {
@@ -7450,20 +7559,21 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       }
 
       if (!renderedViaPdfJs) {
-        const previewEl = bodyEl.querySelector('.attachment-preview');
-        if (previewEl) {
-          previewEl.innerHTML = `
-            <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: auto; min-height: 70vh; border: none; border-radius: 8px; background: #fff;" title="${cleanFilename}"></iframe>
-          `;
-          currentViewerTarget = previewEl.querySelector('iframe');
+        wrapper.innerHTML = `
+          <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: auto; min-height: 70vh; border: none; border-radius: 8px; background: #fff; transform-origin: 0 0;" title="${cleanFilename}"></iframe>
+        `;
+        const iframe = wrapper.querySelector('iframe');
+        if (bodyEl && iframe && wrapper) {
+          pinchController = setupPinchZoom(bodyEl, iframe, wrapper, (newScale) => {
+            currentZoom = Number(newScale.toFixed(2));
+            updateZoomDisplay();
+          }, currentZoom);
         }
-      }
-
-      if (bodyEl && currentViewerTarget) {
-        pinchController = setupPinchZoom(bodyEl, currentViewerTarget, (newScale) => {
+      } else if (bodyEl && container && wrapper) {
+        pinchController = setupPinchZoom(bodyEl, container, wrapper, (newScale) => {
           currentZoom = Number(newScale.toFixed(2));
           updateZoomDisplay();
-        });
+        }, currentZoom);
       }
     } else {
       // Fallback avec bouton "Ouvrir" fonctionnel
@@ -7573,8 +7683,8 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
 
     dialog.onclose = () => {
       currentZoom = 1.0;
-      if (currentViewerTarget) {
-        currentViewerTarget.style.transform = '';
+      if (pinchController) {
+        pinchController.reset();
       }
     };
   } catch (err) {
