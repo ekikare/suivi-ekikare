@@ -2695,6 +2695,9 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   width: 100% !important;
   max-width: 100% !important;
   margin: 0 auto !important;
+  transform-origin: 0 0 !important;
+  -webkit-transform-origin: 0 0 !important;
+  touch-action: none !important;
 }
 
 .pinch-zoom-container {
@@ -4406,6 +4409,9 @@ dialog#dialog-cgv-rgpd:not([open]),
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 auto !important;
+    transform-origin: 0 0 !important;
+    -webkit-transform-origin: 0 0 !important;
+    touch-action: none !important;
   }
 
   .pinch-zoom-container {
