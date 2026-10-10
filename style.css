@@ -3981,14 +3981,34 @@ body.is-printing .collapsible-icon {
   padding: 12px 14px;
 }
 
-/* Modale CGV & RGPD - Scroll interne ciblé et bouton de validation toujours visible */
+/* Modale CGV & RGPD - Scroll interne complet et zone de lecture garantie */
+.modal-dialog {
+  max-height: 92vh !important;
+  max-height: 92dvh !important;
+  margin: 10px auto !important;
+}
+
+.modal-content {
+  max-height: 92vh !important;
+  max-height: 92dvh !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.modal-body {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  flex: 1 1 auto !important;
+  max-height: none !important;
+}
+
 dialog#dialog-cgv-rgpd,
 #modal-cgv {
   max-width: 740px;
   width: 94%;
-  height: 80vh !important;
-  max-height: 80vh !important;
-  max-height: 80dvh !important;
+  max-height: 92vh !important;
+  max-height: 92dvh !important;
+  margin: 10px auto !important;
   box-sizing: border-box;
   padding: 0 !important;
   display: flex !important;
@@ -4027,31 +4047,37 @@ dialog#dialog-cgv-rgpd:not([open]),
   background: #0f172a;
 }
 
-/* Corps de la modale en conteneur flex */
+/* Corps de la modale avec défilement vertical complet */
 #dialog-cgv-rgpd .cgv-content-body,
 #modal-cgv .modal-body {
-  flex: 1 1 auto;
+  flex: 1 1 auto !important;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 16px 20px 12px 20px;
-  overflow: hidden;
+  padding: 16px 20px 16px 20px;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  max-height: none !important;
   box-sizing: border-box;
 }
 
-/* Zone de texte légal avec défilement interne */
+/* Zone de texte légal CGV / RGPD avec hauteur minimale garantie au-dessus des cases */
 #dialog-cgv-rgpd .cgv-panel,
 #dialog-cgv-rgpd #panel-cgv,
 #dialog-cgv-rgpd #panel-rgpd,
 #modal-cgv .legal-text {
-  flex: 1 1 auto;
-  min-height: 0;
+  min-height: 180px !important;
+  max-height: 250px !important;
+  flex-shrink: 0;
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch !important;
-  padding-right: 6px;
+  padding: 12px 14px;
   font-size: 0.88rem;
   line-height: 1.6;
   color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
   scrollbar-width: thin;
   scrollbar-color: #D96B27 rgba(15, 23, 42, 0.6);
 }
@@ -4082,31 +4108,49 @@ dialog#dialog-cgv-rgpd:not([open]),
   background: #f59e0b;
 }
 
-/* Pied de modale : FIXÉ ET VISIBLE AU BAS DE LA BOÎTE DE DIALOGUE */
+/* Pied de modale : Cases à cocher et bouton de validation */
 #dialog-cgv-rgpd #cgv-blocking-footer,
 #modal-cgv .modal-footer {
   flex-shrink: 0;
-  margin-top: 10px;
-  padding: 12px 0 4px 0;
+  margin-top: 14px;
+  padding: 14px 0 4px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
-  background: #0f172a;
+  background: transparent;
 }
 
 #dialog-cgv-rgpd #cgv-consultation-footer {
   flex-shrink: 0;
-  margin-top: 10px;
+  margin-top: 14px;
   padding: 12px 0 4px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
-  background: #0f172a;
+  background: transparent;
 }
 
 @media (max-width: 640px) {
+  .modal-dialog,
   dialog#dialog-cgv-rgpd,
   #modal-cgv {
     width: 96% !important;
-    height: 80vh !important;
-    max-height: 80vh !important;
-    max-height: 80dvh !important;
+    max-height: 92vh !important;
+    max-height: 92dvh !important;
+    margin: 10px auto !important;
+  }
+  .modal-content,
+  dialog#dialog-cgv-rgpd,
+  #modal-cgv {
+    max-height: 92vh !important;
+    max-height: 92dvh !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .modal-body,
+  #dialog-cgv-rgpd .cgv-content-body,
+  #modal-cgv .modal-body {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    flex: 1 1 auto !important;
+    max-height: none !important;
+    padding: 12px 14px 16px 14px !important;
   }
   #dialog-cgv-rgpd .dialog-header {
     padding: 12px 14px !important;
@@ -4118,22 +4162,27 @@ dialog#dialog-cgv-rgpd:not([open]),
     font-size: 0.8rem !important;
     padding: 6px 10px !important;
   }
-  #dialog-cgv-rgpd .cgv-content-body {
-    padding: 10px 14px 8px 14px !important;
-  }
-  #dialog-cgv-rgpd .cgv-panel {
+  #dialog-cgv-rgpd .cgv-panel,
+  #dialog-cgv-rgpd #panel-cgv,
+  #dialog-cgv-rgpd #panel-rgpd,
+  #modal-cgv .legal-text {
+    min-height: 180px !important;
+    max-height: 250px !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
     font-size: 0.82rem !important;
+    padding: 10px 12px !important;
   }
   #dialog-cgv-rgpd #cgv-blocking-footer {
-    padding-top: 8px !important;
-    margin-top: 6px !important;
+    padding-top: 10px !important;
+    margin-top: 10px !important;
   }
   #dialog-cgv-rgpd #cgv-blocking-footer label span {
     font-size: 0.78rem !important;
     line-height: 1.35 !important;
   }
   #dialog-cgv-rgpd #btn-submit-cgv-rgpd {
-    padding: 10px !important;
+    padding: 12px !important;
     font-size: 0.88rem !important;
   }
 }
