@@ -2710,6 +2710,128 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   touch-action: pan-y pinch-zoom !important;
 }
 
+/* ==========================================================================
+   Visualiseur Plein Écran Natif Pièce Jointe (#modal-attachment-viewer)
+   ========================================================================== */
+#modal-attachment-viewer {
+  width: 100vw !important;
+  height: 100vh !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  z-index: 10000 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: #000 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  border: none !important;
+  outline: none !important;
+}
+
+#modal-attachment-viewer.hidden,
+#modal-attachment-viewer:not(.active),
+#modal-attachment-viewer[style*="display: none"] {
+  display: none !important;
+}
+
+.modal-attachment-header {
+  height: 50px !important;
+  min-height: 50px !important;
+  max-height: 50px !important;
+  width: 100% !important;
+  background: rgba(15, 23, 42, 0.96) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0 14px !important;
+  box-sizing: border-box !important;
+  z-index: 10001 !important;
+  flex-shrink: 0 !important;
+  color: #ffffff !important;
+}
+
+.attachment-header-title {
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  padding-right: 12px !important;
+  text-align: left !important;
+}
+
+.attachment-header-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-shrink: 0 !important;
+}
+
+.btn-close-attachment {
+  background: transparent !important;
+  border: none !important;
+  color: #ffffff !important;
+  font-size: 1.8rem !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  padding: 0 4px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: opacity 0.2s ease;
+}
+
+.btn-close-attachment:hover {
+  opacity: 0.8;
+}
+
+@media (max-width: 480px) {
+  .attachment-header-actions .btn-small .btn-text {
+    display: none;
+  }
+  .attachment-header-actions .btn-small {
+    padding: 6px 8px !important;
+  }
+}
+
+.modal-attachment-body {
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  height: calc(100vh - 50px) !important;
+  overflow: hidden !important;
+  position: relative !important;
+  background: #000000 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.modal-attachment-body iframe {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  background: #ffffff !important;
+}
+
+.modal-attachment-body img {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  margin: auto !important;
+  display: block !important;
+  object-fit: contain !important;
+}
+
 #dialog-portal-session-cr .official-a4-sheet,
 .official-a4-sheet,
 .cr-document {

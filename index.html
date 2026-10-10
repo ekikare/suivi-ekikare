@@ -31,7 +31,7 @@
     }
   </script>
   <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="manifest.json?v=1.6.51">
+  <link rel="manifest" href="manifest.json?v=1.6.52">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,17 +39,17 @@
   <meta name="apple-mobile-web-app-title" content="eKiKare">
 
   <!-- Icons (Favicon & Touch Icons) -->
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.51">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.51">
-  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.51">
-  <link rel="shortcut icon" href="favicon.ico?v=1.6.51">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.51">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.52">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.52">
+  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.52">
+  <link rel="shortcut icon" href="favicon.ico?v=1.6.52">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.52">
 
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.51">
+  <link rel="stylesheet" href="style.css?v=1.6.52">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -59,8 +59,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <!-- PDF.js library for high-fidelity canvas PDF rendering & zoom on mobile/tablets -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <!-- PinchZoom library for touch gestures & continuous focal zoom -->
-  <script src="lib/pinch-zoom.umd.js?v=1.6.51"></script>
 </head>
 <body>
   <div class="app-container">
@@ -110,7 +108,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <p class="app-version">eKiKare v1.6.51 &bull; Offline Database</p>
+        <p class="app-version">eKiKare v1.6.52 &bull; Offline Database</p>
       </div>
     </aside>
 
@@ -2428,6 +2426,37 @@
     </div>
   </dialog>
 
+  <!-- Modal Plein Écran Visualisation Pièce Jointe (#modal-attachment-viewer) -->
+  <div id="modal-attachment-viewer" class="modal-attachment-viewer hidden" style="display: none;" role="dialog" aria-modal="true" aria-label="Visualiseur de document">
+    <header class="modal-attachment-header">
+      <div class="attachment-header-title" id="modal-attachment-title">Document</div>
+      <div class="attachment-header-actions">
+        <button type="button" class="btn btn-secondary btn-small" id="btn-download-modal-attachment" title="Télécharger le document">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span class="btn-text">Télécharger</span>
+        </button>
+        <button type="button" class="btn btn-secondary btn-small" id="btn-share-modal-attachment" title="Partager">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="18" cy="5" r="3"></circle>
+            <circle cx="6" cy="12" r="3"></circle>
+            <circle cx="18" cy="19" r="3"></circle>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+          </svg>
+          <span class="btn-text">Partager</span>
+        </button>
+        <button type="button" class="btn-close-attachment" id="btn-close-modal-attachment" title="Fermer" aria-label="Fermer">&times;</button>
+      </div>
+    </header>
+    <div class="modal-attachment-body" id="modal-attachment-body">
+      <!-- Rendu direct natif : iframe ou img -->
+    </div>
+  </div>
+
   <!-- Modal Compte-Rendu de Séance (Miroir Officiel A4 Feuille Imprimable) -->
   <dialog class="app-dialog glass-card" id="dialog-portal-session-cr" style="max-width: 880px; width: 95%; max-height: 92vh; padding: 20px; overflow-y: auto;">
     <div class="dialog-header" style="position: sticky; top: -20px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); z-index: 20; border-bottom: 1px solid var(--glass-border); padding: 12px 0; margin: -20px -20px 20px -20px; padding-left: 20px; padding-right: 20px; display: flex; justify-content: space-between; align-items: center;">
@@ -3130,13 +3159,13 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.51"></script>
+  <script type="module" src="app.js?v=1.6.52"></script>
 
   <!-- Service Worker PWA -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1.6.51')
+        navigator.serviceWorker.register('./sw.js?v=1.6.52')
           .then((reg) => {
             console.log('[PWA] Service Worker actif (scope:', reg.scope, ')');
           })

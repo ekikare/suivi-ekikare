@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.51';
+} from './db.js?v=1.6.52';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.51';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.52';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.51';
+export const APP_VERSION = 'v1.6.52';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7209,6 +7209,35 @@ async function resolveAttachmentResource(resource, fallbackType = '', fallbackNa
   };
 }
 
+let activeAttachmentBlobUrl = null;
+
+function closeMobileAttachmentViewer() {
+  const viewer = document.getElementById('modal-attachment-viewer');
+  if (viewer) {
+    viewer.classList.remove('active');
+    viewer.classList.add('hidden');
+    viewer.style.display = 'none';
+    const bodyEl = document.getElementById('modal-attachment-body');
+    if (bodyEl) bodyEl.innerHTML = '';
+  }
+  if (activeAttachmentBlobUrl) {
+    try { URL.revokeObjectURL(activeAttachmentBlobUrl); } catch (_) {}
+    activeAttachmentBlobUrl = null;
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.closeMobileAttachmentViewer = closeMobileAttachmentViewer;
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const viewer = document.getElementById('modal-attachment-viewer');
+      if (viewer && viewer.style.display !== 'none') {
+        closeMobileAttachmentViewer();
+      }
+    }
+  });
+}
+
 // MODALE VISUALISATION DOCUMENT / COMPTE-RENDU JOINT
 async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
   if (!fileData) {
@@ -7219,7 +7248,8 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
   // 1. Détection mobile / tablette ou vue Espace Client sur écran tactile
   const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const isPortal = document.documentElement.classList.contains('portal-mode') || !!document.getElementById('portal-view')?.classList.contains('active');
-  const isMobileOrTablet = (window.innerWidth <= 768) || (isTouchDevice && (window.innerWidth <= 1024 || isPortal));
+  const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  const isMobileOrTablet = (window.innerWidth <= 768) || (isTouchDevice && (window.innerWidth <= 1366 || isPortal || isStandalone));
 
   if (isMobileOrTablet) {
     // Résolution complète de la ressource (IndexedDB, base locale, blob, etc.)
@@ -7229,54 +7259,107 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       return;
     }
 
-    const blob = resolved.blob;
-    let fileUrl = '';
-    let isTempObjectUrl = false;
-
+    const { blob, mime, name: resolvedName } = resolved;
+    let blobUrl = resolved.blobUrl;
     if (blob) {
-      fileUrl = URL.createObjectURL(blob);
-      isTempObjectUrl = true;
-    } else if (resolved.blobUrl) {
-      fileUrl = resolved.blobUrl;
+      blobUrl = URL.createObjectURL(blob);
     }
 
-    if (!fileUrl) {
+    if (!blobUrl) {
       showToast("Impossible de lire ce document.", "error");
       return;
     }
 
-    const attachmentName = resolved.name || fileName || (resolved.mime?.includes('pdf') ? 'document.pdf' : (resolved.mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
+    activeAttachmentBlobUrl = blobUrl;
+    const cleanFilename = resolvedName || fileName || (mime?.includes('pdf') ? 'document.pdf' : (mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
+    const isImage = (mime && mime.startsWith('image/')) || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename);
 
-    // Ouvrir immédiatement dans un nouvel onglet ou déclencher la visionneuse native
-    let opened = false;
-    try {
-      const newWindow = window.open(fileUrl, '_blank');
-      if (newWindow && !newWindow.closed) {
-        opened = true;
+    // Affichage dans la modale plein écran interne (#modal-attachment-viewer)
+    const viewer = document.getElementById('modal-attachment-viewer');
+    if (viewer) {
+      const titleEl = document.getElementById('modal-attachment-title');
+      const bodyEl = document.getElementById('modal-attachment-body');
+      const btnDownload = document.getElementById('btn-download-modal-attachment');
+      const btnShare = document.getElementById('btn-share-modal-attachment');
+      const btnClose = document.getElementById('btn-close-modal-attachment');
+
+      if (titleEl) {
+        titleEl.textContent = cleanFilename;
+        titleEl.title = cleanFilename;
       }
-    } catch (_) {
-      opened = false;
-    }
 
-    if (!opened) {
-      // Fallback si popup bloquée : lien de téléchargement direct temporaire
-      const link = document.createElement('a');
-      link.href = fileUrl;
-      link.download = attachmentName;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => link.remove(), 200);
-    }
+      // Configuration bouton Télécharger
+      if (btnDownload) {
+        btnDownload.onclick = () => {
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = cleanFilename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => a.remove(), 100);
+          showToast(`Téléchargement lancé : ${cleanFilename}`);
+        };
+      }
 
-    // Libérer l'URL après ouverture
-    if (isTempObjectUrl) {
-      setTimeout(() => {
-        try { URL.revokeObjectURL(fileUrl); } catch (_) {}
-      }, 10000);
+      // Configuration bouton Partager (si supporté)
+      if (btnShare) {
+        const canShare = !!(navigator.share);
+        btnShare.style.display = canShare ? 'inline-flex' : 'none';
+        if (canShare) {
+          btnShare.onclick = async () => {
+            try {
+              if (blob && navigator.canShare) {
+                const file = new File([blob], cleanFilename, { type: mime || 'application/octet-stream' });
+                if (navigator.canShare({ files: [file] })) {
+                  await navigator.share({
+                    files: [file],
+                    title: cleanFilename,
+                    text: extraInfo.text || `Document ${cleanFilename}`
+                  });
+                  return;
+                }
+              }
+              await navigator.share({
+                title: cleanFilename,
+                text: extraInfo.text || `Document ${cleanFilename}`,
+                url: window.location.href
+              });
+            } catch (e) {
+              if (e.name !== 'AbortError') console.warn('Share error:', e);
+            }
+          };
+        }
+      }
+
+      // Configuration bouton Fermer [×]
+      if (btnClose) {
+        btnClose.onclick = () => {
+          closeMobileAttachmentViewer();
+        };
+      }
+
+      // Intégration directe via balise native (iframe pour PDF, img pour image)
+      if (bodyEl) {
+        bodyEl.innerHTML = '';
+        if (isImage) {
+          bodyEl.innerHTML = `
+            <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: auto; background: #000;">
+              <img src="${blobUrl}" alt="${escapeHtml(cleanFilename)}" style="max-width: 100%; max-height: 100%; margin: auto; display: block; object-fit: contain;">
+            </div>
+          `;
+        } else {
+          // Document PDF ou autre visualisable via le moteur natif de l'iframe
+          bodyEl.innerHTML = `
+            <iframe src="${blobUrl}" style="width: 100%; height: 100%; border: none; background: #fff;" title="${escapeHtml(cleanFilename)}"></iframe>
+          `;
+        }
+      }
+
+      viewer.classList.remove('hidden');
+      viewer.classList.add('active');
+      viewer.style.display = 'flex';
+      return;
     }
-    return;
   }
 
   // 2. Affichage sur Desktop (PC) : conserve strictement son affichage opérationnel d'origine
