@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.44';
+} from './db.js?v=1.6.45';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.44';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.45';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.44';
+export const APP_VERSION = 'v1.6.45';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7074,10 +7074,7 @@ function setupPinchZoom(container, targetEl, wrapperEl, onScaleChange = null, in
     }, 20);
   }
 
-  let prevPinchCenterX = 0;
-  let prevPinchCenterY = 0;
-
-  // 1. Touch pinch zoom (2 doigts) - point focal dynamique et centrage sous les doigts
+  // 1. Touch pinch zoom (2 doigts) - point focal et scroll stabilisés par ratio relatif
   container.addEventListener('touchstart', (e) => {
     if (e.touches.length === 2) {
       e.preventDefault();
@@ -7089,8 +7086,6 @@ function setupPinchZoom(container, targetEl, wrapperEl, onScaleChange = null, in
         touch1.clientY - touch2.clientY
       );
       pinchStartScale = currentScale;
-      prevPinchCenterX = (touch1.clientX + touch2.clientX) / 2;
-      prevPinchCenterY = (touch1.clientY + touch2.clientY) / 2;
     }
   }, { passive: false });
 
@@ -7098,49 +7093,36 @@ function setupPinchZoom(container, targetEl, wrapperEl, onScaleChange = null, in
     if (e.touches.length === 2 && isPinching && pinchStartDist > 0) {
       e.preventDefault();
 
-      // 1. Calculer le centre du pincement (touch midpoint) lors du touchmove à 2 doigts :
       const touch1 = e.touches[0];
       const touch2 = e.touches[1];
-      const pinchCenterX = (touch1.clientX + touch2.clientX) / 2;
-      const pinchCenterY = (touch1.clientY + touch2.clientY) / 2;
-
       const currentDist = Math.hypot(
         touch1.clientX - touch2.clientX,
         touch1.clientY - touch2.clientY
       );
       const factor = currentDist / pinchStartDist;
       const targetScale = Math.min(Math.max(1.0, pinchStartScale * factor), 3.0);
-
-      const prevScale = currentScale;
       const newScale = Number(targetScale.toFixed(2));
 
-      if (prevScale > 0) {
-        // Décalage du centre des doigts pour le pan à 2 doigts simultané
-        const panDeltaX = pinchCenterX - prevPinchCenterX;
-        const panDeltaY = pinchCenterY - prevPinchCenterY;
+      if (newScale !== currentScale) {
+        // 1. Stabilisation du scroll vertical et horizontal lors du zoom par ratio relatif
+        const maxScrollY = container.scrollHeight - container.clientHeight;
+        const maxScrollX = container.scrollWidth - container.clientWidth;
+        const scrollRatioY = maxScrollY > 0 ? (container.scrollTop / maxScrollY) : 0;
+        const scrollRatioX = maxScrollX > 0 ? (container.scrollLeft / maxScrollX) : 0;
 
-        // 2. Ajuster le décalage (scroll ou pan) selon le ratio de zoom
-        const rect = container.getBoundingClientRect();
-        const mouseX = pinchCenterX - rect.left;
-        const mouseY = pinchCenterY - rect.top;
-
-        // Formule de compensation pour centrer le zoom sous les doigts :
-        const currentScrollLeft = container.scrollLeft;
-        const currentScrollTop = container.scrollTop;
-        const newScrollLeft = (currentScrollLeft + mouseX) * (newScale / prevScale) - mouseX - panDeltaX;
-        const newScrollTop  = (currentScrollTop + mouseY) * (newScale / prevScale) - mouseY - panDeltaY;
-
-        // Appliquer l'échelle au document et au wrapper de dimensionnement
+        // Appliquer le nouveau scale sur le document
         applyScale(newScale, false);
 
-        if (newScale > 1.0) {
-          container.scrollLeft = newScrollLeft;
-          container.scrollTop = newScrollTop;
+        // Réajuster immédiatement le scroll selon le même ratio relatif :
+        const newMaxScrollY = container.scrollHeight - container.clientHeight;
+        const newMaxScrollX = container.scrollWidth - container.clientWidth;
+        if (newMaxScrollY > 0) {
+          container.scrollTop = scrollRatioY * newMaxScrollY;
+        }
+        if (newMaxScrollX > 0) {
+          container.scrollLeft = scrollRatioX * newMaxScrollX;
         }
       }
-
-      prevPinchCenterX = pinchCenterX;
-      prevPinchCenterY = pinchCenterY;
     }
   }, { passive: false });
 
@@ -7148,7 +7130,7 @@ function setupPinchZoom(container, targetEl, wrapperEl, onScaleChange = null, in
     if (isPinching && e.touches.length < 2) {
       isPinching = false;
       pinchStartDist = 0;
-      // 3. Persistance : Conserver la position de scroll calculée au touchend
+      // Persistance de l'échelle finale et du scroll calculé sans réinitialisation
       applyScale(currentScale, true);
     }
   }, { passive: true });
@@ -7206,24 +7188,26 @@ function setupPinchZoom(container, targetEl, wrapperEl, onScaleChange = null, in
 
   return {
     setScale: (newScale, withTransition = true) => {
-      const prevScale = currentScale;
       const targetScale = Math.min(Math.max(1.0, Number(newScale.toFixed(2))), 3.0);
-      if (prevScale > 0 && targetScale !== prevScale) {
-        const centerX = container.clientWidth / 2;
-        const centerY = container.clientHeight / 2;
-        const currentScrollLeft = container.scrollLeft;
-        const currentScrollTop = container.scrollTop;
-        const newScrollLeft = (currentScrollLeft + centerX) * (targetScale / prevScale) - centerX;
-        const newScrollTop  = (currentScrollTop + centerY) * (targetScale / prevScale) - centerY;
+      if (targetScale !== currentScale) {
+        const maxScrollY = container.scrollHeight - container.clientHeight;
+        const maxScrollX = container.scrollWidth - container.clientWidth;
+        const scrollRatioY = maxScrollY > 0 ? (container.scrollTop / maxScrollY) : 0;
+        const scrollRatioX = maxScrollX > 0 ? (container.scrollLeft / maxScrollX) : 0;
 
         applyScale(targetScale, withTransition);
 
-        if (targetScale > 1.0) {
-          container.scrollLeft = newScrollLeft;
-          container.scrollTop = newScrollTop;
+        const newMaxScrollY = container.scrollHeight - container.clientHeight;
+        const newMaxScrollX = container.scrollWidth - container.clientWidth;
+        if (newMaxScrollY > 0) {
+          container.scrollTop = scrollRatioY * newMaxScrollY;
+        } else {
+          container.scrollTop = 0;
+        }
+        if (targetScale > 1.0 && newMaxScrollX > 0) {
+          container.scrollLeft = scrollRatioX * newMaxScrollX;
         } else {
           container.scrollLeft = 0;
-          container.scrollTop = 0;
         }
       } else {
         applyScale(targetScale, withTransition);
@@ -7231,9 +7215,16 @@ function setupPinchZoom(container, targetEl, wrapperEl, onScaleChange = null, in
     },
     getScale: () => currentScale,
     reset: () => {
+      const maxScrollY = container.scrollHeight - container.clientHeight;
+      const scrollRatioY = maxScrollY > 0 ? (container.scrollTop / maxScrollY) : 0;
       applyScale(1.0, true);
       container.scrollLeft = 0;
-      container.scrollTop = 0;
+      const newMaxScrollY = container.scrollHeight - container.clientHeight;
+      if (newMaxScrollY > 0) {
+        container.scrollTop = scrollRatioY * newMaxScrollY;
+      } else {
+        container.scrollTop = 0;
+      }
     },
     recalculate: () => {
       measureBase();
