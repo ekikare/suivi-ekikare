@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.57';
+} from './db.js?v=1.6.58';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.57';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.58';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.57';
+export const APP_VERSION = 'v1.6.58';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7455,7 +7455,6 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     if (viewer) {
       const titleEl = document.getElementById('modal-attachment-title');
       const bodyEl = document.getElementById('modal-attachment-body');
-      const btnOpenHeader = document.getElementById('btn-open-modal-attachment');
       const btnDownload = document.getElementById('btn-download-modal-attachment');
       const btnShare = document.getElementById('btn-share-modal-attachment');
       const btnClose = document.getElementById('btn-close-modal-attachment');
@@ -7463,14 +7462,6 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       if (titleEl) {
         titleEl.textContent = displayName;
         titleEl.title = displayName;
-      }
-
-      // Configuration bouton Ouvrir du bandeau
-      if (btnOpenHeader) {
-        btnOpenHeader.onclick = (e) => {
-          e.preventDefault();
-          triggerAttachmentAction(blobUrl, downloadFilename);
-        };
       }
 
       // Configuration bouton Télécharger
@@ -7510,40 +7501,28 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
         }
       }
 
-      // Configuration bouton Fermer [×]
+      // Configuration bouton Fermer [×] : ferme et révoque l'URL Blob
       if (btnClose) {
         btnClose.onclick = () => {
           closeMobileAttachmentViewer();
         };
       }
 
-      // Intégration dans le corps de la modale PWA tablette :
-      // Carte d'action au centre avec boutons fonctionnels [ Visualiser / Ouvrir ] et [ Télécharger ]
+      // Chargement direct du document sous le petit bandeau sans écran intermédiaire
       if (bodyEl) {
         bodyEl.innerHTML = '';
         if (isImage) {
           bodyEl.innerHTML = `
-            <div style="width: 100%; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow-y: auto; padding: 16px; box-sizing: border-box;">
-              ${createDocumentCardHtml()}
-              <div style="width: 100%; max-width: 900px; display: flex; align-items: center; justify-content: center; margin: 12px auto;">
-                <img src="${blobUrl}" alt="${escapeHtml(displayName)}" style="max-width: 100%; max-height: calc(100vh - 280px); object-fit: contain; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.5);">
-              </div>
-            </div>
+            <img src="${blobUrl}" alt="${escapeHtml(displayName)}" style="max-width: 100%; max-height: 100%; object-fit: contain; margin: auto; display: block;" />
           `;
         } else {
-          // Document PDF : carte document explicite au centre + prévisualisation iframe native
+          // Pour un PDF : balise object avec repli iframe direct
           bodyEl.innerHTML = `
-            <div style="width: 100%; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow-y: auto; -webkit-overflow-scrolling: touch; box-sizing: border-box; padding: 16px;">
-              ${createDocumentCardHtml()}
-              <div style="width: 100%; flex: 1 1 auto; min-height: 60vh; max-width: 1000px; margin: 12px auto 20px auto; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.4); background: #ffffff;">
-                <iframe src="${blobUrl}" style="width: 100%; height: 100%; min-height: 60vh; border: none; background: #ffffff;" title="${escapeHtml(displayName)}"></iframe>
-              </div>
-            </div>
+            <object data="${blobUrl}" type="application/pdf" style="width: 100%; height: 100%; border: none;">
+              <iframe src="${blobUrl}" style="width: 100%; height: 100%; border: none;" title="${escapeHtml(displayName)}"></iframe>
+            </object>
           `;
         }
-
-        // Brancher immédiatement les écouteurs de clic sur les boutons injectés dans le corps
-        bindModalCardButtons(bodyEl);
       }
 
       viewer.classList.remove('hidden');

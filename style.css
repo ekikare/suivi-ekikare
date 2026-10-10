@@ -2806,26 +2806,24 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   flex: 1 1 auto !important;
   width: 100% !important;
   height: calc(100vh - 50px) !important;
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-  -webkit-overflow-scrolling: touch !important;
-  touch-action: pan-y pinch-zoom !important;
+  overflow: hidden !important;
   position: relative !important;
-  background: #0b1120 !important;
+  background: #000000 !important;
   display: flex !important;
-  flex-direction: column !important;
   align-items: center !important;
-  justify-content: flex-start !important;
+  justify-content: center !important;
   margin: 0 !important;
   padding: 0 !important;
   box-sizing: border-box !important;
 }
 
+.modal-attachment-body object,
 .modal-attachment-body iframe {
   width: 100% !important;
   height: 100% !important;
   border: none !important;
   background: #ffffff !important;
+  display: block !important;
 }
 
 .modal-attachment-body img {
