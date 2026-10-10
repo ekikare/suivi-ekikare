@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.50';
+} from './db.js?v=1.6.51';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.50';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.51';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.50';
+export const APP_VERSION = 'v1.6.51';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -6998,43 +6998,11 @@ let extSessionFileName = null;
 let extSessionFileType = null;
 
 /**
- * Initialise le visualiseur de zoom tactile via la librairie standard PinchZoom
- * sur le conteneur du document (.zoomable-document-content).
+ * Initialise le visualiseur de zoom tactile (désactivé au profit de l'ouverture native sur mobile/tablette
+ * et du zoom CSS direct sur desktop).
  */
 function initDocPinchZoom(element) {
-  if (!element) return null;
-  const PZ = typeof window !== 'undefined' && (window.PinchZoom?.default || window.PinchZoom);
-  if (typeof PZ !== 'function') {
-    console.warn("[initDocPinchZoom] Librairie PinchZoom non disponible sur window.");
-    return null;
-  }
-
-  try {
-    element.style.transformOrigin = '50% 0';
-    element.style.touchAction = 'pan-y pinch-zoom';
-
-    return new PZ(element, {
-      animationDuration: 0,
-      lockDragAxis: false,
-      draggableUnzoomed: false,
-      setOffsetsOnce: true,
-      preventSnapBack: true,
-      transformOrigin: '50% 0',
-      tapZoomFactor: 2,
-      zoomFactor: 0.8,
-      maxZoom: 4,
-      minZoom: 1,
-      onZoomUpdate: function(instance) {
-        const zoomLevelEl = document.getElementById('doc-viewer-zoom-level');
-        if (zoomLevelEl && instance) {
-          zoomLevelEl.textContent = `${Math.round((instance.zoomFactor || 1) * 100)}%`;
-        }
-      }
-    });
-  } catch (err) {
-    console.warn("[initDocPinchZoom] Erreur lors de l'initialisation de PinchZoom:", err);
-    return null;
-  }
+  return null;
 }
 
 /**
@@ -7243,9 +7211,78 @@ async function resolveAttachmentResource(resource, fallbackType = '', fallbackNa
 
 // MODALE VISUALISATION DOCUMENT / COMPTE-RENDU JOINT
 async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
-  const dialog = document.getElementById('dialog-document-viewer');
-  if (!dialog || !fileData) {
+  if (!fileData) {
     showToast("Aucun document joint à afficher.", "error");
+    return;
+  }
+
+  // 1. Détection mobile / tablette ou vue Espace Client sur écran tactile
+  const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  const isPortal = document.documentElement.classList.contains('portal-mode') || !!document.getElementById('portal-view')?.classList.contains('active');
+  const isMobileOrTablet = (window.innerWidth <= 768) || (isTouchDevice && (window.innerWidth <= 1024 || isPortal));
+
+  if (isMobileOrTablet) {
+    // Résolution complète de la ressource (IndexedDB, base locale, blob, etc.)
+    const resolved = await resolveAttachmentResource(fileData, fileType, fileName);
+    if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
+      showToast("Document non disponible ou introuvable.", "error");
+      return;
+    }
+
+    const blob = resolved.blob;
+    let fileUrl = '';
+    let isTempObjectUrl = false;
+
+    if (blob) {
+      fileUrl = URL.createObjectURL(blob);
+      isTempObjectUrl = true;
+    } else if (resolved.blobUrl) {
+      fileUrl = resolved.blobUrl;
+    }
+
+    if (!fileUrl) {
+      showToast("Impossible de lire ce document.", "error");
+      return;
+    }
+
+    const attachmentName = resolved.name || fileName || (resolved.mime?.includes('pdf') ? 'document.pdf' : (resolved.mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
+
+    // Ouvrir immédiatement dans un nouvel onglet ou déclencher la visionneuse native
+    let opened = false;
+    try {
+      const newWindow = window.open(fileUrl, '_blank');
+      if (newWindow && !newWindow.closed) {
+        opened = true;
+      }
+    } catch (_) {
+      opened = false;
+    }
+
+    if (!opened) {
+      // Fallback si popup bloquée : lien de téléchargement direct temporaire
+      const link = document.createElement('a');
+      link.href = fileUrl;
+      link.download = attachmentName;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => link.remove(), 200);
+    }
+
+    // Libérer l'URL après ouverture
+    if (isTempObjectUrl) {
+      setTimeout(() => {
+        try { URL.revokeObjectURL(fileUrl); } catch (_) {}
+      }, 10000);
+    }
+    return;
+  }
+
+  // 2. Affichage sur Desktop (PC) : conserve strictement son affichage opérationnel d'origine
+  const dialog = document.getElementById('dialog-document-viewer');
+  if (!dialog) {
+    showToast("Visionneuse de document non disponible.", "error");
     return;
   }
 
@@ -7308,51 +7345,41 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       iconEl.textContent = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
     }
 
-    // Gestion du zoom dynamique via la librairie standard PinchZoom
-    let pinchController = null;
-    const updateZoomDisplay = () => {
-      const zoom = pinchController && typeof pinchController.getZoom === 'function' ? pinchController.getZoom() : 1.0;
-      if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(zoom * 100)}%`;
+    // Gestion du zoom dynamique (desktop)
+    let currentZoom = 1.0;
+    const applyZoom = () => {
+      if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
+      const zoomableEl = bodyEl.querySelector('.zoomable-document-content');
+      if (zoomableEl) {
+        zoomableEl.style.transformOrigin = '50% 0';
+        zoomableEl.style.transform = `scale(${currentZoom})`;
+      }
     };
-    updateZoomDisplay();
+    applyZoom();
 
     if (btnZoomOut) {
       btnZoomOut.onclick = (e) => {
         e.stopPropagation();
-        if (pinchController && typeof pinchController.zoomOut === 'function') {
-          pinchController.zoomOut();
-        }
-        updateZoomDisplay();
+        currentZoom = Math.max(0.5, Math.round((currentZoom - 0.2) * 10) / 10);
+        applyZoom();
       };
     }
 
     if (btnZoomIn) {
       btnZoomIn.onclick = (e) => {
         e.stopPropagation();
-        if (pinchController && typeof pinchController.zoomIn === 'function') {
-          pinchController.zoomIn();
-        }
-        updateZoomDisplay();
+        currentZoom = Math.min(3.0, Math.round((currentZoom + 0.2) * 10) / 10);
+        applyZoom();
       };
     }
 
     if (btnZoomReset) {
       btnZoomReset.onclick = (e) => {
         e.stopPropagation();
-        if (pinchController && typeof pinchController.reset === 'function') {
-          pinchController.reset();
-        }
-        updateZoomDisplay();
+        currentZoom = 1.0;
+        applyZoom();
       };
     }
-
-    // Nettoyage de l'instance PinchZoom à la fermeture du dialogue
-    dialog.addEventListener('close', () => {
-      if (pinchController && typeof pinchController.destroy === 'function') {
-        pinchController.destroy();
-        pinchController = null;
-      }
-    }, { once: true });
 
     // Bouton "Ouvrir" dans la barre d'outils
     if (openBtn) {
@@ -7368,10 +7395,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
           <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="display: block; width: 100%; max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
         </div>
       `;
-      const zoomableEl = bodyEl.querySelector('.zoomable-document-content');
-      if (zoomableEl) {
-        pinchController = initDocPinchZoom(zoomableEl);
-      }
+      applyZoom();
     } else if (isPdf) {
       bodyEl.innerHTML = `
         <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; margin: 0 auto; min-height: 70vh;">
@@ -7379,7 +7403,6 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
         </div>
       `;
       const container = bodyEl.querySelector('#pdf-canvas-container');
-      const zoomableEl = bodyEl.querySelector('.zoomable-document-content');
 
       let renderedViaPdfJs = false;
       if (window.pdfjsLib) {
@@ -7420,14 +7443,14 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       }
 
       if (!renderedViaPdfJs) {
-        zoomableEl.innerHTML = `
-          <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: auto; min-height: 70vh; border: none; border-radius: 8px; background: #fff;" title="${cleanFilename}"></iframe>
-        `;
+        const zoomableEl = bodyEl.querySelector('.zoomable-document-content');
+        if (zoomableEl) {
+          zoomableEl.innerHTML = `
+            <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: auto; min-height: 70vh; border: none; border-radius: 8px; background: #fff;" title="${cleanFilename}"></iframe>
+          `;
+        }
       }
-
-      if (zoomableEl) {
-        pinchController = initDocPinchZoom(zoomableEl);
-      }
+      applyZoom();
     } else {
       // Fallback avec bouton "Ouvrir" fonctionnel
       bodyEl.innerHTML = `
@@ -7536,9 +7559,6 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
 
     dialog.onclose = () => {
       currentZoom = 1.0;
-      if (pinchController) {
-        pinchController.reset();
-      }
     };
   } catch (err) {
     console.error("Erreur lors de l'ouverture du document", err);
