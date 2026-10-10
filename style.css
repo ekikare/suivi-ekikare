@@ -4296,8 +4296,8 @@ dialog#dialog-cgv-rgpd:not([open]),
   .attachment-preview embed {
     width: 100% !important;
     max-width: 100% !important;
-    height: 70vh !important;
-    max-height: 70vh !important;
+    height: auto !important;
+    min-height: 70vh !important;
     border: none !important;
     border-radius: 8px !important;
     display: block !important;
@@ -4305,16 +4305,37 @@ dialog#dialog-cgv-rgpd:not([open]),
     box-sizing: border-box !important;
     touch-action: pan-x pan-y pinch-zoom !important;
   }
+
+  .doc-viewer-toolbar {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+  }
+
+  .doc-viewer-zoom-controls {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    padding: 2px 4px !important;
+    border-radius: 6px !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  }
 }
 
 @media (max-width: 480px) {
+  #dialog-document-viewer #btn-open-doc-viewer .btn-text,
   #dialog-document-viewer #btn-share-doc-viewer .btn-text,
   #dialog-document-viewer #btn-download-doc-viewer .btn-text {
-    display: none;
+    display: none !important;
   }
+  #dialog-document-viewer #btn-open-doc-viewer,
   #dialog-document-viewer #btn-share-doc-viewer,
   #dialog-document-viewer #btn-download-doc-viewer {
-    padding: 6px 8px !important;
+    padding: 4px 6px !important;
+  }
+  #dialog-document-viewer #doc-viewer-title {
+    max-width: 110px !important;
   }
 }
 

@@ -25,10 +25,11 @@ import {
   getSetting,
   setSetting,
   fetchRemoteSetting,
-  fetchRemoteSettings
-} from './db.js?v=1.6.39';
+  fetchRemoteSettings,
+  initDB
+} from './db.js?v=1.6.40';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.39';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.40';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -37,7 +38,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.39';
+export const APP_VERSION = 'v1.6.40';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -2813,10 +2814,11 @@ async function renderAnimalDetails(animalId) {
       
       if (s.isExternal) {
         item.className = 'timeline-item timeline-item-external';
-        item.style.cursor = s.fileData ? 'pointer' : 'default';
+        const docResource = s.fileData || s.attachments;
+        item.style.cursor = docResource ? 'pointer' : 'default';
         
         const cleanSummary = formatTimelineSummary(s.summary || '-');
-        const crBtnHtml = s.fileData ? `<button type="button" class="btn btn-secondary btn-small btn-view-cr" style="display:inline-flex; align-items:center; gap:4px; padding: 2px 8px; font-size: 0.78rem;">📄 Voir le CR</button>` : '';
+        const crBtnHtml = docResource ? `<button type="button" class="btn btn-secondary btn-small btn-view-cr" style="display:inline-flex; align-items:center; gap:4px; padding: 2px 8px; font-size: 0.78rem;">📄 Voir le CR</button>` : '';
         
         item.innerHTML = `
           <div class="timeline-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
@@ -2836,9 +2838,9 @@ async function renderAnimalDetails(animalId) {
           </div>
         `;
         
-        if (s.fileData) {
+        if (docResource) {
           const openDocHandler = () => {
-            openDocumentViewerModal(s.fileData, s.fileType, s.fileName, {
+            openDocumentViewerModal(docResource, s.fileType || s.file_type, s.fileName || s.file_name, {
               subtitle: `Séance du ${formatDate(s.date_seance)} • ${s.profession}`,
               text: `Compte-rendu ${s.profession} pour ${animal.nom} (${formatDate(s.date_seance)})`
             });
@@ -6994,21 +6996,22 @@ let extSessionFileData = null;
 let extSessionFileName = null;
 let extSessionFileType = null;
 
-function setupPinchZoom(container, img) {
-  if (!container || !img) return;
+function setupPinchZoom(container, targetEl, onScaleChange = null) {
+  if (!container || !targetEl) return;
   let scale = 1;
   let startDist = 0;
   let lastTap = 0;
 
-  // Double-tap zoom (1x <-> 2.5x)
-  img.addEventListener('touchend', (e) => {
+  // Double-tap zoom (1x <-> 2x)
+  targetEl.addEventListener('touchend', (e) => {
     const now = Date.now();
     if (now - lastTap < 300 && now - lastTap > 0) {
       e.preventDefault();
-      scale = scale > 1.2 ? 1 : 2.5;
-      img.style.transition = 'transform 0.25s ease';
-      img.style.transform = `scale(${scale})`;
-      img.style.transformOrigin = 'center center';
+      scale = scale > 1.2 ? 1 : 2;
+      targetEl.style.transition = 'transform 0.25s ease';
+      targetEl.style.transform = `scale(${scale})`;
+      targetEl.style.transformOrigin = 'top center';
+      if (typeof onScaleChange === 'function') onScaleChange(scale);
     }
     lastTap = now;
   });
@@ -7030,28 +7033,229 @@ function setupPinchZoom(container, img) {
         e.touches[0].clientY - e.touches[1].clientY
       );
       const factor = dist / startDist;
-      scale = Math.min(Math.max(1, scale * factor), 4);
+      // Permettre de dézoomer jusqu'à 0.4x pour voir l'ensemble de la page sur mobile
+      scale = Math.min(Math.max(0.4, scale * factor), 3.5);
       startDist = dist;
-      img.style.transition = 'none';
-      img.style.transform = `scale(${scale})`;
-      img.style.transformOrigin = 'center center';
+      targetEl.style.transition = 'none';
+      targetEl.style.transform = `scale(${scale})`;
+      targetEl.style.transformOrigin = 'top center';
+      if (typeof onScaleChange === 'function') onScaleChange(scale);
     }
   }, { passive: true });
 
   container.addEventListener('touchend', (e) => {
     if (e.touches.length < 2) {
       startDist = 0;
-      if (scale < 1.05) {
-        scale = 1;
-        img.style.transition = 'transform 0.2s ease';
-        img.style.transform = 'scale(1)';
-      }
     }
   }, { passive: true });
 }
 
+/**
+ * Résout une ressource de pièce jointe (identifiant/UUID, Blob, URL web/drive, base64, JSON)
+ * vers un Blob valide, une URL exploitable, et ses métadonnées MIME et nom.
+ */
+async function resolveAttachmentResource(resource, fallbackType = '', fallbackName = '') {
+  if (!resource) return null;
+
+  let resolvedData = resource;
+  let resolvedType = fallbackType || '';
+  let resolvedName = fallbackName || '';
+  let blob = null;
+  let blobUrl = null;
+
+  // 1. Dépaquetage si c'est un objet ou du JSON sérialisé
+  if (typeof resource === 'string' && (resource.trim().startsWith('{') || resource.trim().startsWith('['))) {
+    try {
+      const parsed = JSON.parse(resource);
+      if (parsed && typeof parsed === 'object') {
+        resolvedData = parsed.fileData || parsed.data || parsed.url || parsed.blob || parsed.path || parsed.attachments || parsed.id || resource;
+        resolvedType = parsed.fileType || parsed.type || parsed.mime || resolvedType;
+        resolvedName = parsed.fileName || parsed.name || resolvedName;
+      }
+    } catch (_) {}
+  } else if (typeof resource === 'object' && resource !== null && !(resource instanceof Blob)) {
+    resolvedData = resource.fileData || resource.data || resource.url || resource.blob || resource.path || resource.attachments || resource.id || resource;
+    resolvedType = resource.fileType || resource.type || resource.mime || resolvedType;
+    resolvedName = resource.fileName || resource.name || resolvedName;
+  }
+
+  // 2. Si c'est déjà un Blob ou File
+  if (resolvedData instanceof Blob) {
+    blob = resolvedData;
+    resolvedType = resolvedType || blob.type;
+    blobUrl = URL.createObjectURL(blob);
+    return { blob, blobUrl, mime: resolvedType || 'application/octet-stream', name: resolvedName };
+  }
+
+  // 3. Si c'est une chaîne de caractères
+  if (typeof resolvedData === 'string') {
+    const trimmed = resolvedData.trim();
+
+    // Cas A : URL Blob existante
+    if (trimmed.startsWith('blob:')) {
+      blobUrl = trimmed;
+      try {
+        const resp = await fetch(trimmed);
+        if (resp.ok) {
+          blob = await resp.blob();
+          if (!resolvedType) resolvedType = blob.type;
+        }
+      } catch (_) {}
+      return { blob, blobUrl, mime: resolvedType || 'application/octet-stream', name: resolvedName };
+    }
+
+    // Cas B : URL web (http:// ou https:// - ex: Google Drive, Supabase Storage, CDN)
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      blobUrl = trimmed;
+      // Conversion lien Google Drive en preview pour intégration fluide
+      if (trimmed.includes('drive.google.com/file/d/')) {
+        const driveMatch = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+        if (driveMatch && driveMatch[1]) {
+          blobUrl = `https://drive.google.com/file/d/${driveMatch[1]}/preview`;
+        }
+      }
+      try {
+        const resp = await fetch(trimmed);
+        if (resp.ok) {
+          blob = await resp.blob();
+          blobUrl = URL.createObjectURL(blob);
+          if (!resolvedType) resolvedType = blob.type;
+        }
+      } catch (err) {
+        console.warn("[resolveAttachmentResource] Fetch direct URL distant:", err);
+      }
+      return { blob, blobUrl, mime: resolvedType || (blob ? blob.type : 'application/octet-stream'), name: resolvedName };
+    }
+
+    // Cas C : Data URL Base64
+    if (trimmed.startsWith('data:')) {
+      try {
+        const parts = trimmed.split(',');
+        const mimeMatch = parts[0].match(/:(.*?);/);
+        resolvedType = resolvedType || (mimeMatch ? mimeMatch[1] : 'application/octet-stream');
+        const b64 = parts[1] || '';
+        const byteChars = atob(b64);
+        const byteNumbers = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+          byteNumbers[i] = byteChars.charCodeAt(i);
+        }
+        blob = new Blob([byteNumbers], { type: resolvedType });
+        blobUrl = URL.createObjectURL(blob);
+        return { blob, blobUrl, mime: resolvedType, name: resolvedName };
+      } catch (err) {
+        console.warn("[resolveAttachmentResource] Erreur parsing data: URL:", err);
+      }
+    }
+
+    // Cas D : Base64 pur sans préfixe data:
+    const isPureBase64 = /^[A-Za-z0-9+/=]+$/.test(trimmed) && trimmed.length > 80;
+    if (isPureBase64) {
+      try {
+        if (!resolvedType) {
+          if (trimmed.startsWith('JVBERi')) resolvedType = 'application/pdf';
+          else if (trimmed.startsWith('/9j/')) resolvedType = 'image/jpeg';
+          else if (trimmed.startsWith('iVBOR')) resolvedType = 'image/png';
+          else resolvedType = 'application/octet-stream';
+        }
+        const byteChars = atob(trimmed);
+        const byteNumbers = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+          byteNumbers[i] = byteChars.charCodeAt(i);
+        }
+        blob = new Blob([byteNumbers], { type: resolvedType });
+        blobUrl = URL.createObjectURL(blob);
+        return { blob, blobUrl, mime: resolvedType, name: resolvedName };
+      } catch (err) {
+        console.warn("[resolveAttachmentResource] Erreur parsing base64 brut:", err);
+      }
+    }
+
+    // Cas E : Identifiant, UUID ou clé de stockage dans IndexedDB ou Supabase
+    const isIdentifier = !trimmed.includes(';') && (trimmed.length < 80 || /^[0-9a-f-]{8,}$/i.test(trimmed));
+    if (isIdentifier) {
+      console.log(`[resolveAttachmentResource] Résolution de l'identifiant '${trimmed}'...`);
+
+      // 1. Recherche dans IndexedDB
+      try {
+        const db = await initDB();
+        const candidateStores = ['sessions', 'attachments', 'files', 'documents', 'settings'];
+        for (const sName of candidateStores) {
+          if (db.objectStoreNames.contains(sName)) {
+            // Par getById
+            try {
+              const rec = await getById(sName, trimmed);
+              if (rec) {
+                const subResource = rec.fileData || rec.file_data || rec.data || rec.blob || rec.attachments || rec.url;
+                if (subResource && subResource !== trimmed) {
+                  return await resolveAttachmentResource(subResource, rec.fileType || rec.type || resolvedType, rec.fileName || rec.name || resolvedName);
+                }
+              }
+            } catch (_) {}
+
+            // Par parcours du store
+            try {
+              const allItems = await getAll(sName);
+              const found = allItems.find(it => 
+                String(it.id) === trimmed || 
+                String(it.uuid) === trimmed ||
+                String(it.file_id) === trimmed ||
+                String(it.attachment_id) === trimmed ||
+                (it.attachments && String(it.attachments) === trimmed)
+              );
+              if (found) {
+                const subResource = found.fileData || found.file_data || found.data || found.blob || found.attachments || found.url;
+                if (subResource && subResource !== trimmed) {
+                  return await resolveAttachmentResource(subResource, found.fileType || found.type || resolvedType, found.fileName || found.name || resolvedName);
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (idbErr) {
+        console.warn("[resolveAttachmentResource] Erreur recherche IndexedDB:", idbErr);
+      }
+
+      // 2. Recherche distante dans Supabase
+      if (navigator.onLine) {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          // Tentative de téléchargement depuis Supabase Storage
+          const buckets = ['attachments', 'documents', 'sessions', 'files'];
+          for (const bName of buckets) {
+            try {
+              const { data: dlBlob, error: dlErr } = await supabase.storage.from(bName).download(trimmed);
+              if (!dlErr && dlBlob) {
+                blob = dlBlob;
+                blobUrl = URL.createObjectURL(blob);
+                resolvedType = resolvedType || blob.type;
+                return { blob, blobUrl, mime: resolvedType || 'application/octet-stream', name: resolvedName || trimmed };
+              }
+            } catch (_) {}
+          }
+
+          // Tentative de recherche dans la table sessions
+          try {
+            const { data: sRecord } = await supabase.from('sessions').select('*').eq('id', trimmed).maybeSingle();
+            if (sRecord && sRecord.attachments && sRecord.attachments !== trimmed) {
+              return await resolveAttachmentResource(sRecord.attachments, sRecord.file_type || resolvedType, sRecord.file_name || resolvedName);
+            }
+          } catch (_) {}
+        }
+      }
+    }
+  }
+
+  // Fallback si blobUrl n'a pu être construit
+  return {
+    blob: null,
+    blobUrl: blobUrl || '',
+    mime: resolvedType || 'application/octet-stream',
+    name: resolvedName || (typeof resource === 'string' ? resource : 'document')
+  };
+}
+
 // MODALE VISUALISATION DOCUMENT / COMPTE-RENDU JOINT
-function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
+async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
   const dialog = document.getElementById('dialog-document-viewer');
   if (!dialog || !fileData) {
     showToast("Aucun document joint à afficher.", "error");
@@ -7059,64 +7263,204 @@ function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
   }
 
   try {
-    const base64Content = fileData.includes(',') ? fileData.split(',')[1] : fileData;
-    const mime = fileType || (fileData.includes(',') ? fileData.split(',')[0].split(':')[1].split(';')[0] : 'application/octet-stream');
-    
-    const byteCharacters = atob(base64Content);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: mime });
-    const blobUrl = URL.createObjectURL(blob);
-
     const titleEl = document.getElementById('doc-viewer-title');
     const subtitleEl = document.getElementById('doc-viewer-subtitle');
     const iconEl = document.getElementById('doc-viewer-icon');
     const bodyEl = document.getElementById('doc-viewer-body');
     const downloadBtn = document.getElementById('btn-download-doc-viewer');
     const shareBtn = document.getElementById('btn-share-doc-viewer');
+    const openBtn = document.getElementById('btn-open-doc-viewer');
+    const btnZoomOut = document.getElementById('btn-zoom-out-doc-viewer');
+    const btnZoomIn = document.getElementById('btn-zoom-in-doc-viewer');
+    const zoomLevelEl = document.getElementById('doc-viewer-zoom-level');
 
-    const cleanFilename = fileName || (mime.includes('pdf') ? 'compte_rendu.pdf' : 'document.jpg');
-    if (titleEl) titleEl.textContent = cleanFilename;
-    if (subtitleEl) {
-      subtitleEl.textContent = extraInfo.subtitle || `${mime} • ${(blob.size / 1024).toFixed(1)} Ko`;
+    // Afficher immédiatement le dialogue avec un état de chargement
+    if (titleEl) titleEl.textContent = fileName || "Chargement du document...";
+    if (subtitleEl) subtitleEl.textContent = "Résolution du document en cours...";
+    if (bodyEl) {
+      bodyEl.innerHTML = `
+        <div style="padding: 40px 20px; text-align: center; color: var(--text-sub);">
+          <div class="spinner" style="margin: 0 auto 15px auto; width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--color-primary); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+          <p style="margin: 0; font-size: 0.95rem;">Chargement du document joint...</p>
+        </div>
+      `;
+    }
+    dialog.showModal();
+
+    // Résolution complète de la ressource
+    const resolved = await resolveAttachmentResource(fileData, fileType, fileName);
+    if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
+      if (subtitleEl) subtitleEl.textContent = "Fichier non résolu";
+      if (bodyEl) {
+        bodyEl.innerHTML = `
+          <div class="attachment-fallback-view" style="text-align: center; padding: 30px 15px;">
+            <div style="font-size: 3rem; margin-bottom: 12px;">⚠️</div>
+            <h3 style="color: #fff; margin-bottom: 8px;">Document non disponible</h3>
+            <p style="color: var(--text-sub); margin-bottom: 18px; font-size: 0.88rem;">L'identifiant <code>${escapeHtml(String(fileData))}</code> n'a pas pu être chargé depuis la mémoire locale.</p>
+            <button type="button" class="btn btn-secondary btn-close-dialog">Fermer</button>
+          </div>
+        `;
+        bodyEl.querySelector('.btn-close-dialog')?.addEventListener('click', () => dialog.close());
+      }
+      return;
     }
 
-    const isImage = mime.startsWith('image/');
+    const { blob, blobUrl, mime, name: resolvedName } = resolved;
+    const cleanFilename = resolvedName || fileName || (mime.includes('pdf') ? 'compte_rendu.pdf' : 'document.jpg');
+    
+    if (titleEl) titleEl.textContent = cleanFilename;
+    if (subtitleEl) {
+      subtitleEl.textContent = extraInfo.subtitle || (blob ? `${mime} • ${(blob.size / 1024).toFixed(1)} Ko` : `${mime}`);
+    }
+
+    const isImage = mime.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename);
     const isPdf = mime === 'application/pdf' || mime.includes('pdf') || cleanFilename.toLowerCase().endsWith('.pdf');
 
     if (iconEl) {
       iconEl.textContent = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
     }
 
+    // Gestion du zoom dynamique
+    let currentZoom = 1.0;
+    let currentViewerTarget = null;
+    const updateZoomDisplay = () => {
+      if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
+    };
+    updateZoomDisplay();
+
+    const applyZoom = () => {
+      if (!currentViewerTarget) return;
+      currentViewerTarget.style.transition = 'transform 0.15s ease';
+      currentViewerTarget.style.transform = `scale(${currentZoom})`;
+      currentViewerTarget.style.transformOrigin = 'top center';
+      updateZoomDisplay();
+    };
+
+    if (btnZoomOut) {
+      btnZoomOut.onclick = (e) => {
+        e.stopPropagation();
+        currentZoom = Math.max(0.4, Number((currentZoom - 0.2).toFixed(2)));
+        applyZoom();
+      };
+    }
+
+    if (btnZoomIn) {
+      btnZoomIn.onclick = (e) => {
+        e.stopPropagation();
+        currentZoom = Math.min(3.5, Number((currentZoom + 0.2).toFixed(2)));
+        applyZoom();
+      };
+    }
+
+    // Bouton "Ouvrir" dans la barre d'outils
+    if (openBtn) {
+      openBtn.onclick = () => {
+        window.open(blobUrl, '_blank');
+      };
+    }
+
+    // Rendu selon le type de fichier
     if (isImage) {
       bodyEl.innerHTML = `
-        <div class="attachment-preview modal-pj-body" style="width: 100%; max-width: 100%; display: flex; justify-content: center; align-items: center; flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y pinch-zoom; padding: 6px; box-sizing: border-box;">
+        <div class="attachment-preview modal-pj-body" id="doc-viewer-scroll-container" style="width: 100%; max-width: 100%; display: flex; justify-content: center; align-items: center; flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y pinch-zoom; padding: 6px; box-sizing: border-box;">
           <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="width: 100%; max-width: 100%; height: auto; max-height: 70vh; object-fit: contain; display: block; margin: 0 auto; touch-action: pan-x pan-y pinch-zoom; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
         </div>
       `;
       const img = bodyEl.querySelector('img');
-      const container = bodyEl.querySelector('.modal-pj-body');
+      const container = bodyEl.querySelector('#doc-viewer-scroll-container');
+      currentViewerTarget = img;
       if (img && container) {
-        setupPinchZoom(container, img);
+        setupPinchZoom(container, img, (newScale) => {
+          currentZoom = newScale;
+          updateZoomDisplay();
+        });
       }
     } else if (isPdf) {
       bodyEl.innerHTML = `
-        <div class="attachment-preview modal-pj-body" style="width: 100%; max-width: 100%; height: 70vh; max-height: 70vh; position: relative; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y pinch-zoom; box-sizing: border-box;">
-          <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: 100%; border: none; border-radius: 8px; background: #fff; touch-action: pan-x pan-y pinch-zoom;" title="${cleanFilename}"></iframe>
+        <div class="attachment-preview modal-pj-body" id="doc-viewer-scroll-container" style="width: 100%; max-width: 100%; min-height: 70vh; height: auto; position: relative; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y pinch-zoom; box-sizing: border-box; text-align: center;">
+          <div id="pdf-canvas-container" style="display: inline-block; width: 100%; max-width: 100%; margin: 0 auto;"></div>
         </div>
       `;
+      const container = bodyEl.querySelector('#pdf-canvas-container');
+      const scrollWrapper = bodyEl.querySelector('#doc-viewer-scroll-container');
+      currentViewerTarget = container;
+
+      let renderedViaPdfJs = false;
+      if (window.pdfjsLib) {
+        try {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          const loadingTask = window.pdfjsLib.getDocument(blobUrl);
+          const pdfDoc = await loadingTask.promise;
+          
+          container.innerHTML = '';
+          const maxPages = Math.min(pdfDoc.numPages, 10);
+          for (let pNum = 1; pNum <= maxPages; pNum++) {
+            const page = await pdfDoc.getPage(pNum);
+            const unscaledViewport = page.getViewport({ scale: 1 });
+            const availWidth = bodyEl.clientWidth ? Math.max(bodyEl.clientWidth - 16, 280) : (window.innerWidth - 32);
+            const fitScale = availWidth / unscaledViewport.width;
+            const viewport = page.getViewport({ scale: fitScale });
+
+            const canvas = document.createElement('canvas');
+            canvas.className = 'pdf-page-canvas';
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            canvas.style.width = '100%';
+            canvas.style.maxWidth = '100%';
+            canvas.style.height = 'auto';
+            canvas.style.display = 'block';
+            canvas.style.margin = '0 auto 12px auto';
+            canvas.style.borderRadius = '6px';
+            canvas.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+
+            const ctx = canvas.getContext('2d');
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            container.appendChild(canvas);
+          }
+          renderedViaPdfJs = true;
+        } catch (pdfErr) {
+          console.warn("[openDocumentViewerModal] Rendu PDF.js échoué, repli iframe:", pdfErr);
+        }
+      }
+
+      if (!renderedViaPdfJs) {
+        scrollWrapper.innerHTML = `
+          <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: auto; min-height: 70vh; border: none; border-radius: 8px; background: #fff; touch-action: pan-x pan-y pinch-zoom;" title="${cleanFilename}"></iframe>
+        `;
+        currentViewerTarget = scrollWrapper.querySelector('iframe');
+      }
+
+      if (scrollWrapper && currentViewerTarget) {
+        setupPinchZoom(scrollWrapper, currentViewerTarget, (newScale) => {
+          currentZoom = newScale;
+          updateZoomDisplay();
+        });
+      }
     } else {
+      // Fallback avec bouton "Ouvrir" fonctionnel
       bodyEl.innerHTML = `
-        <div style="text-align: center; padding: 40px 20px;">
+        <div class="attachment-fallback-view" style="text-align: center; padding: 30px 16px;">
           <div style="font-size: 3rem; margin-bottom: 12px;">📁</div>
-          <h3 style="color: #fff; margin-bottom: 8px;">${cleanFilename}</h3>
-          <p style="color: var(--text-sub); margin-bottom: 20px;">Type de fichier : ${mime}</p>
-          <a href="${blobUrl}" download="${cleanFilename}" class="btn btn-primary">Télécharger le document</a>
+          <h3 style="color: #fff; margin-bottom: 8px; font-size: 1.1rem; word-break: break-all;">${cleanFilename}</h3>
+          <p style="color: var(--text-sub); margin-bottom: 18px; font-size: 0.85rem;">Type : ${mime}${blob ? ` • ${(blob.size / 1024).toFixed(1)} Ko` : ''}</p>
+          <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-primary" id="btn-open-fallback-doc" style="display: inline-flex; align-items: center; gap: 6px;">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+              Ouvrir le document
+            </button>
+            <a href="${blobUrl}" download="${cleanFilename}" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 6px;">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              Télécharger
+            </a>
+          </div>
         </div>
       `;
+      const btnOpenFallback = bodyEl.querySelector('#btn-open-fallback-doc');
+      if (btnOpenFallback) {
+        btnOpenFallback.onclick = () => {
+          window.open(blobUrl, '_blank');
+        };
+      }
     }
 
     // Télécharger
@@ -7136,21 +7480,23 @@ function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
     if (shareBtn) {
       shareBtn.onclick = async () => {
         try {
-          const file = new File([blob], cleanFilename, { type: mime });
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              files: [file],
-              title: cleanFilename,
-              text: extraInfo.text || `Document ${cleanFilename}`
-            });
-            showToast("Document partagé avec succès !");
-            return;
+          if (blob) {
+            const file = new File([blob], cleanFilename, { type: mime });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                files: [file],
+                title: cleanFilename,
+                text: extraInfo.text || `Document ${cleanFilename}`
+              });
+              showToast("Document partagé avec succès !");
+              return;
+            }
           }
         } catch (e) {
           if (e.name !== 'AbortError') console.warn('Share file error:', e);
         }
         
-        // Fallback share text/url
+        // Fallback share url
         const shareData = {
           title: cleanFilename,
           text: extraInfo.text || `Document joint : ${cleanFilename}`,
@@ -7195,12 +7541,18 @@ function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
         dialog.close();
       }
     };
-
-    dialog.showModal();
   } catch (err) {
     console.error("Erreur lors de l'ouverture du document", err);
     showToast("Impossible d'ouvrir le document joint.", "error");
   }
+}
+
+export const openAttachment = openDocumentViewerModal;
+export const viewDocument = openDocumentViewerModal;
+if (typeof window !== 'undefined') {
+  window.openDocumentViewerModal = openDocumentViewerModal;
+  window.openAttachment = openDocumentViewerModal;
+  window.viewDocument = openDocumentViewerModal;
 }
 
 // SETUP STATIC LISTENERS FOR EXTERNAL SESSION DIALOG
@@ -9621,14 +9973,15 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
   const attachSection = document.getElementById('portal-cr-section-attachment');
   const attachContent = document.getElementById('portal-cr-session-attachment-content');
   if (attachSection && attachContent) {
-    if (session.fileData) {
+    const portalDocResource = session.fileData || session.attachments;
+    if (portalDocResource) {
       attachContent.innerHTML = `
         <button type="button" class="btn btn-secondary btn-small btn-view-modal-ext-file" style="display: inline-flex; align-items: center; gap: 6px;">
-          📎 Consulter le document joint (${session.fileName || 'Fichier'})
+          📎 Consulter le document joint (${session.fileName || session.file_name || 'Fichier'})
         </button>
       `;
       attachContent.querySelector('.btn-view-modal-ext-file').onclick = () => {
-        openDocumentViewerModal(session.fileData, session.fileType, session.fileName, {
+        openDocumentViewerModal(portalDocResource, session.fileType || session.file_type, session.fileName || session.file_name, {
           subtitle: `Séance du ${formatDate(session.date_seance)} • ${session.profession || 'Externe'}`,
           text: `Document joint séance pour ${animal.nom}`
         });
