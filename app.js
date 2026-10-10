@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.49';
+} from './db.js?v=1.6.50';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.49';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.50';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.49';
+export const APP_VERSION = 'v1.6.50';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7010,8 +7010,8 @@ function initDocPinchZoom(element) {
   }
 
   try {
-    element.style.transformOrigin = '0 0';
-    element.style.touchAction = 'none';
+    element.style.transformOrigin = '50% 0';
+    element.style.touchAction = 'pan-y pinch-zoom';
 
     return new PZ(element, {
       animationDuration: 0,
@@ -7019,6 +7019,7 @@ function initDocPinchZoom(element) {
       draggableUnzoomed: false,
       setOffsetsOnce: true,
       preventSnapBack: true,
+      transformOrigin: '50% 0',
       tapZoomFactor: 2,
       zoomFactor: 0.8,
       maxZoom: 4,

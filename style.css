@@ -2672,7 +2672,8 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 /* 3. Conteneur scrollable du document : overflow auto, flex 1 1 auto */
 #dialog-document-viewer #doc-viewer-body,
 .modal-pj-body {
-  overflow: auto !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
   -webkit-overflow-scrolling: touch !important;
   flex: 1 1 auto !important;
   display: block !important;
@@ -2682,7 +2683,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   max-width: 100% !important;
   padding: 10px !important;
   margin: 0 !important;
-  touch-action: pan-x pan-y pinch-zoom !important;
+  touch-action: pan-y pinch-zoom !important;
 }
 
 #dialog-document-viewer #doc-viewer-zoom-wrapper,
@@ -2695,15 +2696,18 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   width: 100% !important;
   max-width: 100% !important;
   margin: 0 auto !important;
-  transform-origin: 0 0 !important;
-  -webkit-transform-origin: 0 0 !important;
-  touch-action: none !important;
+  transform-origin: 50% 0 !important;
+  -webkit-transform-origin: 50% 0 !important;
+  touch-action: pan-y pinch-zoom !important;
 }
 
 .pinch-zoom-container {
   width: 100% !important;
   max-width: 100% !important;
   margin: 0 auto !important;
+  overflow-y: visible !important;
+  overflow-x: hidden !important;
+  touch-action: pan-y pinch-zoom !important;
 }
 
 #dialog-portal-session-cr .official-a4-sheet,
@@ -4387,9 +4391,10 @@ dialog#dialog-cgv-rgpd:not([open]),
   .attachment-preview,
   .modal-body {
     flex: 1 1 auto !important;
-    overflow: auto !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
     -webkit-overflow-scrolling: touch !important;
-    touch-action: pan-x pan-y pinch-zoom !important;
+    touch-action: pan-y pinch-zoom !important;
     box-sizing: border-box !important;
     width: 100% !important;
     max-width: 100% !important;
@@ -4409,15 +4414,18 @@ dialog#dialog-cgv-rgpd:not([open]),
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 auto !important;
-    transform-origin: 0 0 !important;
-    -webkit-transform-origin: 0 0 !important;
-    touch-action: none !important;
+    transform-origin: 50% 0 !important;
+    -webkit-transform-origin: 50% 0 !important;
+    touch-action: pan-y pinch-zoom !important;
   }
 
   .pinch-zoom-container {
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 auto !important;
+    overflow-y: visible !important;
+    overflow-x: hidden !important;
+    touch-action: pan-y pinch-zoom !important;
   }
 
   #dialog-document-viewer #doc-viewer-zoom-wrapper img,
