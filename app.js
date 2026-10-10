@@ -26,9 +26,9 @@ import {
   setSetting,
   fetchRemoteSetting,
   fetchRemoteSettings
-} from './db.js?v=1.6.36';
+} from './db.js?v=1.6.37';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.36';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.37';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -37,7 +37,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.36';
+export const APP_VERSION = 'v1.6.37';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -2652,10 +2652,16 @@ async function renderAnimalDetails(animalId) {
     detailPhoto.src = animal.photo_data_url;
     detailPhoto.style.display = 'block';
     detailPlaceholder.style.display = 'none';
+    detailPhoto.style.cursor = 'pointer';
+    detailPhoto.title = "Cliquer pour agrandir la photo";
+    detailPhoto.onclick = () => {
+      openDocumentViewerModal(animal.photo_data_url, 'image/jpeg', `Photo - ${animal.nom || 'Animal'}`);
+    };
   } else {
     detailPhoto.src = '';
     detailPhoto.style.display = 'none';
     detailPlaceholder.style.display = 'block';
+    detailPhoto.onclick = null;
   }
 
   // Tracking frequency display
@@ -7031,13 +7037,13 @@ function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
 
     if (isImage) {
       bodyEl.innerHTML = `
-        <div style="width: 100%; display: flex; justify-content: center; align-items: center; max-height: 75vh; overflow: auto; padding: 10px;">
-          <img src="${blobUrl}" alt="${cleanFilename}" style="max-width: 100%; max-height: 75vh; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+        <div class="attachment-preview modal-pj-body" style="width: 100%; display: flex; justify-content: center; align-items: center; flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; padding: 10px; box-sizing: border-box;">
+          <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="max-width: 100% !important; max-height: 70vh !important; width: auto !important; height: auto !important; object-fit: contain !important; display: block !important; margin: 0 auto !important; touch-action: pan-x pan-y pinch-zoom !important; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
         </div>
       `;
     } else if (isPdf) {
       bodyEl.innerHTML = `
-        <div style="width: 100%; height: 75vh; position: relative;">
+        <div class="attachment-preview modal-pj-body" style="width: 100%; height: 70vh; max-height: 70vh; position: relative; overflow: auto; -webkit-overflow-scrolling: touch;">
           <iframe src="${blobUrl}" style="width: 100%; height: 100%; border: none; border-radius: 8px; background: #fff;" title="${cleanFilename}"></iframe>
         </div>
       `;
