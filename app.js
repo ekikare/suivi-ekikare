@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.55';
+} from './db.js?v=1.6.56';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.55';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.56';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.55';
+export const APP_VERSION = 'v1.6.56';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7258,7 +7258,8 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     return;
   }
 
-  const { blob, mime, name: resolvedName } = resolved;
+  const { blob, name: resolvedName } = resolved;
+  let mime = resolved.mime;
   let blobUrl = resolved.blobUrl;
   if (blob) {
     blobUrl = URL.createObjectURL(blob);
@@ -7269,8 +7270,51 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     return;
   }
 
-  const cleanFilename = resolvedName || fileName || (mime?.includes('pdf') ? 'document.pdf' : (mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
+  // Détection des magic bytes pour typer fidèlement les blobs avec mime générique ou octet-stream
+  if (blob && (!mime || mime === 'application/octet-stream' || !mime.includes('/'))) {
+    try {
+      const headBuf = await blob.slice(0, 8).arrayBuffer();
+      const headArr = new Uint8Array(headBuf);
+      const headStr = String.fromCharCode(...headArr);
+      if (headStr.startsWith('%PDF')) {
+        mime = 'application/pdf';
+      } else if (headArr[0] === 0xFF && headArr[1] === 0xD8) {
+        mime = 'image/jpeg';
+      } else if (headArr[0] === 0x89 && headArr[1] === 0x50 && headArr[2] === 0x4E && headArr[3] === 0x47) {
+        mime = 'image/png';
+      }
+    } catch (_) {}
+  }
+
+  let cleanFilename = resolvedName || fileName || (mime?.includes('pdf') ? 'document.pdf' : (mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
+  if (!cleanFilename.includes('.')) {
+    if (mime === 'application/pdf') cleanFilename += '.pdf';
+    else if (mime?.startsWith('image/')) cleanFilename += (mime === 'image/png' ? '.png' : '.jpg');
+  }
   const isImage = (mime && mime.startsWith('image/')) || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename);
+  const isPdf = mime === 'application/pdf' || mime?.includes('pdf') || cleanFilename.toLowerCase().endsWith('.pdf');
+
+  // Fonctions utilitaires d'action réutilisables (téléchargement et ouverture fiable)
+  const triggerDownload = (url, filename) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast(`Téléchargement lancé : ${filename}`);
+  };
+
+  const triggerOpenOrDownload = (url, filename) => {
+    let opened = false;
+    try {
+      const w = window.open(url, '_blank');
+      if (w && !w.closed) opened = true;
+    } catch (_) {}
+    if (!opened) {
+      triggerDownload(url, filename);
+    }
+  };
 
   // =========================================================================
   // Cas A : Sur mobile / Chrome standard (!isStandalone)
@@ -7319,13 +7363,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       // Configuration bouton Télécharger
       if (btnDownload) {
         btnDownload.onclick = () => {
-          const a = document.createElement('a');
-          a.href = blobUrl;
-          a.download = cleanFilename;
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => a.remove(), 100);
-          showToast(`Téléchargement lancé : ${cleanFilename}`);
+          triggerDownload(blobUrl, cleanFilename);
         };
       }
 
@@ -7390,10 +7428,12 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     }
   }
 
-  // 3. Affichage sur Desktop (PC) : conserve strictement son affichage opérationnel d'origine
+  // =========================================================================
+  // 3. Affichage sur Desktop (PC) : conserve son affichage avec injection directe du Blob
+  // =========================================================================
   const dialog = document.getElementById('dialog-document-viewer');
   if (!dialog) {
-    showToast("Visionneuse de document non disponible.", "error");
+    triggerOpenOrDownload(blobUrl, cleanFilename);
     return;
   }
 
@@ -7410,47 +7450,10 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     const btnZoomReset = document.getElementById('btn-zoom-reset-doc-viewer');
     const zoomLevelEl = document.getElementById('doc-viewer-zoom-level');
 
-    // Afficher immédiatement le dialogue avec un état de chargement
-    if (titleEl) titleEl.textContent = fileName || "Chargement du document...";
-    if (subtitleEl) subtitleEl.textContent = "Résolution du document en cours...";
-    if (bodyEl) {
-      bodyEl.innerHTML = `
-        <div style="padding: 40px 20px; text-align: center; color: var(--text-sub);">
-          <div class="spinner" style="margin: 0 auto 15px auto; width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--color-primary); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-          <p style="margin: 0; font-size: 0.95rem;">Chargement du document joint...</p>
-        </div>
-      `;
-    }
-    dialog.showModal();
-
-    // Résolution complète de la ressource
-    const resolved = await resolveAttachmentResource(fileData, fileType, fileName);
-    if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
-      if (subtitleEl) subtitleEl.textContent = "Fichier non résolu";
-      if (bodyEl) {
-        bodyEl.innerHTML = `
-          <div class="attachment-fallback-view" style="text-align: center; padding: 30px 15px;">
-            <div style="font-size: 3rem; margin-bottom: 12px;">⚠️</div>
-            <h3 style="color: #fff; margin-bottom: 8px;">Document non disponible</h3>
-            <p style="color: var(--text-sub); margin-bottom: 18px; font-size: 0.88rem;">L'identifiant <code>${escapeHtml(String(fileData))}</code> n'a pas pu être chargé depuis la mémoire locale.</p>
-            <button type="button" class="btn btn-secondary btn-close-dialog">Fermer</button>
-          </div>
-        `;
-        bodyEl.querySelector('.btn-close-dialog')?.addEventListener('click', () => dialog.close());
-      }
-      return;
-    }
-
-    const { blob, blobUrl, mime, name: resolvedName } = resolved;
-    const cleanFilename = resolvedName || fileName || (mime.includes('pdf') ? 'compte_rendu.pdf' : 'document.jpg');
-    
     if (titleEl) titleEl.textContent = cleanFilename;
     if (subtitleEl) {
       subtitleEl.textContent = extraInfo.subtitle || (blob ? `${mime} • ${(blob.size / 1024).toFixed(1)} Ko` : `${mime}`);
     }
-
-    const isImage = mime.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename);
-    const isPdf = mime === 'application/pdf' || mime.includes('pdf') || cleanFilename.toLowerCase().endsWith('.pdf');
 
     if (iconEl) {
       iconEl.textContent = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
@@ -7492,22 +7495,56 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       };
     }
 
-    // Bouton "Ouvrir" dans la barre d'outils
+    // Bouton "Ouvrir" dans la barre d'outils (lié impérativement à la même fonction d'ouverture / téléchargement que le bouton Télécharger)
     if (openBtn) {
-      openBtn.onclick = () => {
-        window.open(blobUrl, '_blank');
+      openBtn.onclick = () => triggerOpenOrDownload(blobUrl, cleanFilename);
+    }
+
+    // Télécharger (utilise directement la même variable blobUrl)
+    if (downloadBtn) {
+      downloadBtn.onclick = () => triggerDownload(blobUrl, cleanFilename);
+    }
+
+    // Partager
+    if (shareBtn) {
+      shareBtn.onclick = async () => {
+        try {
+          if (blob) {
+            const file = new File([blob], cleanFilename, { type: mime || 'application/octet-stream' });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                files: [file],
+                title: cleanFilename,
+                text: extraInfo.text || `Document ${cleanFilename}`
+              });
+              return;
+            }
+          }
+          if (navigator.share) {
+            await navigator.share({
+              title: cleanFilename,
+              text: extraInfo.text || `Document ${cleanFilename}`,
+              url: window.location.href
+            });
+          } else {
+            triggerDownload(blobUrl, cleanFilename);
+          }
+        } catch (e) {
+          if (e.name !== 'AbortError') console.warn('Share error:', e);
+        }
       };
     }
 
-    // Rendu selon le type de fichier
+    // Rendu direct du document résolu dans le corps de la modale sans aucun fallback avec UUID texte
     if (isImage) {
       bodyEl.innerHTML = `
-        <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; margin: 0 auto;">
-          <img src="${blobUrl}" alt="${cleanFilename}" class="attachment-img" style="display: block; width: 100%; max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+        <div class="zoomable-document-content" style="position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; margin: 0 auto;">
+          <img src="${blobUrl}" alt="${escapeHtml(cleanFilename)}" class="attachment-img" style="max-width: 100%; max-height: 100%; object-fit: contain; margin: auto; display: block; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
         </div>
       `;
       applyZoom();
-    } else if (isPdf) {
+    } else if (isPdf && window.pdfjsLib && !('ontouchstart' in window) && window.innerWidth > 1024) {
+      // Desktop PC classique avec souris : rendu haute fidélité PDF.js avec zoom
       bodyEl.innerHTML = `
         <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; margin: 0 auto; min-height: 70vh;">
           <div id="pdf-canvas-container" style="display: block; width: 100%; margin: 0;"></div>
@@ -7516,137 +7553,60 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       const container = bodyEl.querySelector('#pdf-canvas-container');
 
       let renderedViaPdfJs = false;
-      if (window.pdfjsLib) {
-        try {
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-          const loadingTask = window.pdfjsLib.getDocument(blobUrl);
-          const pdfDoc = await loadingTask.promise;
-          
-          container.innerHTML = '';
-          const maxPages = Math.min(pdfDoc.numPages, 10);
-          for (let pNum = 1; pNum <= maxPages; pNum++) {
-            const page = await pdfDoc.getPage(pNum);
-            const unscaledViewport = page.getViewport({ scale: 1 });
-            const availWidth = bodyEl.clientWidth ? Math.max(bodyEl.clientWidth - 24, 280) : (window.innerWidth - 32);
-            const fitScale = availWidth / unscaledViewport.width;
-            const viewport = page.getViewport({ scale: fitScale });
+      try {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        const loadingTask = window.pdfjsLib.getDocument(blobUrl);
+        const pdfDoc = await loadingTask.promise;
+        
+        container.innerHTML = '';
+        const maxPages = Math.min(pdfDoc.numPages, 10);
+        for (let pNum = 1; pNum <= maxPages; pNum++) {
+          const page = await pdfDoc.getPage(pNum);
+          const unscaledViewport = page.getViewport({ scale: 1 });
+          const availWidth = bodyEl.clientWidth ? Math.max(bodyEl.clientWidth - 24, 280) : (window.innerWidth - 32);
+          const fitScale = availWidth / unscaledViewport.width;
+          const viewport = page.getViewport({ scale: fitScale });
 
-            const canvas = document.createElement('canvas');
-            canvas.className = 'pdf-page-canvas';
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            canvas.style.width = '100%';
-            canvas.style.maxWidth = '100%';
-            canvas.style.height = 'auto';
-            canvas.style.display = 'block';
-            canvas.style.margin = '0 auto 12px auto';
-            canvas.style.borderRadius = '6px';
-            canvas.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+          const canvas = document.createElement('canvas');
+          canvas.className = 'pdf-page-canvas';
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+          canvas.style.width = '100%';
+          canvas.style.maxWidth = '100%';
+          canvas.style.height = 'auto';
+          canvas.style.display = 'block';
+          canvas.style.margin = '0 auto 12px auto';
+          canvas.style.borderRadius = '6px';
+          canvas.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
 
-            const ctx = canvas.getContext('2d');
-            await page.render({ canvasContext: ctx, viewport }).promise;
-            container.appendChild(canvas);
-          }
-          renderedViaPdfJs = true;
-        } catch (pdfErr) {
-          console.warn("[openDocumentViewerModal] Rendu PDF.js échoué, repli iframe:", pdfErr);
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          container.appendChild(canvas);
         }
+        renderedViaPdfJs = true;
+      } catch (pdfErr) {
+        console.warn("[openDocumentViewerModal] Rendu PDF.js échoué, repli iframe:", pdfErr);
       }
 
       if (!renderedViaPdfJs) {
-        const zoomableEl = bodyEl.querySelector('.zoomable-document-content');
-        if (zoomableEl) {
-          zoomableEl.innerHTML = `
-            <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: auto; min-height: 70vh; border: none; border-radius: 8px; background: #fff;" title="${cleanFilename}"></iframe>
-          `;
-        }
+        bodyEl.innerHTML = `
+          <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; height: 100%; min-height: 75vh; margin: 0 auto;">
+            <iframe src="${blobUrl}" style="width: 100%; height: 100%; min-height: 75vh; border: none; border-radius: 8px; background: #fff;" title="${escapeHtml(cleanFilename)}"></iframe>
+          </div>
+        `;
       }
       applyZoom();
     } else {
-      // Fallback avec bouton "Ouvrir" fonctionnel
+      // Intégration directe via iframe native : laisse le navigateur gérer le zoom et le scroll sans bug
       bodyEl.innerHTML = `
-        <div class="attachment-fallback-view" style="text-align: center; padding: 30px 16px;">
-          <div style="font-size: 3rem; margin-bottom: 12px;">📁</div>
-          <h3 style="color: #fff; margin-bottom: 8px; font-size: 1.1rem; word-break: break-all;">${cleanFilename}</h3>
-          <p style="color: var(--text-sub); margin-bottom: 18px; font-size: 0.85rem;">Type : ${mime}${blob ? ` • ${(blob.size / 1024).toFixed(1)} Ko` : ''}</p>
-          <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-            <button type="button" class="btn btn-primary" id="btn-open-fallback-doc" style="display: inline-flex; align-items: center; gap: 6px;">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-              Ouvrir le document
-            </button>
-            <a href="${blobUrl}" download="${cleanFilename}" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 6px;">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-              Télécharger
-            </a>
-          </div>
+        <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; height: 100%; min-height: 75vh; margin: 0 auto;">
+          <iframe src="${blobUrl}" style="width: 100%; height: 100%; min-height: 75vh; border: none; border-radius: 8px; background: #fff;" title="${escapeHtml(cleanFilename)}"></iframe>
         </div>
       `;
-      const btnOpenFallback = bodyEl.querySelector('#btn-open-fallback-doc');
-      if (btnOpenFallback) {
-        btnOpenFallback.onclick = () => {
-          window.open(blobUrl, '_blank');
-        };
-      }
+      applyZoom();
     }
 
-    // Télécharger
-    if (downloadBtn) {
-      downloadBtn.onclick = () => {
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = cleanFilename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        showToast(`Document téléchargé : ${cleanFilename}`);
-      };
-    }
-
-    // Partager
-    if (shareBtn) {
-      shareBtn.onclick = async () => {
-        try {
-          if (blob) {
-            const file = new File([blob], cleanFilename, { type: mime });
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-              await navigator.share({
-                files: [file],
-                title: cleanFilename,
-                text: extraInfo.text || `Document ${cleanFilename}`
-              });
-              showToast("Document partagé avec succès !");
-              return;
-            }
-          }
-        } catch (e) {
-          if (e.name !== 'AbortError') console.warn('Share file error:', e);
-        }
-        
-        // Fallback share url
-        const shareData = {
-          title: cleanFilename,
-          text: extraInfo.text || `Document joint : ${cleanFilename}`,
-          url: window.location.href
-        };
-        if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
-          try {
-            await navigator.share(shareData);
-            showToast("Lien partagé avec succès !");
-            return;
-          } catch (e) {
-            if (e.name !== 'AbortError') console.warn('Share error:', e);
-          }
-        }
-
-        // Fallback clipboard
-        try {
-          await navigator.clipboard.writeText(`${cleanFilename} - ${window.location.href}`);
-          showToast("Lien copié dans le presse-papier !");
-        } catch (e) {
-          showToast("Partage non supporté sur cet appareil.", "error");
-        }
-      };
-    }
+    dialog.showModal();
 
     // Fermeture
     const closeBtns = dialog.querySelectorAll('.btn-close-dialog');
