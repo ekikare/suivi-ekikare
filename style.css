@@ -2608,19 +2608,6 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   zoom: 1 !important;
 }
 
-@media all and (display-mode: standalone) {
-  #dialog-document-viewer {
-    width: 100vw !important;
-    max-width: 100vw !important;
-    height: 100vh !important;
-    max-height: 100vh !important;
-    border-radius: 0 !important;
-    margin: 0 !important;
-    top: 0 !important;
-    left: 0 !important;
-  }
-}
-
 /* Masquage strict par défaut tant qu'aucune action d'ouverture n'est déclenchée */
 #dialog-document-viewer:not([open]) {
   display: none !important;
@@ -4504,12 +4491,10 @@ dialog#dialog-cgv-rgpd:not([open]),
 }
 
 @media (max-width: 480px) {
-  #dialog-document-viewer #btn-open-doc-viewer .btn-text,
   #dialog-document-viewer #btn-share-doc-viewer .btn-text,
   #dialog-document-viewer #btn-download-doc-viewer .btn-text {
     display: none !important;
   }
-  #dialog-document-viewer #btn-open-doc-viewer,
   #dialog-document-viewer #btn-share-doc-viewer,
   #dialog-document-viewer #btn-download-doc-viewer {
     padding: 4px 6px !important;

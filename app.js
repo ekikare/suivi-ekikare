@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.55';
+} from './db.js?v=1.6.56';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.55';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.56';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.55';
+export const APP_VERSION = 'v1.6.56';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7216,14 +7216,101 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     return;
   }
 
-  // 1. Détection de l'appareil et de l'environnement
+  // 1. Détection de l'appareil et du contexte d'exécution
   const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-  const isStandalone = !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || !!window.navigator.standalone;
+  const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
   const isPortal = document.documentElement.classList.contains('portal-mode') || !!document.getElementById('portal-view')?.classList.contains('active');
   const isClassicMobileBrowser = !isStandalone && (window.innerWidth <= 768 || (isTouchDevice && (window.innerWidth <= 1024 || isPortal)));
 
-  // Cas 1 : Chrome Mobile / Tablette en navigateur classique -> ouverture directe dans un nouvel onglet
-  if (isClassicMobileBrowser) {
+  // CAS 1 : PWA autonome (Tablette ou smartphone en mode PWA installée)
+  // Injection DIRECTE plein écran du Blob avec bouton flottant universel de fermeture (&times;)
+  // Sans aucun en-tête d'UUID ni bouton inerte
+  if (isStandalone) {
+    const resolved = await resolveAttachmentResource(fileData, fileType, fileName);
+    if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
+      showToast("Document non disponible ou introuvable.", "error");
+      return;
+    }
+
+    const blob = resolved.blob;
+    let fileUrl = '';
+    let isTempObjectUrl = false;
+
+    if (blob) {
+      fileUrl = URL.createObjectURL(blob);
+      isTempObjectUrl = true;
+    } else if (resolved.blobUrl) {
+      fileUrl = resolved.blobUrl;
+    }
+
+    if (!fileUrl) {
+      showToast("Impossible de lire ce document.", "error");
+      return;
+    }
+
+    const attachmentName = resolved.name || fileName || (resolved.mime?.includes('pdf') ? 'document.pdf' : (resolved.mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
+    const isPdf = !!(resolved.mime?.includes('pdf') || attachmentName.toLowerCase().endsWith('.pdf') || (fileType && fileType.includes('pdf')));
+
+    let standaloneViewer = document.getElementById('standalone-document-viewer');
+    if (!standaloneViewer) {
+      standaloneViewer = document.createElement('div');
+      standaloneViewer.id = 'standalone-document-viewer';
+      standaloneViewer.setAttribute('role', 'dialog');
+      standaloneViewer.setAttribute('aria-modal', 'true');
+      standaloneViewer.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 99990; background: #000; display: flex; flex-direction: column; margin: 0; padding: 0; box-sizing: border-box; overflow: hidden;';
+      document.body.appendChild(standaloneViewer);
+    }
+
+    if (isPdf) {
+      standaloneViewer.innerHTML = `<object data="${fileUrl}" type="application/pdf" style="width: 100%; height: 100%; border: none;">
+        <iframe src="${fileUrl}" style="width: 100%; height: 100%; border: none;"></iframe>
+      </object>`;
+    } else {
+      standaloneViewer.innerHTML = `<img src="${fileUrl}" alt="Document" style="max-width: 100%; max-height: 100%; object-fit: contain; margin: auto; display: block;" />`;
+    }
+    standaloneViewer.style.display = 'flex';
+
+    // Supprimer tout éventuel bouton flottant précédent
+    const oldCloseBtn = document.getElementById('floating-doc-close-btn');
+    if (oldCloseBtn) oldCloseBtn.remove();
+
+    // Bouton flottant universel de fermeture en haut à droite
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'floating-doc-close-btn';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.setAttribute('aria-label', 'Fermer le document');
+    closeBtn.style.cssText = 'position: fixed; top: 14px; right: 14px; z-index: 99999; background: rgba(0,0,0,0.75); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 42px; height: 42px; font-size: 26px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); -webkit-tap-highlight-color: transparent;';
+
+    const closeViewer = () => {
+      if (standaloneViewer) {
+        standaloneViewer.innerHTML = '';
+        standaloneViewer.style.display = 'none';
+      }
+      if (closeBtn && closeBtn.parentNode) {
+        closeBtn.remove();
+      }
+      if (isTempObjectUrl) {
+        try { URL.revokeObjectURL(fileUrl); } catch (_) {}
+      }
+      window.removeEventListener('keydown', onEscKey);
+    };
+
+    const onEscKey = (e) => {
+      if (e.key === 'Escape') closeViewer();
+    };
+    window.addEventListener('keydown', onEscKey);
+
+    closeBtn.onclick = () => {
+      closeViewer();
+      closeBtn.remove();
+    };
+
+    document.body.appendChild(closeBtn);
+    return;
+  }
+
+  // CAS 2 : Chrome Mobile / Tablette en navigateur classique -> ouverture directe dans un nouvel onglet
+  if (isClassicMobileBrowser || isTouchDevice) {
     const resolved = await resolveAttachmentResource(fileData, fileType, fileName);
     if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
       showToast("Document non disponible ou introuvable.", "error");
@@ -7277,7 +7364,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     return;
   }
 
-  // Cas 2 : PWA autonome (tablette/mobile standalone) OU PC Desktop (bureau avec souris)
+  // CAS 3 : PC Desktop (bureau avec souris) -> boîte de dialogue modale habituelle (dialog-document-viewer)
   const dialog = document.getElementById('dialog-document-viewer');
   if (!dialog) {
     showToast("Visionneuse de document non disponible.", "error");
@@ -7300,8 +7387,9 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     // Masquer le bouton ouvrir superflu
     if (openBtn) openBtn.style.display = 'none';
 
-    // Afficher immédiatement la modale avec état de chargement
-    if (titleEl) titleEl.textContent = extraInfo.text || fileName || "Document joint";
+    // Afficher immédiatement la modale avec état de chargement propre (pas d'UUID brut)
+    const initialTitle = (extraInfo.text && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(extraInfo.text)) ? extraInfo.text : (fileName && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(fileName) ? fileName : "Document joint");
+    if (titleEl) titleEl.textContent = initialTitle;
     if (subtitleEl) subtitleEl.textContent = extraInfo.subtitle || "Chargement du document...";
     if (bodyEl) {
       bodyEl.innerHTML = `
@@ -7411,23 +7499,11 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       };
     }
 
-    const isDesktop = !isTouchDevice && !isStandalone && window.innerWidth > 768;
-
     if (bodyEl) {
       bodyEl.innerHTML = '';
 
-      if (isStandalone || isTouchDevice) {
-        // Mode tactile / PWA autonome : Injection DIRECTE sans bouton ouvrir ni UUID
-        if (isPdf) {
-          bodyEl.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: calc(100vh - 60px); border: none;">
-            <iframe src="${blobUrl}" style="width: 100%; height: calc(100vh - 60px); border: none;"></iframe>
-          </object>`;
-        } else {
-          bodyEl.innerHTML = `<img src="${blobUrl}" alt="${escapeHtml(displayTitle)}" style="max-width: 100%; max-height: calc(100vh - 60px); object-fit: contain; margin: auto; display: block;" />`;
-        }
-      } else if (isDesktop) {
-        // PC Bureau avec souris : Rendu haute fidélité avec miniatures PDF.js
-        if (isImage) {
+      // PC Bureau avec souris : Rendu haute fidélité avec miniatures PDF.js ou Image
+      if (isImage) {
           bodyEl.innerHTML = `
             <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; margin: 0 auto;">
               <img src="${blobUrl}" alt="${escapeHtml(displayTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
@@ -7489,7 +7565,6 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
           applyZoom();
         }
       }
-    }
 
     // Téléchargement direct
     if (downloadBtn) {
