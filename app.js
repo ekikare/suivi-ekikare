@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.51';
+} from './db.js?v=1.6.53';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.51';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.53';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.51';
+export const APP_VERSION = 'v1.6.53';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7246,6 +7246,65 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     }
 
     const attachmentName = resolved.name || fileName || (resolved.mime?.includes('pdf') ? 'document.pdf' : (resolved.mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
+
+    // 1.1 Détection du mode PWA autonome (standalone) : affichage plein écran avec bouton Fermer [×] flottant
+    const isStandalone = !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || !!window.navigator.standalone;
+
+    if (isStandalone) {
+      let standaloneContainer = document.getElementById('standalone-document-viewer');
+      if (!standaloneContainer) {
+        standaloneContainer = document.createElement('div');
+        standaloneContainer.id = 'standalone-document-viewer';
+        standaloneContainer.setAttribute('role', 'dialog');
+        standaloneContainer.setAttribute('aria-modal', 'true');
+        standaloneContainer.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9998; background: #000; display: flex; flex-direction: column; margin: 0; padding: 0; box-sizing: border-box;';
+        document.body.appendChild(standaloneContainer);
+      }
+
+      const isPdf = !!(resolved.mime?.includes('pdf') || attachmentName.toLowerCase().endsWith('.pdf') || (fileType && fileType.includes('pdf')));
+
+      let contentHtml = '';
+      if (isPdf) {
+        contentHtml = `<object data="${fileUrl}" type="application/pdf" style="width: 100%; height: 100%; border: none;">
+          <iframe src="${fileUrl}" style="width: 100%; height: 100%; border: none;"></iframe>
+        </object>`;
+      } else {
+        contentHtml = `<img src="${fileUrl}" alt="${escapeHtml(attachmentName)}" style="max-width: 100%; max-height: 100%; object-fit: contain; margin: auto; display: block;" />`;
+      }
+
+      standaloneContainer.innerHTML = `
+        <button id="btn-close-standalone-viewer" aria-label="Fermer" title="Fermer" style="position: fixed; top: 12px; right: 12px; z-index: 9999; background: rgba(0,0,0,0.7); color: #fff; border: none; border-radius: 50%; width: 40px; height: 40px; font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); -webkit-tap-highlight-color: transparent;">&times;</button>
+        <div style="flex: 1 1 auto; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+          ${contentHtml}
+        </div>
+      `;
+
+      standaloneContainer.style.display = 'flex';
+
+      const closeStandalone = () => {
+        if (standaloneContainer) {
+          standaloneContainer.innerHTML = '';
+          standaloneContainer.style.display = 'none';
+        }
+        if (isTempObjectUrl) {
+          try { URL.revokeObjectURL(fileUrl); } catch (_) {}
+        }
+      };
+
+      const btnClose = document.getElementById('btn-close-standalone-viewer');
+      if (btnClose) {
+        btnClose.onclick = closeStandalone;
+      }
+
+      const escListener = (e) => {
+        if (e.key === 'Escape') {
+          closeStandalone();
+          window.removeEventListener('keydown', escListener);
+        }
+      };
+      window.addEventListener('keydown', escListener);
+      return;
+    }
 
     // Ouvrir immédiatement dans un nouvel onglet ou déclencher la visionneuse native
     let opened = false;
