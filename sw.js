@@ -1,14 +1,14 @@
 // Service Worker eKiKare
-const CACHE_NAME = 'ekikare-cache-v1.6.53';
+const CACHE_NAME = 'ekikare-cache-v1.6.54';
 
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './style.css?v=1.6.53',
-  './app.js?v=1.6.53',
-  './db.js?v=1.6.53',
-  './sync-manager.js?v=1.6.53',
-  './lib/pinch-zoom.umd.js?v=1.6.53',
+  './style.css?v=1.6.54',
+  './app.js?v=1.6.54',
+  './db.js?v=1.6.54',
+  './sync-manager.js?v=1.6.54',
+  './lib/pinch-zoom.umd.js?v=1.6.54',
   './manifest.json',
   './favicon.ico',
   './assets/logo-icon.png',
