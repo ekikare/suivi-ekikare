@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.54';
+} from './db.js?v=1.6.55';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.54';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.55';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.54';
+export const APP_VERSION = 'v1.6.55';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7560,94 +7560,6 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       if (isTempObjectUrl) {
         try { URL.revokeObjectURL(blobUrl); } catch (_) {}
       }
-    };
-  } catch (err) {
-    console.error("Erreur lors de l'ouverture du document", err);
-    showToast("Impossible d'ouvrir le document joint.", "error");
-  }
-}
-
-    // Télécharger
-    if (downloadBtn) {
-      downloadBtn.onclick = () => {
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = cleanFilename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        showToast(`Document téléchargé : ${cleanFilename}`);
-      };
-    }
-
-    // Partager
-    if (shareBtn) {
-      shareBtn.onclick = async () => {
-        try {
-          if (blob) {
-            const file = new File([blob], cleanFilename, { type: mime });
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-              await navigator.share({
-                files: [file],
-                title: cleanFilename,
-                text: extraInfo.text || `Document ${cleanFilename}`
-              });
-              showToast("Document partagé avec succès !");
-              return;
-            }
-          }
-        } catch (e) {
-          if (e.name !== 'AbortError') console.warn('Share file error:', e);
-        }
-        
-        // Fallback share url
-        const shareData = {
-          title: cleanFilename,
-          text: extraInfo.text || `Document joint : ${cleanFilename}`,
-          url: window.location.href
-        };
-        if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
-          try {
-            await navigator.share(shareData);
-            showToast("Lien partagé avec succès !");
-            return;
-          } catch (e) {
-            if (e.name !== 'AbortError') console.warn('Share error:', e);
-          }
-        }
-
-        // Fallback clipboard
-        try {
-          await navigator.clipboard.writeText(`${cleanFilename} - ${window.location.href}`);
-          showToast("Lien copié dans le presse-papier !");
-        } catch (e) {
-          showToast("Partage non supporté sur cet appareil.", "error");
-        }
-      };
-    }
-
-    // Fermeture
-    const closeBtns = dialog.querySelectorAll('.btn-close-dialog');
-    closeBtns.forEach(btn => {
-      btn.onclick = () => {
-        dialog.close();
-      };
-    });
-
-    dialog.onclick = (e) => {
-      const rect = dialog.getBoundingClientRect();
-      if (
-        e.clientX < rect.left ||
-        e.clientX > rect.right ||
-        e.clientY < rect.top ||
-        e.clientY > rect.bottom
-      ) {
-        dialog.close();
-      }
-    };
-
-    dialog.onclose = () => {
-      currentZoom = 1.0;
     };
   } catch (err) {
     console.error("Erreur lors de l'ouverture du document", err);
