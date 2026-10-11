@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.56';
+} from './db.js?v=1.6.57';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.56';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.57';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.56';
+export const APP_VERSION = 'v1.6.57';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7257,18 +7257,62 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       standaloneViewer.id = 'standalone-document-viewer';
       standaloneViewer.setAttribute('role', 'dialog');
       standaloneViewer.setAttribute('aria-modal', 'true');
-      standaloneViewer.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 99990; background: #000; display: flex; flex-direction: column; margin: 0; padding: 0; box-sizing: border-box; overflow: hidden;';
+      standaloneViewer.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 99990; background: #000; display: flex; flex-direction: column; margin: 0; padding: 0; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;';
       document.body.appendChild(standaloneViewer);
     }
 
-    if (isPdf) {
-      standaloneViewer.innerHTML = `<object data="${fileUrl}" type="application/pdf" style="width: 100%; height: 100%; border: none;">
-        <iframe src="${fileUrl}" style="width: 100%; height: 100%; border: none;"></iframe>
-      </object>`;
-    } else {
-      standaloneViewer.innerHTML = `<img src="${fileUrl}" alt="Document" style="max-width: 100%; max-height: 100%; object-fit: contain; margin: auto; display: block;" />`;
-    }
+    standaloneViewer.innerHTML = '';
     standaloneViewer.style.display = 'flex';
+
+    if (isPdf) {
+      let renderedViaPdfJs = false;
+      if (window.pdfjsLib) {
+        try {
+          standaloneViewer.innerHTML = `
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100vh; color: #94a3b8;">
+              <div style="width: 38px; height: 38px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
+              <p style="margin: 0; font-size: 0.9rem;">Affichage du compte-rendu...</p>
+            </div>
+          `;
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          const loadingTask = window.pdfjsLib.getDocument(fileUrl);
+          const pdfDoc = await loadingTask.promise;
+
+          const canvasWrap = document.createElement('div');
+          canvasWrap.style.cssText = 'width: 100%; min-height: 100vh; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding: 12px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center;';
+
+          const availWidth = Math.max(window.innerWidth - 32, 280);
+          for (let pNum = 1; pNum <= pdfDoc.numPages; pNum++) {
+            const page = await pdfDoc.getPage(pNum);
+            const unscaledViewport = page.getViewport({ scale: 1 });
+            const fitScale = availWidth / unscaledViewport.width;
+            const viewport = page.getViewport({ scale: fitScale });
+
+            const canvas = document.createElement('canvas');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            canvas.style.cssText = 'width: 100%; max-width: 100%; height: auto; display: block; margin: 0 auto 14px auto; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.6);';
+
+            const ctx = canvas.getContext('2d');
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            canvasWrap.appendChild(canvas);
+          }
+          standaloneViewer.innerHTML = '';
+          standaloneViewer.appendChild(canvasWrap);
+          renderedViaPdfJs = true;
+        } catch (pdfErr) {
+          console.warn("[standaloneViewer] Rendu PDF.js échoué, repli object:", pdfErr);
+        }
+      }
+
+      if (!renderedViaPdfJs) {
+        standaloneViewer.innerHTML = `<object data="${fileUrl}" type="application/pdf" style="width: 100%; height: 100vh; border: none;">
+          <iframe src="${fileUrl}" style="width: 100%; height: 100vh; border: none;"></iframe>
+        </object>`;
+      }
+    } else {
+      standaloneViewer.innerHTML = `<img src="${fileUrl}" style="max-width: 100%; max-height: 100vh; object-fit: contain; margin: auto; display: block;" />`;
+    }
 
     // Supprimer tout éventuel bouton flottant précédent
     const oldCloseBtn = document.getElementById('floating-doc-close-btn');
