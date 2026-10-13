@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.60';
+} from './db.js?v=1.6.61';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.60';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.61';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.60';
+export const APP_VERSION = 'v1.6.61';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -4198,8 +4198,14 @@ function adaptResumeForClient(text) {
   if (/tens[eé]grit[eé]/i.test(res)) {
     // 1. Transformer les éléments Tenségrité vers leurs intitulés clients
     res = res.replace(/•?\s*FTM\s*(?:\([^)]*\))?/gi, 'système nerveux');
-    res = res.replace(/•?\s*Torsion Physiologique\s*(?:\([^)]*\))?/gi, 'bassin, occipital');
+    res = res.replace(/•?\s*Torsion Physiologique\s*\(\s*Élevé\s*\)/gi, 'bassin +');
+    res = res.replace(/•?\s*Torsion Physiologique\s*(?:\([^)]*\))?/gi, 'bassin');
     res = res.replace(/•?\s*Torsion physio(?:\s*hanche)?/gi, 'bassin');
+    res = res.replace(/•?\s*Hanche Droite\s*\(\s*Élevé\s*\)/gi, 'hanche D +');
+    res = res.replace(/•?\s*Hanche Droite(?:\s*\([^)]*\))?/gi, 'hanche D');
+    res = res.replace(/•?\s*Hanche Gauche\s*\(\s*Élevé\s*\)/gi, 'hanche G +');
+    res = res.replace(/•?\s*Hanche Gauche(?:\s*\([^)]*\))?/gi, 'hanche G');
+    res = res.replace(/•?\s*Occiput(?:\s*\([^)]*\))?/gi, 'occipital');
     res = res.replace(/•?\s*Diaphragmes?\s*:\s*/gi, '');
     res = res.replace(/•?\s*Loges?\s*:\s*/gi, '');
     res = res.replace(/Pelvien(?:\s*\([^)]*\))?/gi, 'diaphragme pelvien');
@@ -4213,13 +4219,17 @@ function adaptResumeForClient(text) {
     res = res.replace(/•?\s*Aucune tension majeure/gi, '');
     res = res.replace(/Hélices\s*:\s*/gi, '');
 
-    // Remplacer le titre **Tenségrité** par **Techniques manuelles** ou fusionner
-    if (res.includes('**Techniques manuelles**')) {
+    // Remplacer le titre **Tenségrité** par **Techniques manuelles - zones travaillées :** ou fusionner
+    if (res.includes('**Techniques manuelles')) {
       res = res.replace(/\*\*Tenségrité\*\*\s*(?:\r?\n)*(?:item et zones travaillés\s*:)?/gi, '');
     } else {
-      res = res.replace(/\*\*Tenségrité\*\*\s*(?:\r?\n)*(?:item et zones travaillés\s*:)?/gi, '**Techniques manuelles**\nZones travaillées : ');
+      res = res.replace(/\*\*Tenségrité\*\*\s*(?:\r?\n)*(?:item et zones travaillés\s*:)?/gi, '**Techniques manuelles - zones travaillées :**\n');
     }
   }
+
+  // Remplacer l'ancien en-tête simple par "Techniques manuelles - zones travaillées :" suivi d'un saut de ligne
+  res = res.replace(/\*\*Techniques manuelles\*\*\s*(?:\r?\n)+\s*Zones travaillées\s*:\s*/gi, '**Techniques manuelles - zones travaillées :**\n');
+  res = res.replace(/\*\*Techniques manuelles\*\*(?!\s*-\s*zones)/gi, '**Techniques manuelles - zones travaillées :**\n');
 
   // Aura : suffixer par "énergétique"
   res = res.replace(/Élimination des masses(?!\s*énergétiques)/gi, 'Élimination des masses énergétiques');
@@ -5059,8 +5069,6 @@ async function prepareSessionEditor(param) {
       document.getElementById('aura-local-complement').checked = !!protos.aura.local_complement;
       document.getElementById('aura-local-complement-text').value = protos.aura.local_complement_text || '';
       document.getElementById('aura-local-complement-loc').value = protos.aura.local_complement_loc || '';
-      document.getElementById('panel-aura-local-complement-loc').style.display = protos.aura.local_complement ? 'block' : 'none';
-
     }
 
     // Charger les rappels associés à cette séance
@@ -5092,7 +5100,7 @@ async function prepareSessionEditor(param) {
     document.getElementById('panel-filet-options').style.display = 'none';
     document.getElementById('panel-aura-fleches-loc').style.display = 'none';
     document.getElementById('panel-aura-masses-loc').style.display = 'none';
-    document.getElementById('panel-aura-local-complement-loc').style.display = 'none';
+    document.getElementById('aura-local-complement-text').value = '';
     document.getElementById('aura-local-complement-loc').value = '';
     
     // Kinésio commun et type par défaut
@@ -6024,9 +6032,16 @@ function setupFormListeners() {
   }
 
   const auraLocalCompCb = document.getElementById('aura-local-complement');
-  if (auraLocalCompCb) {
-    auraLocalCompCb.addEventListener('change', (e) => {
-      document.getElementById('panel-aura-local-complement-loc').style.display = e.target.checked ? 'block' : 'none';
+  const auraLocalCompText = document.getElementById('aura-local-complement-text');
+  const auraLocalCompLoc = document.getElementById('aura-local-complement-loc');
+  if (auraLocalCompText && auraLocalCompCb) {
+    auraLocalCompText.addEventListener('input', () => {
+      if (auraLocalCompText.value.trim()) auraLocalCompCb.checked = true;
+    });
+  }
+  if (auraLocalCompLoc && auraLocalCompCb) {
+    auraLocalCompLoc.addEventListener('input', () => {
+      if (auraLocalCompLoc.value.trim()) auraLocalCompCb.checked = true;
     });
   }
 
@@ -6108,17 +6123,33 @@ function getCalculatedSummaryText() {
       tensegriteClientItems.push('système nerveux');
     }
 
-    // 2. Torsion physio -> "bassin", "occipital"
+    // 2. Torsion physio des hanches & occipital
     const torsionHD = document.querySelector('select[data-sub="hanche_droite"]')?.value;
     const torsionHG = document.querySelector('select[data-sub="hanche_gauche"]')?.value;
     const torsionOcciput = document.querySelector('select[data-sub="occiput"]')?.value;
     const torsionOverride = document.getElementById('override-torsion')?.value;
-    const isHancheActive = torsionHD === 'Moyen' || torsionHD === 'Élevé' || torsionHG === 'Moyen' || torsionHG === 'Élevé';
-    const isOcciputActive = torsionOcciput === 'Moyen' || torsionOcciput === 'Élevé';
-    if (isHancheActive) tensegriteClientItems.push('bassin');
-    if (isOcciputActive) tensegriteClientItems.push('occipital');
-    if (!isHancheActive && !isOcciputActive && (torsionOverride === 'Moyen' || torsionOverride === 'Élevé')) {
-      tensegriteClientItems.push('bassin', 'occipital');
+
+    const isHdActive = torsionHD === 'Moyen' || torsionHD === 'Élevé';
+    const isHgActive = torsionHG === 'Moyen' || torsionHG === 'Élevé';
+
+    if (isHdActive && isHgActive && torsionHD === torsionHG) {
+      // Même intensité : "bassin" (ou "bassin +" si niveau élevé)
+      tensegriteClientItems.push(torsionHD === 'Élevé' ? 'bassin +' : 'bassin');
+    } else if (isHdActive || isHgActive) {
+      // Pas la même intensité : ne mentionner que les hanches actives (niveau moyen ou élevé)
+      if (isHdActive) {
+        tensegriteClientItems.push(torsionHD === 'Élevé' ? 'hanche D +' : 'hanche D');
+      }
+      if (isHgActive) {
+        tensegriteClientItems.push(torsionHG === 'Élevé' ? 'hanche G +' : 'hanche G');
+      }
+    } else if (torsionOverride === 'Moyen' || torsionOverride === 'Élevé') {
+      tensegriteClientItems.push(torsionOverride === 'Élevé' ? 'bassin +' : 'bassin');
+    }
+
+    // Occipital
+    if (torsionOcciput === 'Moyen' || torsionOcciput === 'Élevé') {
+      tensegriteClientItems.push('occipital');
     }
 
     // 3. Diaphragmes -> "diaphragme pelvien", "diaphragme thoraco-lombaire", etc.
@@ -6149,10 +6180,23 @@ function getCalculatedSummaryText() {
   }
 
   if (isManuellesChecked || tensegriteClientItems.length > 0) {
-    const combinedZones = [];
-    if (manuText) combinedZones.push(manuText);
-    if (tensegriteClientItems.length > 0) combinedZones.push(tensegriteClientItems.join(', '));
-    parts.push(`**Techniques manuelles**\nZones travaillées : ` + (combinedZones.join(', ') || 'Aucune observation saisie.'));
+    let sectionContent = '';
+    // Inscrire en premier les éléments transformés de la Tenségrité, un par ligne
+    if (tensegriteClientItems.length > 0) {
+      sectionContent += tensegriteClientItems.join('\n');
+    }
+    // Inscrire ensuite les éléments des Techniques manuelles, avec passage à la ligne
+    if (manuText) {
+      if (sectionContent) {
+        sectionContent += '\n' + manuText;
+      } else {
+        sectionContent += manuText;
+      }
+    }
+    if (!sectionContent) {
+      sectionContent = 'Aucune observation saisie.';
+    }
+    parts.push(`**Techniques manuelles - zones travaillées :**\n` + sectionContent);
   }
 
   // 4. Cranio-Sacrée
@@ -6284,7 +6328,7 @@ function getCalculatedSummaryText() {
     if (document.getElementById('aura-local-filament').checked) list.push("Filament incandescent");
     if (document.getElementById('aura-local-polarites').checked) list.push("Équilibre des polarités énergétiques");
     if (document.getElementById('aura-local-recharge').checked) list.push("Recharge locale");
-    if (document.getElementById('aura-local-complement').checked) {
+    if (document.getElementById('aura-local-complement').checked || document.getElementById('aura-local-complement-text').value.trim() || document.getElementById('aura-local-complement-loc')?.value.trim()) {
       const cTxt = document.getElementById('aura-local-complement-text').value.trim();
       const cLoc = document.getElementById('aura-local-complement-loc')?.value.trim();
       let compStr = "Techniques complémentaires";
@@ -6505,7 +6549,7 @@ async function saveSessionForm() {
       local_filament: document.getElementById('aura-local-filament').checked,
       local_polarites: document.getElementById('aura-local-polarites').checked,
       local_recharge: document.getElementById('aura-local-recharge').checked,
-      local_complement: document.getElementById('aura-local-complement').checked,
+      local_complement: document.getElementById('aura-local-complement').checked || !!document.getElementById('aura-local-complement-text').value.trim() || !!document.getElementById('aura-local-complement-loc').value.trim(),
       local_complement_text: document.getElementById('aura-local-complement-text').value.trim(),
       local_complement_loc: document.getElementById('aura-local-complement-loc').value.trim(),
       precisions: ''
