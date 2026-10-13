@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.59';
+} from './db.js?v=1.6.60';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.59';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.60';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.59';
+export const APP_VERSION = 'v1.6.60';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -2877,16 +2877,8 @@ async function renderAnimalDetails(animalId) {
         const rawSum = s.resume_client_genere || 'Aucun résumé client rédigé.';
         const cleanSummary = formatTimelineSummary(rawSum);
         
-        // Détection de tous les protocoles cochés/utilisés lors de la séance
-        const protos = s.protocoles_realises || {};
-        const activeProtocols = [];
-        if (protos.shiatsu && protos.shiatsu.checked) activeProtocols.push('Shiatsu');
-        if (protos.manuelles && protos.manuelles.checked) activeProtocols.push('Techniques manuelles');
-        if (protos.tensegrite && protos.tensegrite.checked) activeProtocols.push('Tenségrité');
-        if (protos.cranio && protos.cranio.checked) activeProtocols.push('Cranio-Sacrée');
-        if (protos.kinesiologie && protos.kinesiologie.checked) activeProtocols.push('Kinésiologie');
-        if (protos.aura && protos.aura.checked) activeProtocols.push('Aura');
-
+        // Détection de tous les protocoles cochés/utilisés lors de la séance (Tenségrité fusionnée dans Techniques manuelles pour le client)
+        const activeProtocols = getActiveProtocolsList(s);
         const cardTitle = activeProtocols.length > 0 ? activeProtocols.join(' + ') : (s.motif || `Séance du ${formatDate(s.date_seance)}`);
         
         item.innerHTML = `
@@ -3700,8 +3692,7 @@ function getActiveProtocolsList(session) {
   protos = protos || {};
   const activeProtocols = [];
   if (protos.shiatsu && protos.shiatsu.checked) activeProtocols.push('Shiatsu');
-  if (protos.manuelles && protos.manuelles.checked) activeProtocols.push('Techniques manuelles');
-  if (protos.tensegrite && protos.tensegrite.checked) activeProtocols.push('Tenségrité');
+  if ((protos.manuelles && protos.manuelles.checked) || (protos.tensegrite && protos.tensegrite.checked)) activeProtocols.push('Techniques manuelles');
   if (protos.cranio && protos.cranio.checked) activeProtocols.push('Cranio-Sacrée');
   if (protos.kinesiologie && protos.kinesiologie.checked) activeProtocols.push('Kinésiologie');
   if (protos.aura && protos.aura.checked) activeProtocols.push('Aura');
@@ -3710,8 +3701,7 @@ function getActiveProtocolsList(session) {
   if (activeProtocols.length === 0 && session.resume_client_genere) {
     const raw = session.resume_client_genere;
     if (/\bshiatsu\b/i.test(raw)) activeProtocols.push('Shiatsu');
-    if (/manuelles/i.test(raw)) activeProtocols.push('Techniques manuelles');
-    if (/tens[eé]grit[eé]/i.test(raw)) activeProtocols.push('Tenségrité');
+    if (/manuelles/i.test(raw) || /tens[eé]grit[eé]/i.test(raw)) activeProtocols.push('Techniques manuelles');
     if (/cranio/i.test(raw)) activeProtocols.push('Cranio-Sacrée');
     if (/kin[eé]siologie/i.test(raw)) activeProtocols.push('Kinésiologie');
     if (/\baura\b/i.test(raw)) activeProtocols.push('Aura');
@@ -3878,6 +3868,11 @@ function formatTensegriteReportData(t, isClientSummary = false) {
 function renderDetailedCR(session) {
   let html = `<h3 style="margin-top: 0; color: var(--color-secondary); font-size:1.15rem; border-bottom:1px solid var(--glass-border); padding-bottom:5px;">CR Métier Détaillé (Espace Praticienne)</h3>`;
   
+  // Motif de consultation (dans le corps du CR interne juste avant la section 1)
+  if (session.motif && session.motif.trim()) {
+    html += `<div style="margin-bottom: 20px;"><strong>Motif de consultation :</strong><p style="white-space: pre-line; margin-top:5px; background:rgba(255,255,255,0.02); padding:10px; border-radius:4px; border:1px solid var(--glass-border); font-size:0.95rem; color:#fff;">${session.motif}</p></div>`;
+  }
+
   // 1. Notes d'observation de début de séance
   if (session.notes_observations) {
     html += `<div style="margin-bottom: 20px;"><strong>1. Notes d'observation de début de séance :</strong><p style="white-space: pre-line; margin-top:5px; background:rgba(255,255,255,0.02); padding:10px; border-radius:4px; border:1px solid var(--glass-border);">${session.notes_observations}</p></div>`;
@@ -4091,7 +4086,14 @@ function renderDetailedCR(session) {
     if (p.aura.local_filament) list.push("Filament incandescent");
     if (p.aura.local_polarites) list.push("Équilibre polarités");
     if (p.aura.local_recharge) list.push("Recharge locale");
-    if (p.aura.local_complement) list.push("Technique complémentaire" + (p.aura.local_complement_text ? ' (' + p.aura.local_complement_text + ')' : ''));
+    if (p.aura.local_complement) {
+      const cTxt = p.aura.local_complement_text ? p.aura.local_complement_text : '';
+      const cLoc = p.aura.local_complement_loc ? p.aura.local_complement_loc : '';
+      let compStr = "Technique complémentaire";
+      if (cTxt) compStr += ` (${cTxt})`;
+      if (cLoc) compStr += ` [Localisation : ${cLoc}]`;
+      list.push(compStr);
+    }
     if (p.aura.repolarisation) list.push("Repolarisation");
 
     const stepsHtml = list.map(item => `• ${item}`).join('<br>');
@@ -4183,9 +4185,56 @@ function interpretMarkdownToHtml(text) {
     .trim();
 }
 
+/**
+ * Adapte et normalise le résumé généré pour les clients (carte de séance et PDF) :
+ * - Masque le mot-clé Tenségrité et fusionne ses éléments dans Techniques manuelles
+ * - Suffixe les termes d'Aura avec le terme "énergétique" (masses, flèches, circulation générale, polarités)
+ */
+function adaptResumeForClient(text) {
+  if (!text) return '';
+  let res = text;
+
+  // Si le mot-clé Tenségrité subsiste dans le texte
+  if (/tens[eé]grit[eé]/i.test(res)) {
+    // 1. Transformer les éléments Tenségrité vers leurs intitulés clients
+    res = res.replace(/•?\s*FTM\s*(?:\([^)]*\))?/gi, 'système nerveux');
+    res = res.replace(/•?\s*Torsion Physiologique\s*(?:\([^)]*\))?/gi, 'bassin, occipital');
+    res = res.replace(/•?\s*Torsion physio(?:\s*hanche)?/gi, 'bassin');
+    res = res.replace(/•?\s*Diaphragmes?\s*:\s*/gi, '');
+    res = res.replace(/•?\s*Loges?\s*:\s*/gi, '');
+    res = res.replace(/Pelvien(?:\s*\([^)]*\))?/gi, 'diaphragme pelvien');
+    res = res.replace(/Thoraco-lombaire(?:\s*\([^)]*\))?/gi, 'diaphragme thoraco-lombaire');
+    res = res.replace(/Cervico-thoracique(?:\s*\([^)]*\))?/gi, 'diaphragme cervico-thoracique');
+    res = res.replace(/C0-C1(?:\s*\([^)]*\))?/gi, 'diaphragme C0-C1');
+    res = res.replace(/Digestive(?:\s*\([^)]*\))?/gi, 'loge viscérale');
+    res = res.replace(/Thoracique(?:\s*\([^)]*\))?/gi, 'loge thoracique');
+    res = res.replace(/Gorge(?:\s*\([^)]*\))?/gi, 'loge de la gorge');
+    res = res.replace(/Cervelet(?:\s*\([^)]*\))?/gi, 'loge du cervelet');
+    res = res.replace(/•?\s*Aucune tension majeure/gi, '');
+    res = res.replace(/Hélices\s*:\s*/gi, '');
+
+    // Remplacer le titre **Tenségrité** par **Techniques manuelles** ou fusionner
+    if (res.includes('**Techniques manuelles**')) {
+      res = res.replace(/\*\*Tenségrité\*\*\s*(?:\r?\n)*(?:item et zones travaillés\s*:)?/gi, '');
+    } else {
+      res = res.replace(/\*\*Tenségrité\*\*\s*(?:\r?\n)*(?:item et zones travaillés\s*:)?/gi, '**Techniques manuelles**\nZones travaillées : ');
+    }
+  }
+
+  // Aura : suffixer par "énergétique"
+  res = res.replace(/Élimination des masses(?!\s*énergétiques)/gi, 'Élimination des masses énergétiques');
+  res = res.replace(/Élimination des flèches(?!\s*énergétiques)/gi, 'Élimination des flèches énergétiques');
+  res = res.replace(/Relance(?: de la)? circulation(?: générale)?(?!\s*énergétique)/gi, 'Relance de la circulation générale énergétique');
+  res = res.replace(/Équilibre(?: des)? polarités(?!\s*énergétiques)/gi, 'Équilibre des polarités énergétiques');
+  res = res.replace(/Repolarisation(?!\s*énergétique)/gi, 'Repolarisation énergétique');
+
+  return res;
+}
+
 function formatTimelineSummary(text) {
   if (!text) return 'Aucun résumé client rédigé.';
-  return text
+  const adapted = adaptResumeForClient(text);
+  return adapted
     .replace(/(?:\r?\n)+\s*Précisions\s*:[\s\S]*$/i, '') // Supprimer bloc Précisions dupliqué
     .replace(/\s*-{3,}\s*/g, '\n\n') // Supprimer tous les séparateurs ---
     .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>') // Convertir **texte** en <strong>texte</strong>
@@ -4216,16 +4265,6 @@ async function renderSessionDetails(sessionId) {
     const ownerStr = client ? ` • Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
     subtitleEl.textContent = `Séance du ${dateStr}${ownerStr}`;
   }
-  const detailMotifEl = document.getElementById('session-detail-motif');
-  if (detailMotifEl) {
-    if (session.motif && session.motif.trim()) {
-      detailMotifEl.textContent = `Motif : ${session.motif}`;
-      detailMotifEl.style.display = 'block';
-    } else {
-      detailMotifEl.textContent = '';
-      detailMotifEl.style.display = 'none';
-    }
-  }
 
   document.getElementById('print-session-date').textContent = `Séance du : ${formatDate(session.date_seance)}`;
   
@@ -4245,7 +4284,7 @@ async function renderSessionDetails(sessionId) {
   if (printObjEl) {
     printObjEl.innerHTML = formatMultilineText(session.motif || '-');
   }
-  document.getElementById('print-session-resume-content').innerHTML = interpretMarkdownToHtml(session.resume_client_genere || 'Aucun résumé rédigé.');
+  document.getElementById('print-session-resume-content').innerHTML = interpretMarkdownToHtml(adaptResumeForClient(session.resume_client_genere || 'Aucun résumé rédigé.'));
   document.getElementById('print-generation-date').textContent = new Date().toLocaleDateString('fr-FR');
 
   // Précisions générales de la séance (si renseignées)
@@ -5019,6 +5058,8 @@ async function prepareSessionEditor(param) {
       document.getElementById('aura-local-recharge').checked = !!protos.aura.local_recharge;
       document.getElementById('aura-local-complement').checked = !!protos.aura.local_complement;
       document.getElementById('aura-local-complement-text').value = protos.aura.local_complement_text || '';
+      document.getElementById('aura-local-complement-loc').value = protos.aura.local_complement_loc || '';
+      document.getElementById('panel-aura-local-complement-loc').style.display = protos.aura.local_complement ? 'block' : 'none';
 
     }
 
@@ -5051,6 +5092,8 @@ async function prepareSessionEditor(param) {
     document.getElementById('panel-filet-options').style.display = 'none';
     document.getElementById('panel-aura-fleches-loc').style.display = 'none';
     document.getElementById('panel-aura-masses-loc').style.display = 'none';
+    document.getElementById('panel-aura-local-complement-loc').style.display = 'none';
+    document.getElementById('aura-local-complement-loc').value = '';
     
     // Kinésio commun et type par défaut
     document.getElementById('proto-kinesiologie-type').value = 'Classique';
@@ -5980,6 +6023,13 @@ function setupFormListeners() {
     });
   }
 
+  const auraLocalCompCb = document.getElementById('aura-local-complement');
+  if (auraLocalCompCb) {
+    auraLocalCompCb.addEventListener('change', (e) => {
+      document.getElementById('panel-aura-local-complement-loc').style.display = e.target.checked ? 'block' : 'none';
+    });
+  }
+
   const delaySelect = document.getElementById('session-reminder-delay');
   if (delaySelect) {
     delaySelect.addEventListener('change', (e) => {
@@ -6041,55 +6091,68 @@ function getCalculatedSummaryText() {
     parts.push(text);
   }
 
-  // 2. Techniques Manuelles
-  if (document.getElementById('proto-manuelles-enable').checked) {
-    const txt = document.getElementById('proto-manuelles-texte').value.trim();
-    parts.push(`**Techniques manuelles**\nZones travaillées : ` + (txt || 'Aucune observation saisie.'));
+  // 2. Techniques Manuelles & Tenségrité (fusionnées dans Techniques manuelles pour le client)
+  const isManuellesChecked = document.getElementById('proto-manuelles-enable')?.checked;
+  const manuText = isManuellesChecked ? document.getElementById('proto-manuelles-texte')?.value.trim() : '';
+
+  const tensegriteClientItems = [];
+  if (document.getElementById('proto-tensegrite-enable')?.checked) {
+    // 1. FTM -> "système nerveux"
+    const ftmOverride = document.getElementById('override-ftm')?.value;
+    const ftmQueue = document.querySelector('select[data-sub="queue"]')?.value;
+    const ftmOD = document.querySelector('select[data-sub="oeil_droit"]')?.value;
+    const ftmOG = document.querySelector('select[data-sub="oeil_gauche"]')?.value;
+    const ftmE = document.querySelector('select[data-sub="energetique"]')?.value;
+    const isFtmActive = [ftmQueue, ftmOD, ftmOG, ftmE].some(v => v === 'Moyen' || v === 'Élevé') || (ftmOverride === 'Moyen' || ftmOverride === 'Élevé');
+    if (isFtmActive) {
+      tensegriteClientItems.push('système nerveux');
+    }
+
+    // 2. Torsion physio -> "bassin", "occipital"
+    const torsionHD = document.querySelector('select[data-sub="hanche_droite"]')?.value;
+    const torsionHG = document.querySelector('select[data-sub="hanche_gauche"]')?.value;
+    const torsionOcciput = document.querySelector('select[data-sub="occiput"]')?.value;
+    const torsionOverride = document.getElementById('override-torsion')?.value;
+    const isHancheActive = torsionHD === 'Moyen' || torsionHD === 'Élevé' || torsionHG === 'Moyen' || torsionHG === 'Élevé';
+    const isOcciputActive = torsionOcciput === 'Moyen' || torsionOcciput === 'Élevé';
+    if (isHancheActive) tensegriteClientItems.push('bassin');
+    if (isOcciputActive) tensegriteClientItems.push('occipital');
+    if (!isHancheActive && !isOcciputActive && (torsionOverride === 'Moyen' || torsionOverride === 'Élevé')) {
+      tensegriteClientItems.push('bassin', 'occipital');
+    }
+
+    // 3. Diaphragmes -> "diaphragme pelvien", "diaphragme thoraco-lombaire", etc.
+    const dPelvien = document.querySelector('select[data-sub="pelvien"]')?.value;
+    const dThoraco = document.querySelector('select[data-sub="thoraco_lombaire"]')?.value;
+    const dCervico = document.querySelector('select[data-sub="cervico_thoracique"]')?.value;
+    const dC0C1 = document.querySelector('select[data-sub="c0_c1"]')?.value;
+    if (dPelvien === 'Moyen' || dPelvien === 'Élevé') tensegriteClientItems.push('diaphragme pelvien');
+    if (dThoraco === 'Moyen' || dThoraco === 'Élevé') tensegriteClientItems.push('diaphragme thoraco-lombaire');
+    if (dCervico === 'Moyen' || dCervico === 'Élevé') tensegriteClientItems.push('diaphragme cervico-thoracique');
+    if (dC0C1 === 'Moyen' || dC0C1 === 'Élevé') tensegriteClientItems.push('diaphragme C0-C1');
+
+    // 4. Loges -> "loge viscérale", "loge thoracique", etc.
+    const lDigestive = document.querySelector('select[data-sub="digestive"]')?.value;
+    const lThoracique = document.querySelector('select[data-sub="thoracique"]')?.value;
+    const lGorge = document.querySelector('select[data-sub="gorge"]')?.value;
+    const lCervelet = document.querySelector('select[data-sub="cervelet"]')?.value;
+    if (lDigestive === 'Moyen' || lDigestive === 'Élevé') tensegriteClientItems.push('loge viscérale');
+    if (lThoracique === 'Moyen' || lThoracique === 'Élevé') tensegriteClientItems.push('loge thoracique');
+    if (lGorge === 'Moyen' || lGorge === 'Élevé') tensegriteClientItems.push('loge de la gorge');
+    if (lCervelet === 'Moyen' || lCervelet === 'Élevé') tensegriteClientItems.push('loge du cervelet');
+
+    // 5. Hélice
+    const helices = document.getElementById('proto-tensegrite-helices')?.value.trim();
+    if (helices) {
+      tensegriteClientItems.push(helices);
+    }
   }
 
-  // 3. Tenségrité
-  if (document.getElementById('proto-tensegrite-enable').checked) {
-    const mockTensegriteObj = {
-      ftm: {
-        override: document.getElementById('override-ftm').value,
-        queue: document.querySelector('select[data-sub="queue"]').value,
-        oeil_droit: document.querySelector('select[data-sub="oeil_droit"]').value,
-        oeil_gauche: document.querySelector('select[data-sub="oeil_gauche"]').value,
-        energetique: document.querySelector('select[data-sub="energetique"]').value
-      },
-      torsion: {
-        override: document.getElementById('override-torsion').value,
-        hanche_droite: document.querySelector('select[data-sub="hanche_droite"]').value,
-        hanche_gauche: document.querySelector('select[data-sub="hanche_gauche"]').value,
-        occiput: document.querySelector('select[data-sub="occiput"]').value
-      },
-      diaphragme: {
-        override: document.getElementById('override-diaphragme').value,
-        pelvien: document.querySelector('select[data-sub="pelvien"]').value,
-        thoraco_lombaire: document.querySelector('select[data-sub="thoraco_lombaire"]').value,
-        cervico_thoracique: document.querySelector('select[data-sub="cervico_thoracique"]').value,
-        c0_c1: document.querySelector('select[data-sub="c0_c1"]').value
-      },
-      loge: {
-        override: document.getElementById('override-loge').value,
-        digestive: document.querySelector('select[data-sub="digestive"]').value,
-        thoracique: document.querySelector('select[data-sub="thoracique"]').value,
-        gorge: document.querySelector('select[data-sub="gorge"]').value,
-        cervelet: document.querySelector('select[data-sub="cervelet"]').value
-      }
-    };
-
-    const tensegriteStr = formatTensegriteReportData(mockTensegriteObj, true);
-    const helices = document.getElementById('proto-tensegrite-helices').value.trim();
-
-    let text = `**Tenségrité**\nitem et zones travaillés :`;
-    if (tensegriteStr) {
-      text += `\n${tensegriteStr}`;
-    } else {
-      text += `\n• Aucune tension majeure`;
-    }
-    if (helices) text += `\nHélices : ${helices}`;
-    parts.push(text);
+  if (isManuellesChecked || tensegriteClientItems.length > 0) {
+    const combinedZones = [];
+    if (manuText) combinedZones.push(manuText);
+    if (tensegriteClientItems.length > 0) combinedZones.push(tensegriteClientItems.join(', '));
+    parts.push(`**Techniques manuelles**\nZones travaillées : ` + (combinedZones.join(', ') || 'Aucune observation saisie.'));
   }
 
   // 4. Cranio-Sacrée
@@ -6194,15 +6257,15 @@ function getCalculatedSummaryText() {
     if (document.getElementById('aura-vidange').checked) list.push("Vidange");
     if (document.getElementById('aura-fleches').checked) {
       const loc = document.getElementById('aura-fleches-loc').value.trim();
-      list.push("Élimination des flèches" + (loc ? ` : ${loc}` : ''));
+      list.push("Élimination des flèches énergétiques" + (loc ? ` : ${loc}` : ''));
     }
     if (document.getElementById('aura-masses').checked) {
       const loc = document.getElementById('aura-masses-loc').value.trim();
-      list.push("Élimination des masses" + (loc ? ` : ${loc}` : ''));
+      list.push("Élimination des masses énergétiques" + (loc ? ` : ${loc}` : ''));
     }
     if (document.getElementById('aura-recharge').checked) list.push("Recharge / comblement");
     if (document.getElementById('aura-chakras').checked) list.push("Régulation chakras");
-    if (document.getElementById('aura-circulation').checked) list.push("Relance circulation");
+    if (document.getElementById('aura-circulation').checked) list.push("Relance de la circulation générale énergétique");
     if (document.getElementById('aura-mouvement').checked) list.push("Relance mouv. primordial");
     
     // Filet
@@ -6219,14 +6282,18 @@ function getCalculatedSummaryText() {
 
     // Locaux
     if (document.getElementById('aura-local-filament').checked) list.push("Filament incandescent");
-    if (document.getElementById('aura-local-polarites').checked) list.push("Équilibre polarités");
+    if (document.getElementById('aura-local-polarites').checked) list.push("Équilibre des polarités énergétiques");
     if (document.getElementById('aura-local-recharge').checked) list.push("Recharge locale");
     if (document.getElementById('aura-local-complement').checked) {
       const cTxt = document.getElementById('aura-local-complement-text').value.trim();
-      list.push("Techniques complémentaires" + (cTxt ? ' ('+cTxt+')' : ''));
+      const cLoc = document.getElementById('aura-local-complement-loc')?.value.trim();
+      let compStr = "Techniques complémentaires";
+      if (cTxt) compStr += ` (${cTxt})`;
+      if (cLoc) compStr += ` [Localisation : ${cLoc}]`;
+      list.push(compStr);
     }
     
-    if (document.getElementById('aura-repolarisation').checked) list.push("Repolarisation");
+    if (document.getElementById('aura-repolarisation').checked) list.push("Repolarisation énergétique");
 
     let text = `**Aura**`;
     if (list.length > 0) {
@@ -6440,6 +6507,7 @@ async function saveSessionForm() {
       local_recharge: document.getElementById('aura-local-recharge').checked,
       local_complement: document.getElementById('aura-local-complement').checked,
       local_complement_text: document.getElementById('aura-local-complement-text').value.trim(),
+      local_complement_loc: document.getElementById('aura-local-complement-loc').value.trim(),
       precisions: ''
     }
   };
@@ -10084,8 +10152,9 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
   // 5. Résumé de la séance
   const resumeContentEl = document.getElementById('portal-cr-session-resume-content');
   const rawResume = session.resume_client_genere || session.summary || '';
+  const clientResume = adaptResumeForClient(rawResume);
   if (resumeContentEl) {
-    resumeContentEl.innerHTML = rawResume ? interpretMarkdownToHtml(rawResume) : '<em>Aucun résumé rédigé pour cette séance.</em>';
+    resumeContentEl.innerHTML = clientResume ? interpretMarkdownToHtml(clientResume) : '<em>Aucun résumé rédigé pour cette séance.</em>';
   }
 
   // 6. Schéma d'annotations
@@ -10574,7 +10643,7 @@ async function openAnimalDossierPreviewModal(animal, options) {
             rawSummary = s.resume_client_genere || 'Aucun résumé client rédigé.';
           }
 
-          const cleanSummaryHtml = interpretMarkdownToHtml(rawSummary);
+          const cleanSummaryHtml = interpretMarkdownToHtml(adaptResumeForClient(rawSummary));
 
           html += `
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; page-break-inside: avoid; break-inside: avoid;">
