@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.62';
+export const APP_VERSION = 'v1.6.63';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7454,8 +7454,8 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       }
 
       if (!renderedViaPdfJs) {
-        standaloneViewer.innerHTML = `<object data="${fileUrl}" type="application/pdf" style="width: 100%; height: 100vh; border: none;">
-          <iframe src="${fileUrl}" style="width: 100%; height: 100vh; border: none;"></iframe>
+        standaloneViewer.innerHTML = `<object data="${fileUrl}" type="application/pdf" style="width: 100%; max-width: 100%; height: 100vh; border: none; box-sizing: border-box;">
+          <iframe src="${fileUrl}" style="width: 100%; max-width: 100%; height: 100vh; border: none; box-sizing: border-box;"></iframe>
         </object>`;
       }
     } else {
@@ -7745,14 +7745,14 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
           }
 
           if (!renderedViaPdfJs) {
-            bodyEl.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: calc(100vh - 60px); border: none;">
-              <iframe src="${blobUrl}" style="width: 100%; height: calc(100vh - 60px); border: none;"></iframe>
+            bodyEl.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; max-width: 100%; height: calc(100vh - 60px); border: none; box-sizing: border-box;">
+              <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: calc(100vh - 60px); border: none; box-sizing: border-box;"></iframe>
             </object>`;
           }
           applyZoom();
         } else {
-          bodyEl.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: calc(100vh - 60px); border: none;">
-            <iframe src="${blobUrl}" style="width: 100%; height: calc(100vh - 60px); border: none;"></iframe>
+          bodyEl.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; max-width: 100%; height: calc(100vh - 60px); border: none; box-sizing: border-box;">
+            <iframe src="${blobUrl}" style="width: 100%; max-width: 100%; height: calc(100vh - 60px); border: none; box-sizing: border-box;"></iframe>
           </object>`;
           applyZoom();
         }
@@ -10160,13 +10160,8 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
   }
   const portalMotifEl = document.getElementById('portal-cr-dialog-motif');
   if (portalMotifEl) {
-    if (session.motif && session.motif.trim()) {
-      portalMotifEl.textContent = `Motif : ${session.motif}`;
-      portalMotifEl.style.display = 'block';
-    } else {
-      portalMotifEl.textContent = '';
-      portalMotifEl.style.display = 'none';
-    }
+    portalMotifEl.textContent = '';
+    portalMotifEl.style.display = 'none';
   }
 
   // Logo officiel
@@ -10410,7 +10405,142 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
     }
   };
 
-  dialog.showModal();
+  // 10. HARMONISATION DE L'AFFICHAGE AVEC LE VISUALISEUR EXTERNE
+  const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
+
+  const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
+  let cleanDate = '';
+  if (session.date_seance) {
+    cleanDate = String(session.date_seance).split('T')[0].replace(/[\s/\\?%*:|"<>]+/g, '-');
+  } else {
+    cleanDate = new Date().toISOString().split('T')[0];
+  }
+  const filename = `CR_eKiKare_${cleanAnimalName}_${cleanDate}.pdf`;
+
+  const sheetElement = document.getElementById('portal-cr-sheet');
+  if (!sheetElement) return;
+
+  showToast("Préparation du compte-rendu...", "info");
+
+  // Rendre le conteneur mesurable pour html2canvas sans déformer l'écran
+  const wasOpen = dialog.open;
+  const prevDisplay = dialog.style.display;
+  const prevPosition = dialog.style.position;
+  const prevLeft = dialog.style.left;
+  const prevTop = dialog.style.top;
+  const prevZIndex = dialog.style.zIndex;
+  const prevOpacity = dialog.style.opacity;
+  const prevPointerEvents = dialog.style.pointerEvents;
+
+  if (!wasOpen) {
+    dialog.style.position = 'fixed';
+    dialog.style.left = '-9999px';
+    dialog.style.top = '0';
+    dialog.style.display = 'block';
+    dialog.style.zIndex = '-9999';
+    dialog.style.opacity = '0';
+    dialog.style.pointerEvents = 'none';
+    dialog.setAttribute('open', '');
+  }
+
+  let pdfBlob = null;
+  try {
+    if (typeof html2pdf === 'undefined') {
+      throw new Error("Bibliothèque html2pdf non disponible");
+    }
+
+    const opt = {
+      margin: [10, 10, 10, 10],
+      filename: filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: 1024,
+        onclone: (clonedDoc) => {
+          const target = clonedDoc.querySelector('#portal-cr-sheet') || clonedDoc.querySelector('.cr-document');
+          if (target) {
+            target.style.margin = '0 auto';
+            target.style.transform = 'none';
+            target.style.position = 'static';
+            target.style.width = '794px';
+            target.style.maxWidth = '794px';
+            target.style.boxSizing = 'border-box';
+            target.style.display = 'block';
+            target.style.visibility = 'visible';
+            target.style.opacity = '1';
+          }
+        }
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    pdfBlob = await html2pdf().set(opt).from(sheetElement).outputPdf('blob');
+  } catch (err) {
+    console.error("Erreur génération PDF:", err);
+    showToast("Erreur lors de la préparation du compte-rendu.", "error");
+    return;
+  } finally {
+    if (!wasOpen) {
+      dialog.removeAttribute('open');
+      dialog.style.display = prevDisplay;
+      dialog.style.position = prevPosition;
+      dialog.style.left = prevLeft;
+      dialog.style.top = prevTop;
+      dialog.style.zIndex = prevZIndex;
+      dialog.style.opacity = prevOpacity;
+      dialog.style.pointerEvents = prevPointerEvents;
+    }
+  }
+
+  if (!pdfBlob) {
+    showToast("Impossible de charger le document.", "error");
+    return;
+  }
+
+  // CAS 1 : Application PWA / Standalone (Tablette ou smartphone installé)
+  // Conserve l'ouverture plein écran avec la pastille/croix de fermeture en haut
+  if (isStandalone) {
+    openDocumentViewerModal(pdfBlob, 'application/pdf', filename, {
+      subtitle: `Séance du ${formatDate(session.date_seance)}`,
+      text: `Compte-rendu — ${animal?.nom || 'Animal'}`
+    });
+    return;
+  }
+
+  // CAS 2 : Mobile Chrome (< 768px), Tablette (Chrome), et PC Desktop
+  // Ouverture directe dans un second onglet (window.open avec l'URL du Blob généré)
+  const fileUrl = URL.createObjectURL(pdfBlob);
+  let opened = false;
+  try {
+    const newWindow = window.open(fileUrl, '_blank');
+    if (newWindow && !newWindow.closed) {
+      opened = true;
+    }
+  } catch (_) {
+    opened = false;
+  }
+
+  if (!opened) {
+    const link = document.createElement('a');
+    link.href = fileUrl;
+    link.download = filename;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => link.remove(), 200);
+  }
+
+  setTimeout(() => {
+    try { URL.revokeObjectURL(fileUrl); } catch (_) {}
+  }, 60000);
 }
 
 // --- MODALE ET EXPORT PDF : FICHE DE LIAISON / DOSSIER DE SANTE ANIMAL ---

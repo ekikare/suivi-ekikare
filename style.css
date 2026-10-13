@@ -2387,18 +2387,48 @@ body.is-printing .main-content {
   margin-left: 0 !important;
   padding: 20px !important;
   background: transparent !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
 
-body.is-printing .print-container {
+body.is-printing #view-sessions-details {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+body.is-printing .print-container,
+body.is-printing #session-print-area,
+body.is-printing .cr-document,
+body.is-printing .official-a4-sheet {
   display: block !important;
-  margin: 40px auto !important;
+  margin: 20px auto !important;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4) !important;
   border: 1px solid rgba(0, 0, 0, 0.1) !important;
-  max-width: 800px;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
   background: white !important; /* White sheet paper style */
   color: #1e293b !important;
   padding: 40px !important;
   border-radius: 8px !important;
+}
+
+body.is-printing iframe,
+body.is-printing object,
+#standalone-document-viewer iframe,
+#standalone-document-viewer object,
+#standalone-document-viewer canvas,
+#doc-viewer-body iframe,
+#doc-viewer-body object,
+.modal-pj-body iframe,
+.modal-pj-body object {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 /* Ensure contents inside white sheet remain highly readable on screen */
