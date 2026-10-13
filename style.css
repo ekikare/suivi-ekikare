@@ -2964,6 +2964,62 @@ select, select option {
   border: 1px solid var(--glass-border);
   margin-bottom: 10px;
 }
+.btn-add-med-label-mobile {
+  display: none;
+}
+.btn-add-med-label-desktop {
+  display: inline;
+}
+
+@media (max-width: 768px) {
+  .med-event-adder {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    align-items: stretch;
+    padding: 12px;
+  }
+  .med-event-adder .med-event-field-year,
+  .med-event-adder > div:nth-child(1) {
+    grid-column: 1 / 2;
+  }
+  .med-event-adder .med-event-field-month,
+  .med-event-adder > div:nth-child(2) {
+    grid-column: 2 / 3;
+  }
+  .med-event-adder .med-event-field-desc,
+  .med-event-adder > div:nth-child(3) {
+    grid-column: span 2;
+    width: 100%;
+  }
+  .med-event-adder input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px !important;
+  }
+  .med-event-adder #btn-add-med-event {
+    grid-column: span 2;
+    width: 100% !important;
+    margin-top: 4px;
+    padding: 10px 14px !important;
+    font-size: 0.9rem !important;
+    font-weight: 600;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    box-sizing: border-box;
+  }
+  .btn-add-med-label-desktop {
+    display: none;
+  }
+  .btn-add-med-label-mobile {
+    display: inline;
+  }
+  .med-event-item-text {
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+}
 .med-events-list-container {
   max-height: 150px;
   overflow-y: auto;
