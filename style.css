@@ -1223,7 +1223,8 @@ body {
 .form-group input[type="number"],
 .form-group select,
 .form-group textarea,
-.question-precisions-container textarea {
+.question-precisions-container textarea,
+.form-control {
   padding: 12px;
   background-color: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--glass-border);
@@ -1232,15 +1233,20 @@ body {
   font-size: 0.95rem;
   outline: none;
   transition: all var(--transition-speed);
+  box-sizing: border-box;
 }
 
-.form-group textarea {
+.form-group textarea,
+textarea.form-control {
   resize: vertical;
+  line-height: 1.5;
+  width: 100%;
 }
 
 .form-group input:focus,
 .form-group select:focus,
-.form-group textarea:focus {
+.form-group textarea:focus,
+.form-control:focus {
   border-color: var(--color-primary);
   background-color: rgba(255, 255, 255, 0.06);
   box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);

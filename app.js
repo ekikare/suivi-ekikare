@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.58';
+} from './db.js?v=1.6.59';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.58';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.59';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.58';
+export const APP_VERSION = 'v1.6.59';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -277,7 +277,6 @@ const FormSanitizer = {
     this.attachBlur('animal-form-name', this.formatCapitalize);
     this.attachBlur('animal-form-stable-city', this.formatUpperCase);
     this.attachBlur('animal-form-stable-zip', this.formatZipCode);
-    this.attachBlur('animal-form-id-number', this.formatIdNumber);
 
     // Formulaire Professionnel
     this.attachBlur('prof-form-lastname', this.formatUpperCase);
@@ -327,7 +326,7 @@ function enhanceInputsForGboard(root = document) {
       input.setAttribute('autocapitalize', 'none');
     } else if (type === 'email') {
       input.setAttribute('autocapitalize', 'none');
-    } else if (input.id === 'animal-form-id-number' || input.id === 'client-form-lastname' || input.id === 'prof-form-lastname' || input.id === 'animal-form-stable-city' || input.id === 'client-form-stable-city') {
+    } else if (input.id === 'client-form-lastname' || input.id === 'prof-form-lastname' || input.id === 'animal-form-stable-city' || input.id === 'client-form-stable-city') {
       input.setAttribute('autocapitalize', 'characters');
     } else {
       if (!input.hasAttribute('autocapitalize')) {
@@ -8725,14 +8724,16 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       } catch (e) {}
     }
 
-    // Normalisation du nom et du numéro d'identification
+    // Normalisation du nom de l'animal
     const cleanAnimalName = FormSanitizer.formatCapitalize(document.getElementById('animal-form-name').value);
     document.getElementById('animal-form-name').value = cleanAnimalName;
 
-    const rawIdNumber = document.getElementById('animal-form-id-number')?.value || '';
-    const cleanIdNumber = FormSanitizer.formatIdNumber(rawIdNumber);
-    if (document.getElementById('animal-form-id-number')) {
-      document.getElementById('animal-form-id-number').value = cleanIdNumber;
+    // Rétrocompatibilité : préserver le numéro d'identification s'il existe déjà en BDD/IndexedDB
+    const existingIdNumber = (freshAnimal && freshAnimal.id_number) || (animal && animal.id_number) || '';
+    const idNumEl = document.getElementById('animal-form-id-number');
+    const cleanIdNumber = idNumEl ? FormSanitizer.formatIdNumber(idNumEl.value || '') : existingIdNumber;
+    if (idNumEl) {
+      idNumEl.value = cleanIdNumber;
     }
 
     const animalData = {
@@ -8819,6 +8820,9 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
       archived_at: animalData.archived_at,
       archive_reason: animalData.archive_reason
     };
+    if (animalData.id_number) {
+      customPayload.id_number = animalData.id_number;
+    }
     animalData.custom_details = JSON.stringify(customPayload);
 
     if (idInput.value) {
