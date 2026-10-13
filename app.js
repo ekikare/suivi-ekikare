@@ -28,9 +28,9 @@ import {
   fetchRemoteSettings,
   getDB,
   initDB
-} from './db.js?v=1.6.61';
+} from './db.js?v=1.6.62';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.61';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.62';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.61';
+export const APP_VERSION = 'v1.6.62';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -4082,17 +4082,17 @@ function renderDetailedCR(session) {
     if (p.aura.circulation) list.push("Relance de la circulation générale");
     if (p.aura.mouvement) list.push("Relance du mouvement primordial");
 
-    // Locaux
+    // Locaux / Soins spécifiques
     if (p.aura.local_filament) list.push("Filament incandescent");
     if (p.aura.local_polarites) list.push("Équilibre polarités");
     if (p.aura.local_recharge) list.push("Recharge locale");
     if (p.aura.local_complement) {
       const cTxt = p.aura.local_complement_text ? p.aura.local_complement_text : '';
-      const cLoc = p.aura.local_complement_loc ? p.aura.local_complement_loc : '';
-      let compStr = "Technique complémentaire";
-      if (cTxt) compStr += ` (${cTxt})`;
-      if (cLoc) compStr += ` [Localisation : ${cLoc}]`;
-      list.push(compStr);
+      list.push("Technique complémentaire" + (cTxt ? ` (${cTxt})` : ''));
+    }
+    const sLoc = p.aura.soins_loc || p.aura.local_complement_loc || '';
+    if (sLoc) {
+      list.push(`Localisation soins spécifiques : ${sLoc}`);
     }
     if (p.aura.repolarisation) list.push("Repolarisation");
 
@@ -4205,17 +4205,26 @@ function adaptResumeForClient(text) {
     res = res.replace(/•?\s*Hanche Droite(?:\s*\([^)]*\))?/gi, 'hanche D');
     res = res.replace(/•?\s*Hanche Gauche\s*\(\s*Élevé\s*\)/gi, 'hanche G +');
     res = res.replace(/•?\s*Hanche Gauche(?:\s*\([^)]*\))?/gi, 'hanche G');
-    res = res.replace(/•?\s*Occiput(?:\s*\([^)]*\))?/gi, 'occipital');
-    res = res.replace(/•?\s*Diaphragmes?\s*:\s*/gi, '');
-    res = res.replace(/•?\s*Loges?\s*:\s*/gi, '');
-    res = res.replace(/Pelvien(?:\s*\([^)]*\))?/gi, 'diaphragme pelvien');
-    res = res.replace(/Thoraco-lombaire(?:\s*\([^)]*\))?/gi, 'diaphragme thoraco-lombaire');
-    res = res.replace(/Cervico-thoracique(?:\s*\([^)]*\))?/gi, 'diaphragme cervico-thoracique');
-    res = res.replace(/C0-C1(?:\s*\([^)]*\))?/gi, 'diaphragme C0-C1');
-    res = res.replace(/Digestive(?:\s*\([^)]*\))?/gi, 'loge viscérale');
-    res = res.replace(/Thoracique(?:\s*\([^)]*\))?/gi, 'loge thoracique');
-    res = res.replace(/Gorge(?:\s*\([^)]*\))?/gi, 'loge de la gorge');
-    res = res.replace(/Cervelet(?:\s*\([^)]*\))?/gi, 'loge du cervelet');
+    res = res.replace(/•?\s*Diaphragmes\s*:\s*([^,\n\r]+(?:,\s*[^,\n\r]+)*)/gi, (match, p1) => {
+      const items = p1.split(',').map(s => s.trim().replace(/\s*\([^)]*\)/, '')).map(s => {
+        if (/pelvien/i.test(s)) return 'pelvien';
+        if (/thoraco/i.test(s)) return 'thoraco-lombaire';
+        if (/cervico/i.test(s)) return 'cervico-thoracique';
+        if (/c0-c1/i.test(s)) return 'C0-C1';
+        return s;
+      });
+      return `Diaphragmes : ${items.join(', ')}`;
+    });
+    res = res.replace(/•?\s*Loges\s*:\s*([^,\n\r]+(?:,\s*[^,\n\r]+)*)/gi, (match, p1) => {
+      const items = p1.split(',').map(s => s.trim().replace(/\s*\([^)]*\)/, '')).map(s => {
+        if (/digestive|visc[eé]rale/i.test(s)) return 'viscérale';
+        if (/thoracique/i.test(s)) return 'thoracique';
+        if (/gorge/i.test(s)) return 'gorge';
+        if (/cervelet/i.test(s)) return 'cervelet';
+        return s;
+      });
+      return `Loges : ${items.join(', ')}`;
+    });
     res = res.replace(/•?\s*Aucune tension majeure/gi, '');
     res = res.replace(/Hélices\s*:\s*/gi, '');
 
@@ -4224,6 +4233,32 @@ function adaptResumeForClient(text) {
       res = res.replace(/\*\*Tenségrité\*\*\s*(?:\r?\n)*(?:item et zones travaillés\s*:)?/gi, '');
     } else {
       res = res.replace(/\*\*Tenségrité\*\*\s*(?:\r?\n)*(?:item et zones travaillés\s*:)?/gi, '**Techniques manuelles - zones travaillées :**\n');
+    }
+  }
+
+  // Factoriser les diaphragmes individuels si présents
+  if (/diaphragme (?:pelvien|thoraco-lombaire|cervico-thoracique|C0-C1)/i.test(res)) {
+    const dMatches = [];
+    if (/diaphragme pelvien/i.test(res)) dMatches.push('pelvien');
+    if (/diaphragme thoraco-lombaire/i.test(res)) dMatches.push('thoraco-lombaire');
+    if (/diaphragme cervico-thoracique/i.test(res)) dMatches.push('cervico-thoracique');
+    if (/diaphragme C0-C1/i.test(res)) dMatches.push('C0-C1');
+    if (dMatches.length > 0) {
+      res = res.replace(/•?\s*diaphragme (?:pelvien|thoraco-lombaire|cervico-thoracique|C0-C1)\s*(?:\r?\n)?/gi, '');
+      res = res.replace(/(\*\*Techniques manuelles - zones travaillées :\*\*\s*\n)/i, `$1Diaphragmes : ${dMatches.join(', ')}\n`);
+    }
+  }
+
+  // Factoriser les loges individuelles si présentes
+  if (/loge (?:viscérale|thoracique|(?:de la )?gorge|du cervelet)/i.test(res)) {
+    const lMatches = [];
+    if (/loge viscérale/i.test(res)) lMatches.push('viscérale');
+    if (/loge thoracique/i.test(res)) lMatches.push('thoracique');
+    if (/loge (?:de la )?gorge/i.test(res)) lMatches.push('gorge');
+    if (/loge du cervelet/i.test(res)) lMatches.push('cervelet');
+    if (lMatches.length > 0) {
+      res = res.replace(/•?\s*loge (?:viscérale|thoracique|(?:de la )?gorge|du cervelet)\s*(?:\r?\n)?/gi, '');
+      res = res.replace(/(\*\*Techniques manuelles - zones travaillées :\*\*\s*\n)/i, `$1Loges : ${lMatches.join(', ')}\n`);
     }
   }
 
@@ -5068,7 +5103,7 @@ async function prepareSessionEditor(param) {
       document.getElementById('aura-local-recharge').checked = !!protos.aura.local_recharge;
       document.getElementById('aura-local-complement').checked = !!protos.aura.local_complement;
       document.getElementById('aura-local-complement-text').value = protos.aura.local_complement_text || '';
-      document.getElementById('aura-local-complement-loc').value = protos.aura.local_complement_loc || '';
+      document.getElementById('aura-soins-loc').value = protos.aura.soins_loc || protos.aura.local_complement_loc || '';
     }
 
     // Charger les rappels associés à cette séance
@@ -5101,7 +5136,7 @@ async function prepareSessionEditor(param) {
     document.getElementById('panel-aura-fleches-loc').style.display = 'none';
     document.getElementById('panel-aura-masses-loc').style.display = 'none';
     document.getElementById('aura-local-complement-text').value = '';
-    document.getElementById('aura-local-complement-loc').value = '';
+    document.getElementById('aura-soins-loc').value = '';
     
     // Kinésio commun et type par défaut
     document.getElementById('proto-kinesiologie-type').value = 'Classique';
@@ -6033,15 +6068,9 @@ function setupFormListeners() {
 
   const auraLocalCompCb = document.getElementById('aura-local-complement');
   const auraLocalCompText = document.getElementById('aura-local-complement-text');
-  const auraLocalCompLoc = document.getElementById('aura-local-complement-loc');
   if (auraLocalCompText && auraLocalCompCb) {
     auraLocalCompText.addEventListener('input', () => {
       if (auraLocalCompText.value.trim()) auraLocalCompCb.checked = true;
-    });
-  }
-  if (auraLocalCompLoc && auraLocalCompCb) {
-    auraLocalCompLoc.addEventListener('input', () => {
-      if (auraLocalCompLoc.value.trim()) auraLocalCompCb.checked = true;
     });
   }
 
@@ -6152,25 +6181,33 @@ function getCalculatedSummaryText() {
       tensegriteClientItems.push('occipital');
     }
 
-    // 3. Diaphragmes -> "diaphragme pelvien", "diaphragme thoraco-lombaire", etc.
+    // 3. Diaphragmes -> "Diaphragmes : pelvien, thoraco-lombaire, cervico-thoracique" (sur une seule ligne)
+    const activeDiaphragmes = [];
     const dPelvien = document.querySelector('select[data-sub="pelvien"]')?.value;
     const dThoraco = document.querySelector('select[data-sub="thoraco_lombaire"]')?.value;
     const dCervico = document.querySelector('select[data-sub="cervico_thoracique"]')?.value;
     const dC0C1 = document.querySelector('select[data-sub="c0_c1"]')?.value;
-    if (dPelvien === 'Moyen' || dPelvien === 'Élevé') tensegriteClientItems.push('diaphragme pelvien');
-    if (dThoraco === 'Moyen' || dThoraco === 'Élevé') tensegriteClientItems.push('diaphragme thoraco-lombaire');
-    if (dCervico === 'Moyen' || dCervico === 'Élevé') tensegriteClientItems.push('diaphragme cervico-thoracique');
-    if (dC0C1 === 'Moyen' || dC0C1 === 'Élevé') tensegriteClientItems.push('diaphragme C0-C1');
+    if (dPelvien === 'Moyen' || dPelvien === 'Élevé') activeDiaphragmes.push('pelvien');
+    if (dThoraco === 'Moyen' || dThoraco === 'Élevé') activeDiaphragmes.push('thoraco-lombaire');
+    if (dCervico === 'Moyen' || dCervico === 'Élevé') activeDiaphragmes.push('cervico-thoracique');
+    if (dC0C1 === 'Moyen' || dC0C1 === 'Élevé') activeDiaphragmes.push('C0-C1');
+    if (activeDiaphragmes.length > 0) {
+      tensegriteClientItems.push(`Diaphragmes : ${activeDiaphragmes.join(', ')}`);
+    }
 
-    // 4. Loges -> "loge viscérale", "loge thoracique", etc.
+    // 4. Loges -> "Loges : viscérale, thoracique" (sur une seule ligne)
+    const activeLoges = [];
     const lDigestive = document.querySelector('select[data-sub="digestive"]')?.value;
     const lThoracique = document.querySelector('select[data-sub="thoracique"]')?.value;
     const lGorge = document.querySelector('select[data-sub="gorge"]')?.value;
     const lCervelet = document.querySelector('select[data-sub="cervelet"]')?.value;
-    if (lDigestive === 'Moyen' || lDigestive === 'Élevé') tensegriteClientItems.push('loge viscérale');
-    if (lThoracique === 'Moyen' || lThoracique === 'Élevé') tensegriteClientItems.push('loge thoracique');
-    if (lGorge === 'Moyen' || lGorge === 'Élevé') tensegriteClientItems.push('loge de la gorge');
-    if (lCervelet === 'Moyen' || lCervelet === 'Élevé') tensegriteClientItems.push('loge du cervelet');
+    if (lDigestive === 'Moyen' || lDigestive === 'Élevé') activeLoges.push('viscérale');
+    if (lThoracique === 'Moyen' || lThoracique === 'Élevé') activeLoges.push('thoracique');
+    if (lGorge === 'Moyen' || lGorge === 'Élevé') activeLoges.push('gorge');
+    if (lCervelet === 'Moyen' || lCervelet === 'Élevé') activeLoges.push('cervelet');
+    if (activeLoges.length > 0) {
+      tensegriteClientItems.push(`Loges : ${activeLoges.join(', ')}`);
+    }
 
     // 5. Hélice
     const helices = document.getElementById('proto-tensegrite-helices')?.value.trim();
@@ -6324,19 +6361,18 @@ function getCalculatedSummaryText() {
       list.push(`Technique du filet ${fList.length > 0 ? '['+fList.join(', ')+']' : ''}`);
     }
 
-    // Locaux
+    // Soins spécifiques
     if (document.getElementById('aura-local-filament').checked) list.push("Filament incandescent");
     if (document.getElementById('aura-local-polarites').checked) list.push("Équilibre des polarités énergétiques");
     if (document.getElementById('aura-local-recharge').checked) list.push("Recharge locale");
-    if (document.getElementById('aura-local-complement').checked || document.getElementById('aura-local-complement-text').value.trim() || document.getElementById('aura-local-complement-loc')?.value.trim()) {
+    if (document.getElementById('aura-local-complement').checked || document.getElementById('aura-local-complement-text').value.trim()) {
       const cTxt = document.getElementById('aura-local-complement-text').value.trim();
-      const cLoc = document.getElementById('aura-local-complement-loc')?.value.trim();
-      let compStr = "Techniques complémentaires";
-      if (cTxt) compStr += ` (${cTxt})`;
-      if (cLoc) compStr += ` [Localisation : ${cLoc}]`;
-      list.push(compStr);
+      list.push("Techniques complémentaires" + (cTxt ? ` (${cTxt})` : ''));
     }
-    
+    const sLoc = document.getElementById('aura-soins-loc')?.value.trim();
+    if (sLoc) {
+      list.push(`Localisation soins spécifiques : ${sLoc}`);
+    }
     if (document.getElementById('aura-repolarisation').checked) list.push("Repolarisation énergétique");
 
     let text = `**Aura**`;
@@ -6549,9 +6585,10 @@ async function saveSessionForm() {
       local_filament: document.getElementById('aura-local-filament').checked,
       local_polarites: document.getElementById('aura-local-polarites').checked,
       local_recharge: document.getElementById('aura-local-recharge').checked,
-      local_complement: document.getElementById('aura-local-complement').checked || !!document.getElementById('aura-local-complement-text').value.trim() || !!document.getElementById('aura-local-complement-loc').value.trim(),
+      local_complement: document.getElementById('aura-local-complement').checked || !!document.getElementById('aura-local-complement-text').value.trim(),
       local_complement_text: document.getElementById('aura-local-complement-text').value.trim(),
-      local_complement_loc: document.getElementById('aura-local-complement-loc').value.trim(),
+      soins_loc: document.getElementById('aura-soins-loc').value.trim(),
+      local_complement_loc: document.getElementById('aura-soins-loc').value.trim(),
       precisions: ''
     }
   };

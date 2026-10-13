@@ -31,7 +31,7 @@
     }
   </script>
   <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="manifest.json?v=1.6.61">
+  <link rel="manifest" href="manifest.json?v=1.6.62">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,17 +39,17 @@
   <meta name="apple-mobile-web-app-title" content="eKiKare">
 
   <!-- Icons (Favicon & Touch Icons) -->
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.61">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.61">
-  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.61">
-  <link rel="shortcut icon" href="favicon.ico?v=1.6.61">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.61">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.62">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.62">
+  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.62">
+  <link rel="shortcut icon" href="favicon.ico?v=1.6.62">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.62">
 
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.61">
+  <link rel="stylesheet" href="style.css?v=1.6.62">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -60,7 +60,7 @@
   <!-- PDF.js library for high-fidelity canvas PDF rendering & zoom on mobile/tablets -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <!-- PinchZoom library for touch gestures & continuous focal zoom -->
-  <script src="lib/pinch-zoom.umd.js?v=1.6.61"></script>
+  <script src="lib/pinch-zoom.umd.js?v=1.6.62"></script>
 </head>
 <body>
   <div class="app-container">
@@ -110,7 +110,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <p class="app-version">eKiKare v1.6.61 &bull; Offline Database</p>
+        <p class="app-version">eKiKare v1.6.62 &bull; Offline Database</p>
       </div>
     </aside>
 
@@ -1402,25 +1402,23 @@
                     </div>
                   </div>
 
-                  <!-- Soins Locaux -->
+                  <!-- Soins Spécifiques -->
                   <div class="cranio-box">
-                    <div class="cranio-box-title">Soins spécifiques / locaux</div>
+                    <div class="cranio-box-title">Soins spécifiques</div>
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 20px;">
                       <label class="checkbox-item"><input type="checkbox" id="aura-repolarisation"> Repolarisation du corps (détente)</label>
                       <label class="checkbox-item"><input type="checkbox" id="aura-local-filament"> Filament incandescent</label>
                       <label class="checkbox-item"><input type="checkbox" id="aura-local-polarites"> Équilibre des polarités</label>
                       <label class="checkbox-item"><input type="checkbox" id="aura-local-recharge"> Recharge énergétique locale</label>
-                      <div class="checkbox-container-block" style="grid-column: span 2; display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding: 10px; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid var(--glass-border);">
-                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                          <label class="checkbox-item" style="margin-bottom: 0;">
-                            <input type="checkbox" id="aura-local-complement"> Techniques complémentaires
-                          </label>
-                          <input type="text" class="text-specifier" id="aura-local-complement-text" placeholder="Précisez le soin..." style="flex: 1; min-width: 180px; padding: 6px 10px; font-size: 0.85rem;">
-                        </div>
-                        <div id="panel-aura-local-complement-loc" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-left: 24px;">
-                          <label for="aura-local-complement-loc" style="font-size: 0.82rem; color: #94a3b8; font-weight: 500; min-width: 85px;">Localisation :</label>
-                          <input type="text" class="text-specifier" id="aura-local-complement-loc" placeholder="Localisation (ex: épaule, garrot, hanche...)" style="flex: 1; min-width: 180px; padding: 6px 10px; font-size: 0.85rem;">
-                        </div>
+                      <div style="grid-column: span 2; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <label class="checkbox-item" style="margin-bottom: 0;">
+                          <input type="checkbox" id="aura-local-complement"> Techniques complémentaires
+                        </label>
+                        <input type="text" class="text-specifier" id="aura-local-complement-text" placeholder="Précisez le soin..." style="flex: 1; min-width: 180px; padding: 6px 10px; font-size: 0.85rem;">
+                      </div>
+                      <div style="grid-column: span 2; display: flex; align-items: center; gap: 10px; margin-top: 6px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
+                        <label for="aura-soins-loc" style="font-size: 0.85rem; font-weight: 600; color: var(--color-primary); min-width: 90px;">Localisation :</label>
+                        <input type="text" class="text-specifier" id="aura-soins-loc" placeholder="Localisation des soins spécifiques (ex: épaule, garrot, hanche...)" style="flex: 1; padding: 6px 10px; font-size: 0.85rem;">
                       </div>
                     </div>
                   </div>
@@ -3127,13 +3125,13 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.61"></script>
+  <script type="module" src="app.js?v=1.6.62"></script>
 
   <!-- Service Worker PWA -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1.6.61')
+        navigator.serviceWorker.register('./sw.js?v=1.6.62')
           .then((reg) => {
             console.log('[PWA] Service Worker actif (scope:', reg.scope, ')');
           })
