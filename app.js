@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.63';
+export const APP_VERSION = 'v1.6.64';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7353,25 +7353,123 @@ async function resolveAttachmentResource(resource, fallbackType = '', fallbackNa
   };
 }
 
-// MODALE VISUALISATION DOCUMENT / COMPTE-RENDU JOINT
+// HELPER CENTRAL : GÉNÉRATION BLOB PDF DEPUIS ÉLÉMENT DOM HORS-CHAMP (A4 FIXE)
+async function generatePdfBlobFromElement(sourceElement, filename) {
+  if (!sourceElement) throw new Error("Élément source introuvable");
+  if (typeof html2pdf === 'undefined') throw new Error("Bibliothèque html2pdf non disponible");
+
+  // Conteneur temporaire hors-champ pour capturer fidèlement l'élément sans afficher de modale
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = 'position: fixed; top: -99999px; left: 0; width: 794px; z-index: -9999; background: #ffffff; visibility: visible; display: block;';
+
+  const clone = sourceElement.cloneNode(true);
+  clone.style.cssText = 'display: block; visibility: visible; width: 794px; min-width: 794px; max-width: 794px; box-sizing: border-box; margin: 0 auto; background: #ffffff; padding: 20mm;';
+
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+
+  try {
+    const opt = {
+      margin: [10, 10, 10, 10],
+      filename: filename || 'document.pdf',
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: 794,
+        onclone: (clonedDoc) => {
+          const target = clonedDoc.querySelector('#portal-cr-sheet') || 
+                         clonedDoc.querySelector('#animal-dossier-preview-sheet') || 
+                         clonedDoc.querySelector('.official-a4-sheet') || 
+                         clonedDoc.querySelector('.cr-document');
+          if (target) {
+            target.style.margin = '0 auto';
+            target.style.transform = 'none';
+            target.style.position = 'static';
+            target.style.width = '794px';
+            target.style.minWidth = '794px';
+            target.style.maxWidth = '794px';
+            target.style.boxSizing = 'border-box';
+            target.style.backgroundColor = '#ffffff';
+          }
+        }
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    const worker = html2pdf().set(opt).from(clone);
+    let blob = null;
+    if (typeof worker.outputPdf === 'function') {
+      blob = await worker.outputPdf('blob');
+    } else if (typeof worker.output === 'function') {
+      blob = await worker.output('blob');
+    }
+    return blob;
+  } finally {
+    if (wrapper.parentNode) {
+      wrapper.parentNode.removeChild(wrapper);
+    }
+  }
+}
+
+// AIGUILLEUR CENTRAL UNIVERSEL DE VISUALISATION DE TOUS LES DOCUMENTS
 async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
   if (!fileData) {
     showToast("Aucun document joint à afficher.", "error");
     return;
   }
 
-  // 1. Détection de l'appareil et du contexte d'exécution
+  // 1. Détection stricte de l'appareil et du contexte d'exécution
   const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
-  const isPortal = document.documentElement.classList.contains('portal-mode') || !!document.getElementById('portal-view')?.classList.contains('active');
-  const isClassicMobileBrowser = !isStandalone && (window.innerWidth <= 768 || (isTouchDevice && (window.innerWidth <= 1024 || isPortal)));
+  const isMobileOrTabletBrowser = !isStandalone && (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+    window.innerWidth <= 768 ||
+    (isTouchDevice && !/Windows NT/i.test(navigator.userAgent) && window.innerWidth <= 1024)
+  );
 
-  // CAS 1 : PWA autonome (Tablette ou smartphone en mode PWA installée)
-  // Injection DIRECTE plein écran du Blob avec bouton flottant universel de fermeture (&times;)
-  // Sans aucun en-tête d'UUID ni bouton inerte
+  // CAS 1 : Tablette & Smartphone en application PWA autonome (standalone / installée)
+  // RÈGLE : Strict maintien de l'affichage plein écran avec bouton flottant croix [×] en haut à droite
   if (isStandalone) {
-    const resolved = await resolveAttachmentResource(fileData, fileType, fileName);
+    let standaloneViewer = document.getElementById('standalone-document-viewer');
+    if (!standaloneViewer) {
+      standaloneViewer = document.createElement('div');
+      standaloneViewer.id = 'standalone-document-viewer';
+      standaloneViewer.setAttribute('role', 'dialog');
+      standaloneViewer.setAttribute('aria-modal', 'true');
+      standaloneViewer.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 99990; background: #000; display: flex; flex-direction: column; margin: 0; padding: 0; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;';
+      document.body.appendChild(standaloneViewer);
+    }
+
+    standaloneViewer.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100vh; color: #94a3b8;">
+        <div style="width: 38px; height: 38px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #D96B27; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
+        <p style="margin: 0; font-size: 0.9rem;">Chargement du document...</p>
+      </div>
+    `;
+    standaloneViewer.style.display = 'flex';
+
+    let resolvedData = fileData;
+    if (typeof fileData === 'function') {
+      try {
+        resolvedData = await fileData();
+      } catch (err) {
+        console.error("[openDocumentViewerModal standalone] Erreur génération:", err);
+        standaloneViewer.style.display = 'none';
+        showToast("Erreur lors de la préparation du document.", "error");
+        return;
+      }
+    }
+
+    const resolved = await resolveAttachmentResource(resolvedData, fileType, fileName);
     if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
+      standaloneViewer.style.display = 'none';
       showToast("Document non disponible ou introuvable.", "error");
       return;
     }
@@ -7388,6 +7486,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     }
 
     if (!fileUrl) {
+      standaloneViewer.style.display = 'none';
       showToast("Impossible de lire ce document.", "error");
       return;
     }
@@ -7395,26 +7494,13 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     const attachmentName = resolved.name || fileName || (resolved.mime?.includes('pdf') ? 'document.pdf' : (resolved.mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
     const isPdf = !!(resolved.mime?.includes('pdf') || attachmentName.toLowerCase().endsWith('.pdf') || (fileType && fileType.includes('pdf')));
 
-    let standaloneViewer = document.getElementById('standalone-document-viewer');
-    if (!standaloneViewer) {
-      standaloneViewer = document.createElement('div');
-      standaloneViewer.id = 'standalone-document-viewer';
-      standaloneViewer.setAttribute('role', 'dialog');
-      standaloneViewer.setAttribute('aria-modal', 'true');
-      standaloneViewer.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 99990; background: #000; display: flex; flex-direction: column; margin: 0; padding: 0; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;';
-      document.body.appendChild(standaloneViewer);
-    }
-
-    standaloneViewer.innerHTML = '';
-    standaloneViewer.style.display = 'flex';
-
     if (isPdf) {
       let renderedViaPdfJs = false;
       if (window.pdfjsLib) {
         try {
           standaloneViewer.innerHTML = `
             <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100vh; color: #94a3b8;">
-              <div style="width: 38px; height: 38px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
+              <div style="width: 38px; height: 38px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #D96B27; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
               <p style="margin: 0; font-size: 0.9rem;">Affichage du compte-rendu...</p>
             </div>
           `;
@@ -7490,17 +7576,40 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
 
     closeBtn.onclick = () => {
       closeViewer();
-      closeBtn.remove();
     };
 
     document.body.appendChild(closeBtn);
     return;
   }
 
-  // CAS 2 : Chrome Mobile / Tablette en navigateur classique -> ouverture directe dans un nouvel onglet
-  if (isClassicMobileBrowser || isTouchDevice) {
-    const resolved = await resolveAttachmentResource(fileData, fileType, fileName);
+  // CAS 2 : Navigateurs Web Mobiles & Tablettes (Chrome Mobile ET Chrome Tablette)
+  // RÈGLE : AUCUN modal incrusté sur la page. Ouverture systématique dans un second onglet indépendant via window.open(blobUrl, '_blank').
+  // Aucun téléchargement forcé automatique en amont (aucun attribut download).
+  if (isMobileOrTabletBrowser) {
+    let targetTab = null;
+    try {
+      targetTab = window.open('', '_blank');
+      if (targetTab) {
+        targetTab.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Chargement du document...</title><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{margin:0;background:#0f172a;color:#94a3b8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center;padding:20px;box-sizing:border-box;}.spinner{width:38px;height:38px;border:3px solid rgba(255,255,255,0.15);border-top-color:#D96B27;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:14px;}@keyframes spin{to{transform:rotate(360deg);}}h2{margin:0 0 6px 0;color:#fff;font-size:1.1rem;}p{margin:0;font-size:0.85rem;}</style></head><body><div class="spinner"></div><h2>Ouverture du document...</h2><p>Le document va s'afficher dans un instant.</p></body></html>`);
+        targetTab.document.close();
+      }
+    } catch (_) {}
+
+    let resolvedData = fileData;
+    if (typeof fileData === 'function') {
+      try {
+        resolvedData = await fileData();
+      } catch (err) {
+        console.error("[openDocumentViewerModal mobile] Erreur génération:", err);
+        if (targetTab) try { targetTab.close(); } catch (_) {}
+        showToast("Erreur lors de la préparation du document.", "error");
+        return;
+      }
+    }
+
+    const resolved = await resolveAttachmentResource(resolvedData, fileType, fileName);
     if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
+      if (targetTab) try { targetTab.close(); } catch (_) {}
       showToast("Document non disponible ou introuvable.", "error");
       return;
     }
@@ -7517,26 +7626,34 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     }
 
     if (!fileUrl) {
+      if (targetTab) try { targetTab.close(); } catch (_) {}
       showToast("Impossible de lire ce document.", "error");
       return;
     }
 
-    const attachmentName = resolved.name || fileName || (resolved.mime?.includes('pdf') ? 'document.pdf' : (resolved.mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
-
     let opened = false;
-    try {
-      const newWindow = window.open(fileUrl, '_blank');
-      if (newWindow && !newWindow.closed) {
+    if (targetTab && !targetTab.closed) {
+      try {
+        targetTab.location.href = fileUrl;
         opened = true;
+      } catch (_) {
+        opened = false;
       }
-    } catch (_) {
-      opened = false;
     }
 
     if (!opened) {
+      try {
+        const newWin = window.open(fileUrl, '_blank');
+        if (newWin) opened = true;
+      } catch (_) {
+        opened = false;
+      }
+    }
+
+    // Fallback sans attribut download (aucun téléchargement forcé)
+    if (!opened) {
       const link = document.createElement('a');
       link.href = fileUrl;
-      link.download = attachmentName;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       document.body.appendChild(link);
@@ -7547,12 +7664,13 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     if (isTempObjectUrl) {
       setTimeout(() => {
         try { URL.revokeObjectURL(fileUrl); } catch (_) {}
-      }, 10000);
+      }, 120000);
     }
     return;
   }
 
-  // CAS 3 : PC Desktop (bureau avec souris) -> boîte de dialogue modale habituelle (dialog-document-viewer)
+  // CAS 3 : PC Desktop (bureau avec souris) -> boîte modale centrée dédiée avec bandeau sombre
+  // ("Télécharger le PDF" et "Fermer")
   const dialog = document.getElementById('dialog-document-viewer');
   if (!dialog) {
     showToast("Visionneuse de document non disponible.", "error");
@@ -7576,21 +7694,43 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     if (openBtn) openBtn.style.display = 'none';
 
     // Afficher immédiatement la modale avec état de chargement propre (pas d'UUID brut)
-    const initialTitle = (extraInfo.text && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(extraInfo.text)) ? extraInfo.text : (fileName && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(fileName) ? fileName : "Document joint");
+    const initialTitle = (extraInfo.text && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(extraInfo.text)) ? extraInfo.text : (fileName && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(fileName) ? fileName : "Document");
     if (titleEl) titleEl.textContent = initialTitle;
-    if (subtitleEl) subtitleEl.textContent = extraInfo.subtitle || "Chargement du document...";
+    if (subtitleEl) subtitleEl.textContent = extraInfo.subtitle || "Génération et chargement du document...";
     if (bodyEl) {
       bodyEl.innerHTML = `
         <div style="padding: 40px 20px; text-align: center; color: var(--text-sub);">
           <div class="spinner" style="margin: 0 auto 15px auto; width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--color-primary); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-          <p style="margin: 0; font-size: 0.95rem;">Chargement du document joint...</p>
+          <p style="margin: 0; font-size: 0.95rem;">Chargement du document...</p>
         </div>
       `;
     }
     dialog.showModal();
 
+    let resolvedData = fileData;
+    if (typeof fileData === 'function') {
+      try {
+        resolvedData = await fileData();
+      } catch (genErr) {
+        console.error("[openDocumentViewerModal desktop] Erreur génération:", genErr);
+        if (subtitleEl) subtitleEl.textContent = "Erreur de génération";
+        if (bodyEl) {
+          bodyEl.innerHTML = `
+            <div style="text-align: center; padding: 30px 15px; color: #fff;">
+              <div style="font-size: 3rem; margin-bottom: 12px;">⚠️</div>
+              <h3 style="margin-bottom: 8px;">Erreur de génération</h3>
+              <p style="color: var(--text-sub); margin-bottom: 18px; font-size: 0.88rem;">Impossible de générer le document.</p>
+              <button type="button" class="btn btn-secondary btn-close-dialog">Fermer</button>
+            </div>
+          `;
+          bodyEl.querySelector('.btn-close-dialog')?.addEventListener('click', () => dialog.close());
+        }
+        return;
+      }
+    }
+
     // Résolution asynchrone complète
-    const resolved = await resolveAttachmentResource(fileData, fileType, fileName);
+    const resolved = await resolveAttachmentResource(resolvedData, fileType, fileName);
     if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
       if (subtitleEl) subtitleEl.textContent = "Fichier non disponible";
       if (bodyEl) {
@@ -7756,6 +7896,8 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
 
     // Téléchargement direct
     if (downloadBtn) {
+      const span = downloadBtn.querySelector('.btn-text');
+      if (span) span.textContent = isPdf ? 'Télécharger le PDF' : 'Télécharger';
       downloadBtn.onclick = () => {
         const a = document.createElement('a');
         a.href = blobUrl;
@@ -10133,7 +10275,7 @@ function openA4DocumentInMobileTab(title, sheetContentHtml, subtitle = '') {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.63">
+  <link rel="stylesheet" href="style.css?v=1.6.64">
   <style>
     html, body {
       margin: 0;
@@ -10333,6 +10475,15 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
   // Récupérer les données du propriétaire
   const client = await getById('clients', session.client_id || animal.client_id);
 
+  // Si séance externe avec document joint, aiguillage direct vers la visionneuse universelle
+  const extAttachment = session.fileData || session.attachments;
+  if (session.isExternal && extAttachment) {
+    return await openDocumentViewerModal(extAttachment, session.fileType || session.file_type, session.fileName || session.file_name, {
+      subtitle: `Séance du ${formatDate(session.date_seance)} • ${session.profession || 'Externe'}`,
+      text: `Compte-rendu ${session.profession || 'externe'} pour ${animal.nom}`
+    });
+  }
+
   const dialog = document.getElementById('dialog-portal-session-cr');
   if (!dialog) return;
 
@@ -10469,141 +10620,26 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
     genDateEl.textContent = new Date().toLocaleDateString('fr-FR');
   }
 
-  // Listener pour le bouton Télécharger PDF direct
-  const downloadBtn = document.getElementById('btn-download-portal-cr');
-  if (downloadBtn) {
-    downloadBtn.onclick = async () => {
-      const sheetElement = document.getElementById('portal-cr-sheet');
-      if (!sheetElement) return;
-
-      const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
-      let cleanDate = '';
-      if (session.date_seance) {
-        cleanDate = String(session.date_seance).split('T')[0].replace(/[\s/\\?%*:|"<>]+/g, '-');
-      } else {
-        cleanDate = new Date().toISOString().split('T')[0];
-      }
-      const filename = `CR_eKiKare_${cleanAnimalName}_${cleanDate}.pdf`;
-
-      const originalHtml = downloadBtn.innerHTML;
-      const originalDisabled = downloadBtn.disabled;
-      downloadBtn.disabled = true;
-      downloadBtn.innerHTML = `
-        <div class="sync-icon-spin" style="width: 14px; height: 14px; border-width: 2px; display: inline-block;"></div>
-        Génération PDF...
-      `;
-
-      try {
-        if (typeof html2pdf === 'undefined') {
-          throw new Error("Bibliothèque html2pdf non disponible");
-        }
-
-        const opt = {
-          margin: [10, 10, 10, 10],
-          filename: filename,
-          image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: {
-            scale: 2,
-            useCORS: true,
-            logging: false,
-            backgroundColor: '#ffffff',
-            scrollX: 0,
-            scrollY: 0,
-            onclone: (clonedDoc) => {
-              // Réinitialiser les transforms/offsets sur le document cloné en mémoire par html2canvas
-              const target = clonedDoc.querySelector('#portal-cr-sheet') || clonedDoc.querySelector('.cr-document');
-              if (target) {
-                target.style.margin = '0 auto';
-                target.style.transform = 'none';
-                target.style.position = 'static';
-                target.style.width = '794px';
-                target.style.maxWidth = '794px';
-                target.style.boxSizing = 'border-box';
-              }
-            }
-          },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-        };
-
-        await html2pdf().set(opt).from(sheetElement).save();
-        showToast(`Compte-rendu téléchargé : ${filename}`);
-      } catch (err) {
-        console.error('Erreur export PDF:', err);
-        showToast("Erreur lors de la génération du PDF.", "error");
-      } finally {
-        downloadBtn.disabled = originalDisabled;
-        downloadBtn.innerHTML = originalHtml;
-      }
-    };
+  const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
+  let cleanDate = '';
+  if (session.date_seance) {
+    cleanDate = String(session.date_seance).split('T')[0].replace(/[\s/\\?%*:|"<>]+/g, '-');
+  } else {
+    cleanDate = new Date().toISOString().split('T')[0];
   }
+  const filename = `CR_eKiKare_${cleanAnimalName}_${cleanDate}.pdf`;
+  const ownerStr = client ? ` • Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
+  const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
 
-  // Listener pour le bouton Partager / Imprimer
-  const shareBtn = document.getElementById('btn-share-portal-cr');
-  if (shareBtn) {
-    shareBtn.onclick = async () => {
-      const shareData = {
-        title: `Compte-Rendu de séance - ${animal?.nom || 'Animal'}`,
-        text: `Compte-rendu de séance eKiKare pour ${animal?.nom || 'Animal'} (séance du ${formatDate(session.date_seance)}) :\nMotif : ${session.motif || '-'}\n\n${rawResume}`,
-        url: window.location.href
-      };
-
-      if (navigator.share && navigator.canShare && navigator.canShare(shareData) && !window.matchMedia('(min-width: 1024px)').matches) {
-        try {
-          await navigator.share(shareData);
-          showToast('Compte-rendu partagé avec succès !');
-          return;
-        } catch (err) {
-          if (err.name !== 'AbortError') {
-            console.warn('Erreur partage:', err);
-          }
-        }
-      }
-
-      // Impression directe de la feuille A4
-      document.body.classList.add('printing-portal-cr');
-      window.print();
-      setTimeout(() => {
-        document.body.classList.remove('printing-portal-cr');
-      }, 1000);
-    };
-  }
-
-  // Fermeture du dialog
-  const closeBtns = dialog.querySelectorAll('.btn-close-dialog');
-  closeBtns.forEach(btn => {
-    btn.onclick = () => dialog.close();
-  });
-
-  // Fermeture au clic en dehors (backdrop)
-  dialog.onclick = (e) => {
-    const rect = dialog.getBoundingClientRect();
-    if (
-      e.clientX < rect.left ||
-      e.clientX > rect.right ||
-      e.clientY < rect.top ||
-      e.clientY > rect.bottom
-    ) {
-      dialog.close();
-    }
+  const pdfGenerator = async () => {
+    const sheetElement = document.getElementById('portal-cr-sheet');
+    return await generatePdfBlobFromElement(sheetElement, filename);
   };
 
-  // Aiguillage selon le terminal :
-  const isMobile = window.innerWidth < 768;
-  const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
-
-  // Sur Mobile (< 768px, Chrome) : Ouvrir le document (aux dimensions fixes A4 non étriquées) dans un second onglet natif (window.open)
-  if (isMobile && !isStandalone) {
-    const sheetElement = document.getElementById('portal-cr-sheet');
-    const sheetHtml = sheetElement ? sheetElement.outerHTML : '';
-    const ownerStr = client ? `Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
-    const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr ? ' • ' + ownerStr : ''}`;
-    const opened = openA4DocumentInMobileTab(`Compte-Rendu — ${animal?.nom || 'Animal'}`, sheetHtml, subtitle);
-    if (opened) return;
-  }
-
-  // Sur PC (boîte modale centrée avec bandeau sombre) et sur Tablette (PWA / standalone plein écran avec barre supérieure) :
-  dialog.showModal();
+  await openDocumentViewerModal(pdfGenerator, 'application/pdf', filename, {
+    text: `Compte-Rendu — ${animal?.nom || 'Animal'}`,
+    subtitle: subtitle
+  });
 }
 
 // --- MODALE ET EXPORT PDF : FICHE DE LIAISON / DOSSIER DE SANTE ANIMAL ---
@@ -10953,142 +10989,19 @@ async function openAnimalDossierPreviewModal(animal, options) {
 
     sheetContainer.innerHTML = html;
 
-    // Configuration du bouton Télécharger le PDF (direct)
-    const downloadBtn = document.getElementById('btn-download-animal-dossier');
-    if (downloadBtn) {
-      downloadBtn.onclick = async () => {
-        const originalHtml = downloadBtn.innerHTML;
-        const originalDisabled = downloadBtn.disabled;
-        downloadBtn.disabled = true;
-        downloadBtn.innerHTML = `
-          <div class="sync-icon-spin" style="width: 14px; height: 14px; border-width: 2px; display: inline-block;"></div>
-          <span>Génération PDF...</span>
-        `;
+    const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
+    const filename = `Fiche_Liaison_${cleanAnimalName}.pdf`;
+    const subtitle = `${animal.nom} (${animal.espece}) • Dossier édité le ${new Date().toLocaleDateString('fr-FR')}`;
 
-        const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
-        const filename = `Fiche_Liaison_${cleanAnimalName}.pdf`;
-
-        try {
-          if (typeof html2pdf === 'undefined') {
-            throw new Error("Bibliothèque html2pdf non disponible");
-          }
-
-          const opt = {
-            margin: [10, 10, 10, 10],
-            filename: filename,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: {
-              scale: 2,
-              useCORS: true,
-              logging: false,
-              backgroundColor: '#ffffff',
-              scrollX: 0,
-              scrollY: 0,
-              onclone: (clonedDoc) => {
-                const target = clonedDoc.querySelector('#animal-dossier-preview-sheet') || clonedDoc.querySelector('.official-a4-sheet');
-                if (target) {
-                  target.style.margin = '0 auto';
-                  target.style.transform = 'none';
-                  target.style.position = 'static';
-                  target.style.width = '794px';
-                  target.style.maxWidth = '794px';
-                  target.style.boxSizing = 'border-box';
-                  target.style.backgroundColor = '#ffffff';
-                }
-              }
-            },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-          };
-
-          await html2pdf().set(opt).from(sheetContainer).save();
-          showToast(`Fiche de liaison téléchargée : ${filename}`);
-        } catch (err) {
-          console.error("Erreur téléchargement PDF fiche liaison:", err);
-          showToast("Erreur lors de la génération du PDF.", "error");
-        } finally {
-          downloadBtn.disabled = originalDisabled;
-          downloadBtn.innerHTML = originalHtml;
-        }
-      };
-    }
-
-    // Configuration du bouton Partager
-    const shareBtn = document.getElementById('btn-share-animal-dossier');
-    if (shareBtn) {
-      shareBtn.onclick = async () => {
-        const shareData = {
-          title: `Fiche de Liaison & Dossier de Santé - ${animal?.nom || 'Animal'}`,
-          text: `Consultez la fiche de liaison et le dossier de santé eKiKare de ${animal?.nom || 'l\'animal'} (${animal?.espece || ''})`,
-          url: window.location.href
-        };
-
-        if (navigator.share && navigator.canShare && navigator.canShare(shareData) && !window.matchMedia('(min-width: 1024px)').matches) {
-          try {
-            await navigator.share(shareData);
-            showToast('Fiche de liaison partagée avec succès !');
-            return;
-          } catch (err) {
-            if (err.name !== 'AbortError') {
-              console.warn('Erreur partage:', err);
-            }
-          }
-        }
-
-        // Fallback copie presse-papier
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          try {
-            await navigator.clipboard.writeText(window.location.href);
-            showToast('Lien de la fiche copié dans le presse-papier !');
-            return;
-          } catch (clipErr) {
-            console.warn('Erreur copie presse-papier:', clipErr);
-          }
-        }
-
-        // Second fallback : impression
-        document.body.classList.add('printing-animal-dossier');
-        window.print();
-        setTimeout(() => {
-          document.body.classList.remove('printing-animal-dossier');
-        }, 1000);
-      };
-    }
-
-    // Boutons de fermeture
-    const closeBtns = dialog.querySelectorAll('.btn-close-dialog');
-    closeBtns.forEach(btn => {
-      btn.onclick = () => dialog.close();
-    });
-
-    // Clic hors modale pour fermer
-    dialog.onclick = (e) => {
-      const rect = dialog.getBoundingClientRect();
-      if (
-        e.clientX < rect.left ||
-        e.clientX > rect.right ||
-        e.clientY < rect.top ||
-        e.clientY > rect.bottom
-      ) {
-        dialog.close();
-      }
+    const pdfGenerator = async () => {
+      const sheetElement = document.getElementById('animal-dossier-preview-sheet');
+      return await generatePdfBlobFromElement(sheetElement, filename);
     };
 
-    // Aiguillage selon le terminal :
-    const isMobile = window.innerWidth < 768;
-    const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
-
-    // Sur Mobile (< 768px, Chrome) : Ouvrir le document (aux dimensions fixes A4 non étriquées) dans un second onglet natif (window.open)
-    if (isMobile && !isStandalone) {
-      const sheetElement = document.getElementById('animal-dossier-preview-sheet');
-      const sheetHtml = sheetElement ? sheetElement.outerHTML : '';
-      const subtitle = `${animal.nom} (${animal.espece}) • Dossier édité le ${new Date().toLocaleDateString('fr-FR')}`;
-      const opened = openA4DocumentInMobileTab(`Fiche de Liaison — ${animal.nom}`, sheetHtml, subtitle);
-      if (opened) return;
-    }
-
-    // Sur PC (boîte modale centrée avec bandeau sombre) et sur Tablette (PWA / standalone plein écran avec barre supérieure) :
-    dialog.showModal();
+    await openDocumentViewerModal(pdfGenerator, 'application/pdf', filename, {
+      text: `Fiche de Liaison & Dossier de Santé — ${animal.nom}`,
+      subtitle: subtitle
+    });
 
   } catch (err) {
     console.error("Erreur lors de l'ouverture de la prévisualisation du dossier:", err);
