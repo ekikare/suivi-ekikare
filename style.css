@@ -2717,17 +2717,21 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 }
 
 #dialog-portal-session-cr .official-a4-sheet,
+#dialog-preview-animal-dossier .official-a4-sheet,
+#animal-dossier-preview-sheet,
+#portal-cr-sheet,
 .official-a4-sheet,
 .cr-document {
   display: block !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
   color: #1f2937 !important;
-  box-shadow: none !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15) !important;
   border-radius: 8px !important;
-  padding: 30px 40px !important;
-  width: 100% !important;
-  max-width: 800px !important;
+  padding: 20mm !important;
+  width: 794px !important;
+  min-width: 794px !important;
+  max-width: 794px !important;
   margin: 0 auto !important;
   box-sizing: border-box !important;
 }
@@ -2806,10 +2810,13 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 }
 
 #dialog-portal-session-cr .official-a4-sheet .print-app-title,
+#dialog-preview-animal-dossier .official-a4-sheet .print-app-title,
 .cr-document .print-app-title,
-#portal-cr-sheet .print-app-title {
+#portal-cr-sheet .print-app-title,
+#animal-dossier-preview-sheet .print-app-title {
   color: #0d9488 !important;
   font-weight: 700 !important;
+  white-space: nowrap !important;
 }
 
 .cr-document .print-date,
@@ -3958,28 +3965,33 @@ body.is-printing .collapsible-icon {
   }
 
   /* Fiche Séance / CR & Document imprimable */
-  .print-grid-2,
-  .cr-document .print-grid-2,
-  #portal-cr-sheet .print-grid-2,
-  .official-a4-sheet .print-grid-2 {
+  .print-grid-2 {
     grid-template-columns: 1fr !important;
     gap: 15px !important;
     width: 100% !important;
   }
 
-  .cr-document .print-grid-2 > div,
-  #portal-cr-sheet .print-grid-2 > div,
-  .official-a4-sheet .print-grid-2 > div {
-    border-left: none !important;
-    padding-left: 0 !important;
-    border-top: 1px solid #e2e8f0;
-    padding-top: 12px;
+  .cr-document .print-grid-2,
+  #portal-cr-sheet .print-grid-2,
+  #animal-dossier-preview-sheet .print-grid-2,
+  .official-a4-sheet .print-grid-2 {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    gap: 20px !important;
+    width: 100% !important;
+    grid-template-columns: none !important;
   }
 
-  .cr-document .print-grid-2 > div:first-child,
-  #portal-cr-sheet .print-grid-2 > div:first-child,
-  .official-a4-sheet .print-grid-2 > div:first-child {
+  .cr-document .print-grid-2 > div,
+  #portal-cr-sheet .print-grid-2 > div,
+  #animal-dossier-preview-sheet .print-grid-2 > div,
+  .official-a4-sheet .print-grid-2 > div {
+    flex: 1 1 0% !important;
+    min-width: 0 !important;
+    border-left: none !important;
     border-top: none !important;
+    padding-left: 0 !important;
     padding-top: 0 !important;
   }
 
@@ -4076,15 +4088,23 @@ body.is-printing .collapsible-icon {
   }
 
   /* 5. Modales A4 / Fiche de liaison */
-  #dialog-portal-session-cr {
+  #dialog-portal-session-cr,
+  #dialog-preview-animal-dossier {
     padding: 12px !important;
     width: 98% !important;
+    max-width: 880px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
   }
 
-  #dialog-portal-session-cr .official-a4-sheet {
-    padding: 16px !important;
-    width: 100% !important;
-    max-width: 100% !important;
+  #dialog-portal-session-cr .official-a4-sheet,
+  #dialog-preview-animal-dossier .official-a4-sheet,
+  #portal-cr-sheet,
+  #animal-dossier-preview-sheet {
+    width: 794px !important;
+    min-width: 794px !important;
+    max-width: 794px !important;
+    padding: 20mm !important;
     box-sizing: border-box !important;
   }
 }

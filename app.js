@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.62';
+export const APP_VERSION = 'v1.6.63';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -2906,11 +2906,7 @@ async function renderAnimalDetails(animalId) {
 
         item.querySelector('.btn-print-direct').addEventListener('click', (e) => {
           e.stopPropagation();
-          if (currentPortalClientId) {
-            openPortalSessionModal(s, animal);
-          } else {
-            window.open(`#sessions/${s.id}/print`, '_blank');
-          }
+          openPortalSessionModal(s, animal);
         });
       }
       
@@ -10116,6 +10112,193 @@ async function checkAndInjectMockData({ force = false } = {}) {
 }
 window.injectMockData = (force = true) => checkAndInjectMockData({ force });
 
+// --- OUVERTURE DE DOCUMENT A4 DANS UN SECOND ONGLET MOBILE SANS REFLOW NI TELECHARGEMENT FORCE ---
+function openA4DocumentInMobileTab(title, sheetContentHtml, subtitle = '') {
+  let win = null;
+  try {
+    win = window.open('', '_blank');
+  } catch (e) {
+    win = null;
+  }
+  if (!win) return false;
+
+  const doc = win.document;
+  doc.open();
+  doc.write(`<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=850, initial-scale=0.45, minimum-scale=0.25, maximum-scale=5.0, user-scalable=yes">
+  <title>${escapeHtml(title)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1.6.63">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #0f172a;
+      min-width: 850px;
+      box-sizing: border-box;
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+    .mobile-doc-header {
+      position: sticky;
+      top: 0;
+      z-index: 9999;
+      background: rgba(15, 23, 42, 0.96);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-sizing: border-box;
+      width: 100%;
+      min-width: 850px;
+    }
+    .mobile-doc-header .doc-info h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      color: #ffffff;
+      font-weight: 600;
+    }
+    .mobile-doc-header .doc-info p {
+      margin: 2px 0 0 0;
+      font-size: 0.8rem;
+      color: #94a3b8;
+    }
+    .mobile-doc-header .doc-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .mobile-doc-header .btn-action {
+      background: linear-gradient(135deg, #D96B27, #f59e0b);
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: inherit;
+      box-shadow: 0 2px 8px rgba(217, 107, 39, 0.35);
+    }
+    .mobile-doc-header .btn-close {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .mobile-doc-container {
+      padding: 30px 20px 60px 20px;
+      display: flex;
+      justify-content: center;
+      width: 100%;
+      min-width: 850px;
+      box-sizing: border-box;
+    }
+    .official-a4-sheet,
+    .cr-document {
+      width: 794px !important;
+      min-width: 794px !important;
+      max-width: 794px !important;
+      background: #ffffff !important;
+      color: #1e293b !important;
+      border-radius: 8px !important;
+      padding: 20mm !important;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+      box-sizing: border-box !important;
+      margin: 0 auto !important;
+    }
+    .print-grid-2 {
+      display: flex !important;
+      flex-direction: row !important;
+      justify-content: space-between !important;
+      gap: 20px !important;
+      width: 100% !important;
+    }
+    .print-grid-2 > div {
+      flex: 1 1 0% !important;
+      min-width: 0 !important;
+    }
+    .print-header {
+      display: flex !important;
+      flex-direction: row !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      width: 100% !important;
+    }
+    .print-app-title {
+      white-space: nowrap !important;
+      font-size: 1.4rem !important;
+      color: #0d9488 !important;
+      font-weight: 700 !important;
+      margin: 0 !important;
+    }
+    @media print {
+      body {
+        background: #ffffff !important;
+        min-width: auto !important;
+      }
+      .mobile-doc-header {
+        display: none !important;
+      }
+      .mobile-doc-container {
+        padding: 0 !important;
+        min-width: auto !important;
+      }
+      .official-a4-sheet,
+      .cr-document {
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="mobile-doc-header">
+    <div class="doc-info">
+      <h1>${escapeHtml(title)}</h1>
+      ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}
+    </div>
+    <div class="doc-actions">
+      <button type="button" class="btn-action" onclick="window.print()">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 6 2 18 2 18 9"></polyline>
+          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+          <rect x="6" y="14" width="12" height="8"></rect>
+        </svg>
+        <span>Imprimer / PDF</span>
+      </button>
+      <button type="button" class="btn-close" onclick="window.close()">Fermer</button>
+    </div>
+  </header>
+  <main class="mobile-doc-container">
+    ${sheetContentHtml}
+  </main>
+</body>
+</html>`);
+  doc.close();
+  return true;
+}
+
 // --- MODALE COMPTE-RENDU DE SÉANCE PORTAIL ---
 async function openPortalSessionModal(sessionOrId, animal = null) {
   let session = null;
@@ -10160,13 +10343,8 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
   }
   const portalMotifEl = document.getElementById('portal-cr-dialog-motif');
   if (portalMotifEl) {
-    if (session.motif && session.motif.trim()) {
-      portalMotifEl.textContent = `Motif : ${session.motif}`;
-      portalMotifEl.style.display = 'block';
-    } else {
-      portalMotifEl.textContent = '';
-      portalMotifEl.style.display = 'none';
-    }
+    portalMotifEl.textContent = '';
+    portalMotifEl.style.display = 'none';
   }
 
   // Logo officiel
@@ -10410,6 +10588,21 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
     }
   };
 
+  // Aiguillage selon le terminal :
+  const isMobile = window.innerWidth < 768;
+  const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
+
+  // Sur Mobile (< 768px, Chrome) : Ouvrir le document (aux dimensions fixes A4 non étriquées) dans un second onglet natif (window.open)
+  if (isMobile && !isStandalone) {
+    const sheetElement = document.getElementById('portal-cr-sheet');
+    const sheetHtml = sheetElement ? sheetElement.outerHTML : '';
+    const ownerStr = client ? `Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
+    const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr ? ' • ' + ownerStr : ''}`;
+    const opened = openA4DocumentInMobileTab(`Compte-Rendu — ${animal?.nom || 'Animal'}`, sheetHtml, subtitle);
+    if (opened) return;
+  }
+
+  // Sur PC (boîte modale centrée avec bandeau sombre) et sur Tablette (PWA / standalone plein écran avec barre supérieure) :
   dialog.showModal();
 }
 
@@ -10881,6 +11074,20 @@ async function openAnimalDossierPreviewModal(animal, options) {
       }
     };
 
+    // Aiguillage selon le terminal :
+    const isMobile = window.innerWidth < 768;
+    const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
+
+    // Sur Mobile (< 768px, Chrome) : Ouvrir le document (aux dimensions fixes A4 non étriquées) dans un second onglet natif (window.open)
+    if (isMobile && !isStandalone) {
+      const sheetElement = document.getElementById('animal-dossier-preview-sheet');
+      const sheetHtml = sheetElement ? sheetElement.outerHTML : '';
+      const subtitle = `${animal.nom} (${animal.espece}) • Dossier édité le ${new Date().toLocaleDateString('fr-FR')}`;
+      const opened = openA4DocumentInMobileTab(`Fiche de Liaison — ${animal.nom}`, sheetHtml, subtitle);
+      if (opened) return;
+    }
+
+    // Sur PC (boîte modale centrée avec bandeau sombre) et sur Tablette (PWA / standalone plein écran avec barre supérieure) :
     dialog.showModal();
 
   } catch (err) {
