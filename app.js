@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.64';
+export const APP_VERSION = 'v1.6.65';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -2656,7 +2656,8 @@ async function renderAnimalDetails(animalId) {
     detailPhoto.style.cursor = 'pointer';
     detailPhoto.title = "Cliquer pour agrandir la photo";
     detailPhoto.onclick = () => {
-      openDocumentViewerModal(animal.photo_data_url, 'image/jpeg', `Photo - ${animal.nom || 'Animal'}`);
+      const preOpenedTab = prepareMobileTabIfNeeded();
+      openDocumentViewerModal(animal.photo_data_url, 'image/jpeg', `Photo - ${animal.nom || 'Animal'}`, { preOpenedTab });
     };
   } else {
     detailPhoto.src = '';
@@ -2840,9 +2841,11 @@ async function renderAnimalDetails(animalId) {
         
         if (docResource) {
           const openDocHandler = () => {
+            const preOpenedTab = prepareMobileTabIfNeeded();
             openDocumentViewerModal(docResource, s.fileType || s.file_type, s.fileName || s.file_name, {
               subtitle: `Séance du ${formatDate(s.date_seance)} • ${s.profession}`,
-              text: `Compte-rendu ${s.profession} pour ${animal.nom} (${formatDate(s.date_seance)})`
+              text: `Compte-rendu ${s.profession} pour ${animal.nom} (${formatDate(s.date_seance)})`,
+              preOpenedTab
             });
           };
 
@@ -2898,7 +2901,8 @@ async function renderAnimalDetails(animalId) {
 
         item.addEventListener('click', () => {
           if (currentPortalClientId) {
-            openPortalSessionModal(s, animal);
+            const preOpenedTab = prepareMobileTabIfNeeded();
+            openPortalSessionModal(s, animal, { preOpenedTab });
           } else {
             window.location.hash = `sessions/${s.id}`;
           }
@@ -2906,7 +2910,8 @@ async function renderAnimalDetails(animalId) {
 
         item.querySelector('.btn-print-direct').addEventListener('click', (e) => {
           e.stopPropagation();
-          openPortalSessionModal(s, animal);
+          const preOpenedTab = prepareMobileTabIfNeeded();
+          openPortalSessionModal(s, animal, { preOpenedTab });
         });
       }
       
@@ -4426,7 +4431,8 @@ async function renderSessionDetails(sessionId) {
 
   // Voir le PDF via la modale A4 officielle
   document.getElementById('btn-print-session').onclick = () => {
-    openPortalSessionModal(session, animal);
+    const preOpenedTab = prepareMobileTabIfNeeded();
+    openPortalSessionModal(session, animal, { preOpenedTab });
   };
 }
 
@@ -7417,6 +7423,34 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
   }
 }
 
+// HELPER : Détection stricte du contexte navigateur mobile / tablette (non standalone)
+function isMobileOrTabletBrowserEnvironment() {
+  const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
+  return !isStandalone && (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+    window.innerWidth <= 768 ||
+    (isTouchDevice && !/Windows NT/i.test(navigator.userAgent) && window.innerWidth <= 1024)
+  );
+}
+
+// HELPER : Déblocage immédiat de l'ouverture du second onglet sur mobile (gestion synchrone du clic)
+function prepareMobileTabIfNeeded() {
+  if (!isMobileOrTabletBrowserEnvironment()) return null;
+  try {
+    const newTab = window.open('about:blank', '_blank');
+    if (newTab) {
+      newTab.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px;">Génération du document en cours...</p>');
+      try { newTab.document.close(); } catch (_) {}
+      return newTab;
+    }
+  } catch (err) {
+    console.warn("Échec ouverture synchrone nouvel onglet:", err);
+  }
+  return null;
+}
+
 // AIGUILLEUR CENTRAL UNIVERSEL DE VISUALISATION DE TOUS LES DOCUMENTS
 async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
   if (!fileData) {
@@ -7425,14 +7459,8 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
   }
 
   // 1. Détection stricte de l'appareil et du contexte d'exécution
-  const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
-  const isMobileOrTabletBrowser = !isStandalone && (
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
-    window.innerWidth <= 768 ||
-    (isTouchDevice && !/Windows NT/i.test(navigator.userAgent) && window.innerWidth <= 1024)
-  );
+  const isMobileOrTabletBrowser = isMobileOrTabletBrowserEnvironment();
 
   // CAS 1 : Tablette & Smartphone en application PWA autonome (standalone / installée)
   // RÈGLE : Strict maintien de l'affichage plein écran avec bouton flottant croix [×] en haut à droite
@@ -7584,16 +7612,18 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
 
   // CAS 2 : Navigateurs Web Mobiles & Tablettes (Chrome Mobile ET Chrome Tablette)
   // RÈGLE : AUCUN modal incrusté sur la page. Ouverture systématique dans un second onglet indépendant via window.open(blobUrl, '_blank').
-  // Aucun téléchargement forcé automatique en amont (aucun attribut download).
+  // Déblocage Chrome Mobile : utilisation de l'onglet pré-ouvert de façon synchrone lors du clic utilisateur
   if (isMobileOrTabletBrowser) {
-    let targetTab = null;
-    try {
-      targetTab = window.open('', '_blank');
-      if (targetTab) {
-        targetTab.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Chargement du document...</title><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{margin:0;background:#0f172a;color:#94a3b8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center;padding:20px;box-sizing:border-box;}.spinner{width:38px;height:38px;border:3px solid rgba(255,255,255,0.15);border-top-color:#D96B27;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:14px;}@keyframes spin{to{transform:rotate(360deg);}}h2{margin:0 0 6px 0;color:#fff;font-size:1.1rem;}p{margin:0;font-size:0.85rem;}</style></head><body><div class="spinner"></div><h2>Ouverture du document...</h2><p>Le document va s'afficher dans un instant.</p></body></html>`);
-        targetTab.document.close();
-      }
-    } catch (_) {}
+    let targetTab = extraInfo.preOpenedTab || null;
+    if (!targetTab) {
+      try {
+        targetTab = window.open('about:blank', '_blank');
+        if (targetTab) {
+          targetTab.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px;">Génération du document en cours...</p>');
+          try { targetTab.document.close(); } catch (_) {}
+        }
+      } catch (_) {}
+    }
 
     let resolvedData = fileData;
     if (typeof fileData === 'function') {
@@ -7601,7 +7631,11 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
         resolvedData = await fileData();
       } catch (err) {
         console.error("[openDocumentViewerModal mobile] Erreur génération:", err);
-        if (targetTab) try { targetTab.close(); } catch (_) {}
+        if (targetTab && !targetTab.closed) {
+          try {
+            targetTab.document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #ef4444;">Erreur lors de la génération du document.</p>';
+          } catch (_) {}
+        }
         showToast("Erreur lors de la préparation du document.", "error");
         return;
       }
@@ -7609,7 +7643,11 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
 
     const resolved = await resolveAttachmentResource(resolvedData, fileType, fileName);
     if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
-      if (targetTab) try { targetTab.close(); } catch (_) {}
+      if (targetTab && !targetTab.closed) {
+        try {
+          targetTab.document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #ef4444;">Document non disponible ou introuvable.</p>';
+        } catch (_) {}
+      }
       showToast("Document non disponible ou introuvable.", "error");
       return;
     }
@@ -7626,39 +7664,23 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     }
 
     if (!fileUrl) {
-      if (targetTab) try { targetTab.close(); } catch (_) {}
+      if (targetTab && !targetTab.closed) {
+        try { targetTab.close(); } catch (_) {}
+      }
       showToast("Impossible de lire ce document.", "error");
       return;
     }
 
-    let opened = false;
+    // Une fois le Blob généré : navigation dans l'onglet ouvert, ou repli dans la fenêtre courante
     if (targetTab && !targetTab.closed) {
       try {
         targetTab.location.href = fileUrl;
-        opened = true;
-      } catch (_) {
-        opened = false;
+      } catch (navErr) {
+        console.warn("Navigation targetTab échouée, redirection directe:", navErr);
+        window.location.href = fileUrl;
       }
-    }
-
-    if (!opened) {
-      try {
-        const newWin = window.open(fileUrl, '_blank');
-        if (newWin) opened = true;
-      } catch (_) {
-        opened = false;
-      }
-    }
-
-    // Fallback sans attribut download (aucun téléchargement forcé)
-    if (!opened) {
-      const link = document.createElement('a');
-      link.href = fileUrl;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => link.remove(), 200);
+    } else {
+      window.location.href = fileUrl;
     }
 
     if (isTempObjectUrl) {
@@ -7833,15 +7855,15 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       // PC Bureau avec souris : Rendu haute fidélité avec miniatures PDF.js ou Image
       if (isImage) {
           bodyEl.innerHTML = `
-            <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; margin: 0 auto;">
-              <img src="${blobUrl}" alt="${escapeHtml(displayTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+            <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; max-width: 794px; margin: 0 auto; box-sizing: border-box;">
+              <img src="${blobUrl}" alt="${escapeHtml(displayTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 794px; height: auto; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); box-sizing: border-box;">
             </div>
           `;
           applyZoom();
         } else if (isPdf && window.pdfjsLib) {
           bodyEl.innerHTML = `
-            <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; margin: 0 auto; min-height: 70vh;">
-              <div id="pdf-canvas-container" style="display: block; width: 100%; margin: 0;"></div>
+            <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; max-width: 794px; margin: 0 auto; min-height: 70vh; box-sizing: border-box;">
+              <div id="pdf-canvas-container" style="display: block; width: 100%; max-width: 794px; margin: 0 auto; box-sizing: border-box;"></div>
             </div>
           `;
           const container = bodyEl.querySelector('#pdf-canvas-container');
@@ -7855,7 +7877,8 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
             for (let pNum = 1; pNum <= maxPages; pNum++) {
               const page = await pdfDoc.getPage(pNum);
               const unscaledViewport = page.getViewport({ scale: 1 });
-              const availWidth = bodyEl.clientWidth ? Math.max(bodyEl.clientWidth - 24, 280) : (window.innerWidth - 32);
+              const maxAvail = bodyEl.clientWidth ? Math.max(bodyEl.clientWidth - 24, 280) : (window.innerWidth - 32);
+              const availWidth = Math.min(maxAvail, 794);
               const fitScale = availWidth / unscaledViewport.width;
               const viewport = page.getViewport({ scale: fitScale });
 
@@ -7864,12 +7887,13 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
               canvas.height = viewport.height;
               canvas.width = viewport.width;
               canvas.style.width = '100%';
-              canvas.style.maxWidth = '100%';
+              canvas.style.maxWidth = '794px';
               canvas.style.height = 'auto';
               canvas.style.display = 'block';
               canvas.style.margin = '0 auto 12px auto';
               canvas.style.borderRadius = '6px';
               canvas.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+              canvas.style.boxSizing = 'border-box';
 
               const ctx = canvas.getContext('2d');
               await page.render({ canvasContext: ctx, viewport }).promise;
@@ -10275,7 +10299,7 @@ function openA4DocumentInMobileTab(title, sheetContentHtml, subtitle = '') {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.64">
+  <link rel="stylesheet" href="style.css?v=1.6.65">
   <style>
     html, body {
       margin: 0;
@@ -10442,7 +10466,7 @@ function openA4DocumentInMobileTab(title, sheetContentHtml, subtitle = '') {
 }
 
 // --- MODALE COMPTE-RENDU DE SÉANCE PORTAIL ---
-async function openPortalSessionModal(sessionOrId, animal = null) {
+async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}) {
   let session = null;
   if (typeof sessionOrId === 'object' && sessionOrId !== null) {
     session = sessionOrId;
@@ -10479,6 +10503,7 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
   const extAttachment = session.fileData || session.attachments;
   if (session.isExternal && extAttachment) {
     return await openDocumentViewerModal(extAttachment, session.fileType || session.file_type, session.fileName || session.file_name, {
+      ...extraInfo,
       subtitle: `Séance du ${formatDate(session.date_seance)} • ${session.profession || 'Externe'}`,
       text: `Compte-rendu ${session.profession || 'externe'} pour ${animal.nom}`
     });
@@ -10603,9 +10628,11 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
         </button>
       `;
       attachContent.querySelector('.btn-view-modal-ext-file').onclick = () => {
+        const preOpenedTab = prepareMobileTabIfNeeded();
         openDocumentViewerModal(portalDocResource, session.fileType || session.file_type, session.fileName || session.file_name, {
           subtitle: `Séance du ${formatDate(session.date_seance)} • ${session.profession || 'Externe'}`,
-          text: `Document joint séance pour ${animal.nom}`
+          text: `Document joint séance pour ${animal.nom}`,
+          preOpenedTab
         });
       };
       attachSection.style.display = 'block';
@@ -10637,6 +10664,7 @@ async function openPortalSessionModal(sessionOrId, animal = null) {
   };
 
   await openDocumentViewerModal(pdfGenerator, 'application/pdf', filename, {
+    ...extraInfo,
     text: `Compte-Rendu — ${animal?.nom || 'Animal'}`,
     subtitle: subtitle
   });
@@ -10700,13 +10728,14 @@ async function openExportAnimalDossierModal(animalOrId) {
         return;
       }
 
+      const preOpenedTab = prepareMobileTabIfNeeded();
       dialog.close();
       await openAnimalDossierPreviewModal(animal, {
         includeIdentity,
         includeMedical,
         includeSessions,
         sessionPeriod
-      });
+      }, { preOpenedTab });
     };
   }
 
@@ -10732,7 +10761,7 @@ async function openExportAnimalDossierModal(animalOrId) {
   dialog.showModal();
 }
 
-async function openAnimalDossierPreviewModal(animal, options) {
+async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
   const dialog = document.getElementById('dialog-preview-animal-dossier');
   if (!dialog) return;
 
@@ -10821,7 +10850,7 @@ async function openAnimalDossierPreviewModal(animal, options) {
           <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1.5px solid #e2e8f0;">
             <span style="color: #D96B27;">1.</span> Signalement & Fiche d'Identité
           </div>
-          <table style="width: 100%; border-collapse: separate; border-spacing: 16px 0; margin-left: -8px; margin-right: -8px;">
+          <table style="width: 100%; border-collapse: separate; border-spacing: 16px 0; margin: 0; box-sizing: border-box;">
             <tr>
               <td style="width: 50%; vertical-align: top; padding: 0;">
                 <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; color: #1e293b;">
@@ -10999,6 +11028,7 @@ async function openAnimalDossierPreviewModal(animal, options) {
     };
 
     await openDocumentViewerModal(pdfGenerator, 'application/pdf', filename, {
+      ...extraInfo,
       text: `Fiche de Liaison & Dossier de Santé — ${animal.nom}`,
       subtitle: subtitle
     });

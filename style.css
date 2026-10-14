@@ -1794,9 +1794,12 @@ textarea.form-control {
 
 .canvas-container {
   position: relative;
-  width: 600px;
-  max-width: 100%;
-  height: 400px;
+  width: 100%;
+  max-width: 600px;
+  height: auto;
+  aspect-ratio: 600 / 400;
+  margin: 0 auto;
+  display: block;
   background-color: #ffffff;
   border-radius: var(--border-radius-md);
   overflow: hidden;
@@ -1804,6 +1807,7 @@ textarea.form-control {
   touch-action: none !important;
   user-select: none;
   -webkit-user-select: none;
+  box-sizing: border-box;
 }
 
 .canvas-viewport {
@@ -2329,15 +2333,16 @@ textarea.form-control {
   width: 100%;
   max-width: 600px;
   height: auto;
-  aspect-ratio: 600 / 400;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  display: block;
+  box-sizing: border-box;
 }
 
 .print-canvas-preview img, .session-canvas-preview img {
-  width: 100%;
-  height: 100%;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  display: block;
+  margin: 0 auto;
   object-fit: contain;
   border-radius: var(--border-radius-md);
   border: 1px solid var(--glass-border);
@@ -2679,7 +2684,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 #dialog-document-viewer #doc-viewer-body,
 .modal-pj-body {
   overflow-y: auto !important;
-  overflow-x: hidden !important;
+  overflow-x: auto !important;
   -webkit-overflow-scrolling: touch !important;
   flex: 1 1 auto !important;
   display: block !important;
@@ -2687,8 +2692,8 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   box-sizing: border-box !important;
   width: 100% !important;
   max-width: 100% !important;
-  padding: 10px !important;
-  margin: 0 !important;
+  padding: 12px !important;
+  margin: 0 auto !important;
   touch-action: pan-y pinch-zoom !important;
 }
 
@@ -2700,11 +2705,19 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   vertical-align: top !important;
   box-sizing: border-box !important;
   width: 100% !important;
-  max-width: 100% !important;
+  max-width: 794px !important;
   margin: 0 auto !important;
   transform-origin: 50% 0 !important;
   -webkit-transform-origin: 50% 0 !important;
   touch-action: pan-y pinch-zoom !important;
+}
+
+#dialog-document-viewer #pdf-canvas-container {
+  display: block !important;
+  width: 100% !important;
+  max-width: 794px !important;
+  margin: 0 auto !important;
+  box-sizing: border-box !important;
 }
 
 .pinch-zoom-container {
@@ -2729,11 +2742,15 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15) !important;
   border-radius: 8px !important;
   padding: 20mm !important;
-  width: 794px !important;
-  min-width: 794px !important;
+  width: 100% !important;
   max-width: 794px !important;
+  min-width: 0 !important;
   margin: 0 auto !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
   box-sizing: border-box !important;
+  transform: none !important;
+  -webkit-transform: none !important;
 }
 
 .cr-document p,
@@ -2920,9 +2937,13 @@ body.is-client-portal footer.portal-only {
 #portal-cr-sheet .print-canvas-preview img {
   border: 1px solid #cbd5e1 !important;
   background-color: white !important;
-  max-width: 100%;
-  max-height: 360px;
-  object-fit: contain;
+  max-width: 100% !important;
+  width: auto !important;
+  height: auto !important;
+  max-height: none !important;
+  display: block !important;
+  margin: 0 auto !important;
+  object-fit: contain !important;
 }
 
 @media (max-width: 640px) {
@@ -4076,6 +4097,8 @@ body.is-printing .collapsible-icon {
     max-width: 100% !important;
     height: auto !important;
     aspect-ratio: 600 / 400 !important;
+    margin: 0 auto !important;
+    display: block !important;
     box-sizing: border-box !important;
   }
 
@@ -4084,7 +4107,8 @@ body.is-printing .collapsible-icon {
     width: 100% !important;
     max-width: 100% !important;
     height: auto !important;
-    aspect-ratio: 600 / 400 !important;
+    display: block !important;
+    margin: 15px auto !important;
   }
 
   /* 5. Modales A4 / Fiche de liaison */
