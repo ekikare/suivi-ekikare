@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.65';
+export const APP_VERSION = 'v1.6.66';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -4119,10 +4119,10 @@ function renderDetailedCR(session) {
   // Schema inside the Protocols section
   if (session.canvas_annotation_image_blob) {
     html += `
-      <div style="margin-top: 15px; text-align: center;">
+      <div class="schema-section planche-anatomique" style="margin-top: 15px; text-align: center; page-break-inside: avoid !important; break-inside: avoid !important; display: block;">
         <strong style="display:block; margin-bottom:8px; text-align:left;">Schéma d'annotations de la séance :</strong>
-        <div class="session-canvas-preview" style="border: 1px solid var(--glass-border); border-radius: 8px; padding: 10px; background: rgba(0, 0, 0, 0.2); max-width: 500px; margin: 0 auto;">
-          <img src="${session.canvas_annotation_image_blob}" alt="Schéma d'annotations" style="max-width: 100%; height: auto; border-radius: 4px; display: block; margin: 0 auto;">
+        <div class="session-canvas-preview" style="border: 1px solid var(--glass-border); border-radius: 8px; padding: 10px; background: rgba(0, 0, 0, 0.2); max-width: 500px; margin: 0 auto; page-break-inside: avoid !important; break-inside: avoid !important; display: block;">
+          <img src="${session.canvas_annotation_image_blob}" alt="Schéma d'annotations" style="max-width: 100%; height: auto; border-radius: 4px; display: block; margin: 0 auto; page-break-inside: avoid !important; break-inside: avoid !important;">
         </div>
       </div>
     `;
@@ -7402,10 +7402,21 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
             target.style.boxSizing = 'border-box';
             target.style.backgroundColor = '#ffffff';
           }
+
+          // Protection absolue contre la coupure du schéma anatomique sur deux pages
+          const schemaElements = clonedDoc.querySelectorAll('#portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique, .print-canvas-preview, .session-canvas-preview');
+          schemaElements.forEach(el => {
+            el.style.pageBreakInside = 'avoid';
+            el.style.breakInside = 'avoid';
+            el.style.display = 'block';
+          });
         }
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+      pagebreak: { 
+        mode: ['avoid-all', 'css', 'legacy'],
+        avoid: ['#portal-cr-section-canvas', '#print-section-canvas', '.schema-section', '.planche-anatomique', '.print-canvas-preview', '.session-canvas-preview', '.print-section', '.print-grid-2', '.print-footer']
+      }
     };
 
     const worker = html2pdf().set(opt).from(clone);
@@ -7471,7 +7482,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       standaloneViewer.id = 'standalone-document-viewer';
       standaloneViewer.setAttribute('role', 'dialog');
       standaloneViewer.setAttribute('aria-modal', 'true');
-      standaloneViewer.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 99990; background: #000; display: flex; flex-direction: column; margin: 0; padding: 0; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;';
+      standaloneViewer.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 99990; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; margin: 0; padding: 20px 0; box-sizing: border-box; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch;';
       document.body.appendChild(standaloneViewer);
     }
 
@@ -7537,19 +7548,19 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
           const pdfDoc = await loadingTask.promise;
 
           const canvasWrap = document.createElement('div');
-          canvasWrap.style.cssText = 'width: 100%; min-height: 100vh; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding: 12px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center;';
+          canvasWrap.style.cssText = 'width: 100%; min-height: 100vh; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 20px 0; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;';
 
           const availWidth = Math.max(window.innerWidth - 32, 280);
           for (let pNum = 1; pNum <= pdfDoc.numPages; pNum++) {
             const page = await pdfDoc.getPage(pNum);
             const unscaledViewport = page.getViewport({ scale: 1 });
-            const fitScale = availWidth / unscaledViewport.width;
+            const fitScale = Math.min(availWidth, 794) / unscaledViewport.width;
             const viewport = page.getViewport({ scale: fitScale });
 
             const canvas = document.createElement('canvas');
             canvas.height = viewport.height;
             canvas.width = viewport.width;
-            canvas.style.cssText = 'width: 100%; max-width: 100%; height: auto; display: block; margin: 0 auto 14px auto; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.6);';
+            canvas.style.cssText = 'width: 100%; max-width: 794px; height: auto; display: block; margin: 0 auto 14px auto; left: auto; right: auto; transform: none; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.6); box-sizing: border-box;';
 
             const ctx = canvas.getContext('2d');
             await page.render({ canvasContext: ctx, viewport }).promise;
@@ -7855,15 +7866,15 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       // PC Bureau avec souris : Rendu haute fidélité avec miniatures PDF.js ou Image
       if (isImage) {
           bodyEl.innerHTML = `
-            <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; max-width: 794px; margin: 0 auto; box-sizing: border-box;">
-              <img src="${blobUrl}" alt="${escapeHtml(displayTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 794px; height: auto; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); box-sizing: border-box;">
+            <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;">
+              <img src="${blobUrl}" alt="${escapeHtml(displayTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 794px; height: auto; margin: 0 auto; left: auto; right: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); box-sizing: border-box;">
             </div>
           `;
           applyZoom();
         } else if (isPdf && window.pdfjsLib) {
           bodyEl.innerHTML = `
-            <div class="zoomable-document-content" style="position: relative; display: block; width: 100%; max-width: 794px; margin: 0 auto; min-height: 70vh; box-sizing: border-box;">
-              <div id="pdf-canvas-container" style="display: block; width: 100%; max-width: 794px; margin: 0 auto; box-sizing: border-box;"></div>
+            <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; min-height: 70vh; transform: none; box-sizing: border-box;">
+              <div id="pdf-canvas-container" style="display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;"></div>
             </div>
           `;
           const container = bodyEl.querySelector('#pdf-canvas-container');
@@ -7890,7 +7901,10 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
               canvas.style.maxWidth = '794px';
               canvas.style.height = 'auto';
               canvas.style.display = 'block';
-              canvas.style.margin = '0 auto 12px auto';
+              canvas.style.margin = '0 auto 14px auto';
+              canvas.style.left = 'auto';
+              canvas.style.right = 'auto';
+              canvas.style.transform = 'none';
               canvas.style.borderRadius = '6px';
               canvas.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
               canvas.style.boxSizing = 'border-box';
@@ -10299,7 +10313,7 @@ function openA4DocumentInMobileTab(title, sheetContentHtml, subtitle = '') {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.65">
+  <link rel="stylesheet" href="style.css?v=1.6.66">
   <style>
     html, body {
       margin: 0;
