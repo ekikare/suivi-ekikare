@@ -31,7 +31,7 @@
     }
   </script>
   <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="manifest.json?v=1.6.66">
+  <link rel="manifest" href="manifest.json?v=1.6.67">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,17 +39,17 @@
   <meta name="apple-mobile-web-app-title" content="eKiKare">
 
   <!-- Icons (Favicon & Touch Icons) -->
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.66">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.66">
-  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.66">
-  <link rel="shortcut icon" href="favicon.ico?v=1.6.66">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.66">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.67">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.67">
+  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.67">
+  <link rel="shortcut icon" href="favicon.ico?v=1.6.67">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.67">
 
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.66">
+  <link rel="stylesheet" href="style.css?v=1.6.67">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -60,7 +60,7 @@
   <!-- PDF.js library for high-fidelity canvas PDF rendering & zoom on mobile/tablets -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <!-- PinchZoom library for touch gestures & continuous focal zoom -->
-  <script src="lib/pinch-zoom.umd.js?v=1.6.66"></script>
+  <script src="lib/pinch-zoom.umd.js?v=1.6.67"></script>
 </head>
 <body>
   <div class="app-container">
@@ -110,7 +110,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <p class="app-version">eKiKare v1.6.66 &bull; Offline Database</p>
+        <p class="app-version">eKiKare v1.6.67 &bull; Offline Database</p>
       </div>
     </aside>
 
@@ -2421,45 +2421,13 @@
     </div>
 
     <!-- Conteneur défilable du document -->
-    <div id="doc-viewer-body" class="modal-pj-body" style="display: block; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; touch-action: pan-y pinch-zoom; min-height: 250px; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 10px; box-sizing: border-box; width: 100%; text-align: center;">
+    <div id="doc-viewer-body" class="modal-pj-body viewer-container">
       <!-- Rendu dynamique -->
     </div>
   </dialog>
 
-  <!-- Modal Compte-Rendu de Séance (Miroir Officiel A4 Feuille Imprimable) -->
-  <dialog class="app-dialog glass-card" id="dialog-portal-session-cr" style="max-width: 880px; width: 95%; max-height: 92vh; padding: 20px; overflow-y: auto; overflow-x: auto;">
-    <div class="dialog-header" style="position: sticky; top: -20px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); z-index: 20; border-bottom: 1px solid var(--glass-border); padding: 12px 0; margin: -20px -20px 20px -20px; padding-left: 20px; padding-right: 20px; display: flex; justify-content: space-between; align-items: center;">
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <span style="font-size: 1.4rem;">📄</span>
-        <div>
-          <h2 id="portal-cr-dialog-title" style="margin: 0; font-size: 1.15rem; color: #fff;">Compte-Rendu Officiel</h2>
-          <p id="portal-cr-dialog-subtitle" style="margin: 2px 0 0 0; font-size: 0.8rem; color: var(--text-sub);">-</p>
-          <p id="portal-cr-dialog-motif" style="margin: 2px 0 0 0; font-size: 0.82rem; color: var(--color-primary); font-weight: 500; display: none;"></p>
-        </div>
-      </div>
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <button type="button" class="btn btn-secondary btn-small md:hidden" id="btn-share-portal-cr" style="display: inline-flex; align-items: center; gap: 6px;">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="18" cy="5" r="3"></circle>
-            <circle cx="6" cy="12" r="3"></circle>
-            <circle cx="18" cy="19" r="3"></circle>
-            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
-            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
-          </svg>
-          Partager / Imprimer
-        </button>
-        <button type="button" class="btn btn-primary btn-small" id="btn-download-portal-cr" style="display: inline-flex; align-items: center; gap: 6px;">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          Télécharger PDF
-        </button>
-        <button class="btn-close-dialog" type="button" aria-label="Fermer" style="margin-left: 6px;">&times;</button>
-      </div>
-    </div>
-
+  <!-- Gabarit DOM hors-champ pour compilation PDF du Compte-Rendu -->
+  <div id="dialog-portal-session-cr" style="display: none;" aria-hidden="true">
     <!-- Feuille A4 Officielle Imprimable (Fond Blanc Miroir) -->
     <div class="print-container official-a4-sheet cr-document" id="portal-cr-sheet">
       <div class="print-header">
@@ -2526,7 +2494,7 @@
         <p style="margin-top: 10px; font-size: 0.75rem; color: #64748b; text-align: center;">Généré via l'application Suivi eKiKare le <span id="portal-cr-generation-date">-</span></p>
       </div>
     </div>
-  </dialog>
+  </div>
 
   <!-- MODAL EXPORT DOSSIER DE LIAISON / SANTE ANIMAL -->
   <dialog class="app-dialog glass-card" id="dialog-export-animal-dossier" style="max-width: 540px; width: 92%;">
@@ -2615,44 +2583,13 @@
     </div>
   </dialog>
 
-  <!-- MODALE PREVISUALISATION ET IMPRESSION A4 FICHE DE LIAISON -->
-  <dialog class="app-dialog glass-card" id="dialog-preview-animal-dossier" style="max-width: 880px; width: 95%; max-height: 92vh; padding: 20px; overflow-y: auto; overflow-x: auto;">
-    <div class="dialog-header" style="position: sticky; top: -20px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px); z-index: 20; border-bottom: 1px solid var(--glass-border); padding: 12px 0; margin: -20px -20px 20px -20px; padding-left: 20px; padding-right: 20px; display: flex; justify-content: space-between; align-items: center;">
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <span style="font-size: 1.4rem;">📋</span>
-        <div>
-          <h2 id="preview-dossier-dialog-title" style="margin: 0; font-size: 1.15rem; color: #fff;">Fiche de Liaison & Dossier de Santé</h2>
-          <p id="preview-dossier-dialog-subtitle" style="margin: 2px 0 0 0; font-size: 0.8rem; color: var(--text-sub);">-</p>
-        </div>
-      </div>
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <button type="button" class="btn btn-primary btn-small" id="btn-download-animal-dossier" style="background: linear-gradient(135deg, #D96B27, #f59e0b); border: none; display: inline-flex; align-items: center; gap: 6px;">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          <span>Télécharger le PDF</span>
-        </button>
-        <button type="button" class="btn btn-secondary btn-small md:hidden" id="btn-share-animal-dossier" style="display: inline-flex; align-items: center; gap: 6px;">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="18" cy="5" r="3"></circle>
-            <circle cx="6" cy="12" r="3"></circle>
-            <circle cx="18" cy="19" r="3"></circle>
-            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
-            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
-          </svg>
-          <span>Partager</span>
-        </button>
-        <button type="button" class="btn btn-secondary btn-small btn-close-dialog">Fermer</button>
-      </div>
-    </div>
-
+  <!-- Gabarit DOM hors-champ pour compilation PDF de la Fiche de Liaison -->
+  <div id="dialog-preview-animal-dossier" style="display: none;" aria-hidden="true">
     <!-- Feuille A4 Officielle Imprimable (Fond Blanc Miroir) -->
     <div class="print-container official-a4-sheet cr-document" id="animal-dossier-preview-sheet" style="background: #ffffff; color: #1e293b; padding: 30px 40px; border-radius: 8px;">
       <!-- Contenu injecté dynamiquement -->
     </div>
-  </dialog>
+  </div>
 
   <!-- MODALE D'ARCHIVAGE DYNAMIQUE -->
   <dialog class="app-dialog glass-card" id="dialog-archive-record" style="max-width: 480px; width: 92%;">
@@ -3128,13 +3065,13 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.66"></script>
+  <script type="module" src="app.js?v=1.6.67"></script>
 
   <!-- Service Worker PWA -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1.6.66')
+        navigator.serviceWorker.register('./sw.js?v=1.6.67')
           .then((reg) => {
             console.log('[PWA] Service Worker actif (scope:', reg.scope, ')');
           })

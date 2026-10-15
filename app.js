@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.66';
+export const APP_VERSION = 'v1.6.67';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -2657,7 +2657,7 @@ async function renderAnimalDetails(animalId) {
     detailPhoto.title = "Cliquer pour agrandir la photo";
     detailPhoto.onclick = () => {
       const preOpenedTab = prepareMobileTabIfNeeded();
-      openDocumentViewerModal(animal.photo_data_url, 'image/jpeg', `Photo - ${animal.nom || 'Animal'}`, { preOpenedTab });
+      openUniversalDocument(animal.photo_data_url, `Photo - ${animal.nom || 'Animal'}`, `Photo - ${animal.nom || 'Animal'}`, { preOpenedTab });
     };
   } else {
     detailPhoto.src = '';
@@ -2842,7 +2842,8 @@ async function renderAnimalDetails(animalId) {
         if (docResource) {
           const openDocHandler = () => {
             const preOpenedTab = prepareMobileTabIfNeeded();
-            openDocumentViewerModal(docResource, s.fileType || s.file_type, s.fileName || s.file_name, {
+            openUniversalDocument(docResource, s.fileName || s.file_name || 'document.pdf', `Compte-rendu ${s.profession} pour ${animal.nom} (${formatDate(s.date_seance)})`, {
+              fileType: s.fileType || s.file_type,
               subtitle: `Séance du ${formatDate(s.date_seance)} • ${s.profession}`,
               text: `Compte-rendu ${s.profession} pour ${animal.nom} (${formatDate(s.date_seance)})`,
               preOpenedTab
@@ -7371,6 +7372,14 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
   const clone = sourceElement.cloneNode(true);
   clone.style.cssText = 'display: block; visibility: visible; width: 794px; min-width: 794px; max-width: 794px; box-sizing: border-box; margin: 0 auto; background: #ffffff; padding: 20mm;';
 
+  // Sécurisation stricte du saut de page sur le bloc schéma dès le DOM cloné
+  const schemaElements = clone.querySelectorAll('#portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique, .print-canvas-preview, .session-canvas-preview');
+  schemaElements.forEach(el => {
+    el.style.pageBreakInside = 'avoid';
+    el.style.breakInside = 'avoid';
+    el.style.display = 'block';
+  });
+
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
 
@@ -7404,8 +7413,8 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
           }
 
           // Protection absolue contre la coupure du schéma anatomique sur deux pages
-          const schemaElements = clonedDoc.querySelectorAll('#portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique, .print-canvas-preview, .session-canvas-preview');
-          schemaElements.forEach(el => {
+          const schemaInClone = clonedDoc.querySelectorAll('#portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique, .print-canvas-preview, .session-canvas-preview');
+          schemaInClone.forEach(el => {
             el.style.pageBreakInside = 'avoid';
             el.style.breakInside = 'avoid';
             el.style.display = 'block';
@@ -7462,19 +7471,80 @@ function prepareMobileTabIfNeeded() {
   return null;
 }
 
-// AIGUILLEUR CENTRAL UNIVERSEL DE VISUALISATION DE TOUS LES DOCUMENTS
-async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo = {}) {
-  if (!fileData) {
+// ============================================================================
+// AIGUILLEUR CENTRAL UNIVERSEL UNIQUE : openUniversalDocument(resource, filename, title, options)
+// 100% des documents (CR internes, Dossiers de santé, Pièces jointes PDF/Images)
+// convergent vers cette fonction unique.
+// ============================================================================
+export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
+  if (!resource) {
     showToast("Aucun document joint à afficher.", "error");
     return;
   }
 
-  // 1. Détection stricte de l'appareil et du contexte d'exécution
+  // Normalisation des arguments pour supporter les signatures :
+  // - openUniversalDocument(blobUrlOrBlob, filename, title, extraInfo)
+  // - openDocumentViewerModal(fileData, fileType, fileName, extraInfo)
+  let rawResource = resource;
+  let filename = '';
+  let displayTitle = '';
+  let extraInfo = {};
+
+  if (typeof arg2 === 'string' && (arg2.includes('/') || arg2 === '')) {
+    // Signature héritée : (fileData, fileType, fileName, extraInfo)
+    filename = arg3 || 'document.pdf';
+    extraInfo = (typeof arg4 === 'object' && arg4 !== null) ? arg4 : {};
+    displayTitle = extraInfo.text || filename;
+  } else {
+    // Signature unifiée : (blobUrlOrBlob, filename, title, extraInfo)
+    filename = (typeof arg2 === 'string' && arg2) ? arg2 : 'document.pdf';
+    if (typeof arg3 === 'object' && arg3 !== null) {
+      extraInfo = arg3;
+      displayTitle = extraInfo.text || filename;
+    } else {
+      displayTitle = arg3 || filename;
+      extraInfo = (typeof arg4 === 'object' && arg4 !== null) ? arg4 : {};
+    }
+  }
+
+  // 1. Détection stricte de l'environnement matériel et d'affichage
   const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
   const isMobileOrTabletBrowser = isMobileOrTabletBrowserEnvironment();
 
-  // CAS 1 : Tablette & Smartphone en application PWA autonome (standalone / installée)
-  // RÈGLE : Strict maintien de l'affichage plein écran avec bouton flottant croix [×] en haut à droite
+  // Helper interne pour résoudre le Blob et créer le blobUrl
+  async function resolveToBlobAndUrl(data) {
+    let resolvedData = data;
+    if (typeof data === 'function') {
+      resolvedData = await data();
+    }
+    if (resolvedData instanceof Blob) {
+      const url = URL.createObjectURL(resolvedData);
+      return { blob: resolvedData, blobUrl: url, isTempUrl: true, mime: resolvedData.type || 'application/pdf', name: filename };
+    }
+    if (typeof resolvedData === 'string' && (resolvedData.startsWith('blob:') || resolvedData.startsWith('http://') || resolvedData.startsWith('https://'))) {
+      return { blob: extraInfo.blob || null, blobUrl: resolvedData, isTempUrl: false, mime: (filename.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'), name: filename };
+    }
+    // Données base64 ou attachments de la base IndexedDB
+    const resolved = await resolveAttachmentResource(resolvedData, extraInfo.fileType || (filename.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'), filename);
+    let url = resolved.blobUrl;
+    let isTemp = false;
+    if (!url && resolved.blob) {
+      url = URL.createObjectURL(resolved.blob);
+      isTemp = true;
+    }
+    return {
+      blob: resolved.blob,
+      blobUrl: url,
+      isTempUrl: isTemp,
+      mime: resolved.mime || (filename.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
+      name: resolved.name || filename
+    };
+  }
+
+  // ==========================================================================
+  // RÈGLE TERMINAL 1 : Tablette & Smartphone en application PWA installée (standalone)
+  // Maintien strict de l'affichage plein écran avec croix [×] en haut à droite
+  // ==========================================================================
   if (isStandalone) {
     let standaloneViewer = document.getElementById('standalone-document-viewer');
     if (!standaloneViewer) {
@@ -7494,44 +7564,24 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     `;
     standaloneViewer.style.display = 'flex';
 
-    let resolvedData = fileData;
-    if (typeof fileData === 'function') {
-      try {
-        resolvedData = await fileData();
-      } catch (err) {
-        console.error("[openDocumentViewerModal standalone] Erreur génération:", err);
-        standaloneViewer.style.display = 'none';
-        showToast("Erreur lors de la préparation du document.", "error");
-        return;
-      }
+    let docInfo = null;
+    try {
+      docInfo = await resolveToBlobAndUrl(rawResource);
+    } catch (err) {
+      console.error("[openUniversalDocument standalone] Erreur résolution:", err);
+      standaloneViewer.style.display = 'none';
+      showToast("Erreur lors de la préparation du document.", "error");
+      return;
     }
 
-    const resolved = await resolveAttachmentResource(resolvedData, fileType, fileName);
-    if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
+    if (!docInfo || !docInfo.blobUrl) {
       standaloneViewer.style.display = 'none';
       showToast("Document non disponible ou introuvable.", "error");
       return;
     }
 
-    const blob = resolved.blob;
-    let fileUrl = '';
-    let isTempObjectUrl = false;
-
-    if (blob) {
-      fileUrl = URL.createObjectURL(blob);
-      isTempObjectUrl = true;
-    } else if (resolved.blobUrl) {
-      fileUrl = resolved.blobUrl;
-    }
-
-    if (!fileUrl) {
-      standaloneViewer.style.display = 'none';
-      showToast("Impossible de lire ce document.", "error");
-      return;
-    }
-
-    const attachmentName = resolved.name || fileName || (resolved.mime?.includes('pdf') ? 'document.pdf' : (resolved.mime?.startsWith('image/') ? 'photo.jpg' : 'document'));
-    const isPdf = !!(resolved.mime?.includes('pdf') || attachmentName.toLowerCase().endsWith('.pdf') || (fileType && fileType.includes('pdf')));
+    const { blobUrl, isTempUrl, mime, name } = docInfo;
+    const isPdf = !!(mime?.includes('pdf') || name?.toLowerCase().endsWith('.pdf'));
 
     if (isPdf) {
       let renderedViaPdfJs = false;
@@ -7540,11 +7590,11 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
           standaloneViewer.innerHTML = `
             <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100vh; color: #94a3b8;">
               <div style="width: 38px; height: 38px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #D96B27; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
-              <p style="margin: 0; font-size: 0.9rem;">Affichage du compte-rendu...</p>
+              <p style="margin: 0; font-size: 0.9rem;">Affichage du document...</p>
             </div>
           `;
           window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-          const loadingTask = window.pdfjsLib.getDocument(fileUrl);
+          const loadingTask = window.pdfjsLib.getDocument(blobUrl);
           const pdfDoc = await loadingTask.promise;
 
           const canvasWrap = document.createElement('div');
@@ -7570,17 +7620,17 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
           standaloneViewer.appendChild(canvasWrap);
           renderedViaPdfJs = true;
         } catch (pdfErr) {
-          console.warn("[standaloneViewer] Rendu PDF.js échoué, repli object:", pdfErr);
+          console.warn("[openUniversalDocument standalone] Rendu PDF.js échoué, repli object:", pdfErr);
         }
       }
 
       if (!renderedViaPdfJs) {
-        standaloneViewer.innerHTML = `<object data="${fileUrl}" type="application/pdf" style="width: 100%; height: 100vh; border: none;">
-          <iframe src="${fileUrl}" style="width: 100%; height: 100vh; border: none;"></iframe>
+        standaloneViewer.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: 100vh; border: none;">
+          <iframe src="${blobUrl}" style="width: 100%; height: 100vh; border: none;"></iframe>
         </object>`;
       }
     } else {
-      standaloneViewer.innerHTML = `<img src="${fileUrl}" style="max-width: 100%; max-height: 100vh; object-fit: contain; margin: auto; display: block;" />`;
+      standaloneViewer.innerHTML = `<img src="${blobUrl}" style="max-width: 100%; max-height: 100vh; object-fit: contain; margin: auto; display: block;" />`;
     }
 
     // Supprimer tout éventuel bouton flottant précédent
@@ -7602,8 +7652,8 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       if (closeBtn && closeBtn.parentNode) {
         closeBtn.remove();
       }
-      if (isTempObjectUrl) {
-        try { URL.revokeObjectURL(fileUrl); } catch (_) {}
+      if (isTempUrl) {
+        try { URL.revokeObjectURL(blobUrl); } catch (_) {}
       }
       window.removeEventListener('keydown', onEscKey);
     };
@@ -7621,9 +7671,11 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     return;
   }
 
-  // CAS 2 : Navigateurs Web Mobiles & Tablettes (Chrome Mobile ET Chrome Tablette)
-  // RÈGLE : AUCUN modal incrusté sur la page. Ouverture systématique dans un second onglet indépendant via window.open(blobUrl, '_blank').
+  // ==========================================================================
+  // RÈGLE TERMINAL 2 : Mobile & Tablette Chrome (navigateurs classiques)
+  // Ouverture directe du blobUrl dans un second onglet natif
   // Déblocage Chrome Mobile : utilisation de l'onglet pré-ouvert de façon synchrone lors du clic utilisateur
+  // ==========================================================================
   if (isMobileOrTabletBrowser) {
     let targetTab = extraInfo.preOpenedTab || null;
     if (!targetTab) {
@@ -7636,24 +7688,21 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       } catch (_) {}
     }
 
-    let resolvedData = fileData;
-    if (typeof fileData === 'function') {
-      try {
-        resolvedData = await fileData();
-      } catch (err) {
-        console.error("[openDocumentViewerModal mobile] Erreur génération:", err);
-        if (targetTab && !targetTab.closed) {
-          try {
-            targetTab.document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #ef4444;">Erreur lors de la génération du document.</p>';
-          } catch (_) {}
-        }
-        showToast("Erreur lors de la préparation du document.", "error");
-        return;
+    let docInfo = null;
+    try {
+      docInfo = await resolveToBlobAndUrl(rawResource);
+    } catch (err) {
+      console.error("[openUniversalDocument mobile] Erreur résolution:", err);
+      if (targetTab && !targetTab.closed) {
+        try {
+          targetTab.document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #ef4444;">Erreur lors de la génération du document.</p>';
+        } catch (_) {}
       }
+      showToast("Erreur lors de la préparation du document.", "error");
+      return;
     }
 
-    const resolved = await resolveAttachmentResource(resolvedData, fileType, fileName);
-    if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
+    if (!docInfo || !docInfo.blobUrl) {
       if (targetTab && !targetTab.closed) {
         try {
           targetTab.document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #ef4444;">Document non disponible ou introuvable.</p>';
@@ -7663,47 +7712,33 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       return;
     }
 
-    const blob = resolved.blob;
-    let fileUrl = '';
-    let isTempObjectUrl = false;
+    const { blobUrl, isTempUrl } = docInfo;
 
-    if (blob) {
-      fileUrl = URL.createObjectURL(blob);
-      isTempObjectUrl = true;
-    } else if (resolved.blobUrl) {
-      fileUrl = resolved.blobUrl;
-    }
-
-    if (!fileUrl) {
-      if (targetTab && !targetTab.closed) {
-        try { targetTab.close(); } catch (_) {}
-      }
-      showToast("Impossible de lire ce document.", "error");
-      return;
-    }
-
-    // Une fois le Blob généré : navigation dans l'onglet ouvert, ou repli dans la fenêtre courante
+    // Navigation dans l'onglet ouvert, ou repli dans la fenêtre courante
     if (targetTab && !targetTab.closed) {
       try {
-        targetTab.location.href = fileUrl;
+        targetTab.location.href = blobUrl;
       } catch (navErr) {
         console.warn("Navigation targetTab échouée, redirection directe:", navErr);
-        window.location.href = fileUrl;
+        window.location.href = blobUrl;
       }
     } else {
-      window.location.href = fileUrl;
+      window.location.href = blobUrl;
     }
 
-    if (isTempObjectUrl) {
+    if (isTempUrl) {
       setTimeout(() => {
-        try { URL.revokeObjectURL(fileUrl); } catch (_) {}
+        try { URL.revokeObjectURL(blobUrl); } catch (_) {}
       }, 120000);
     }
     return;
   }
 
-  // CAS 3 : PC Desktop (bureau avec souris) -> boîte modale centrée dédiée avec bandeau sombre
-  // ("Télécharger le PDF" et "Fermer")
+  // ==========================================================================
+  // RÈGLE TERMINAL 3 : PC Desktop (bureau avec souris)
+  // Boîte modale centrée (#dialog-document-viewer) avec lecteur PDF propre,
+  // boutons "Télécharger le PDF" et "Fermer".
+  // ==========================================================================
   const dialog = document.getElementById('dialog-document-viewer');
   if (!dialog) {
     showToast("Visionneuse de document non disponible.", "error");
@@ -7723,13 +7758,11 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     const btnZoomReset = document.getElementById('btn-zoom-reset-doc-viewer');
     const zoomLevelEl = document.getElementById('doc-viewer-zoom-level');
 
-    // Masquer le bouton ouvrir superflu
     if (openBtn) openBtn.style.display = 'none';
 
-    // Afficher immédiatement la modale avec état de chargement propre (pas d'UUID brut)
-    const initialTitle = (extraInfo.text && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(extraInfo.text)) ? extraInfo.text : (fileName && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(fileName) ? fileName : "Document");
-    if (titleEl) titleEl.textContent = initialTitle;
-    if (subtitleEl) subtitleEl.textContent = extraInfo.subtitle || "Génération et chargement du document...";
+    const safeTitle = (extraInfo.text && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(extraInfo.text)) ? extraInfo.text : (displayTitle && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(displayTitle) ? displayTitle : "Document");
+    if (titleEl) titleEl.textContent = safeTitle;
+    if (subtitleEl) subtitleEl.textContent = extraInfo.subtitle || "Chargement du document...";
     if (bodyEl) {
       bodyEl.innerHTML = `
         <div style="padding: 40px 20px; text-align: center; color: var(--text-sub);">
@@ -7740,38 +7773,18 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     }
     dialog.showModal();
 
-    let resolvedData = fileData;
-    if (typeof fileData === 'function') {
-      try {
-        resolvedData = await fileData();
-      } catch (genErr) {
-        console.error("[openDocumentViewerModal desktop] Erreur génération:", genErr);
-        if (subtitleEl) subtitleEl.textContent = "Erreur de génération";
-        if (bodyEl) {
-          bodyEl.innerHTML = `
-            <div style="text-align: center; padding: 30px 15px; color: #fff;">
-              <div style="font-size: 3rem; margin-bottom: 12px;">⚠️</div>
-              <h3 style="margin-bottom: 8px;">Erreur de génération</h3>
-              <p style="color: var(--text-sub); margin-bottom: 18px; font-size: 0.88rem;">Impossible de générer le document.</p>
-              <button type="button" class="btn btn-secondary btn-close-dialog">Fermer</button>
-            </div>
-          `;
-          bodyEl.querySelector('.btn-close-dialog')?.addEventListener('click', () => dialog.close());
-        }
-        return;
-      }
-    }
-
-    // Résolution asynchrone complète
-    const resolved = await resolveAttachmentResource(resolvedData, fileType, fileName);
-    if (!resolved || (!resolved.blobUrl && !resolved.blob)) {
-      if (subtitleEl) subtitleEl.textContent = "Fichier non disponible";
+    let docInfo = null;
+    try {
+      docInfo = await resolveToBlobAndUrl(rawResource);
+    } catch (genErr) {
+      console.error("[openUniversalDocument desktop] Erreur résolution:", genErr);
+      if (subtitleEl) subtitleEl.textContent = "Erreur de chargement";
       if (bodyEl) {
         bodyEl.innerHTML = `
           <div style="text-align: center; padding: 30px 15px; color: #fff;">
             <div style="font-size: 3rem; margin-bottom: 12px;">⚠️</div>
-            <h3 style="margin-bottom: 8px;">Document non disponible</h3>
-            <p style="color: var(--text-sub); margin-bottom: 18px; font-size: 0.88rem;">Impossible de charger ce document depuis la base locale.</p>
+            <h3 style="margin-bottom: 8px;">Erreur de chargement</h3>
+            <p style="color: var(--text-sub); margin-bottom: 18px; font-size: 0.88rem;">Impossible de charger le document.</p>
             <button type="button" class="btn btn-secondary btn-close-dialog">Fermer</button>
           </div>
         `;
@@ -7780,45 +7793,35 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       return;
     }
 
-    const blob = resolved.blob;
-    let blobUrl = resolved.blobUrl;
-    let isTempObjectUrl = false;
-    if (!blobUrl && blob) {
-      blobUrl = URL.createObjectURL(blob);
-      isTempObjectUrl = true;
-    }
-
-    // Détection robuste du type MIME via magic bytes
-    let mime = resolved.mime || blob?.type || '';
-    if (!mime || mime === 'application/octet-stream' || !mime.includes('/')) {
-      if (blob) {
-        try {
-          const headBuf = await blob.slice(0, 8).arrayBuffer();
-          const headArr = new Uint8Array(headBuf);
-          const headStr = String.fromCharCode(...headArr);
-          if (headStr.startsWith('%PDF')) {
-            mime = 'application/pdf';
-          } else if (headArr[0] === 0xFF && headArr[1] === 0xD8) {
-            mime = 'image/jpeg';
-          } else if (headArr[0] === 0x89 && headArr[1] === 0x50 && headArr[2] === 0x4E && headArr[3] === 0x47) {
-            mime = 'image/png';
-          }
-        } catch (_) {}
+    if (!docInfo || !docInfo.blobUrl) {
+      if (subtitleEl) subtitleEl.textContent = "Document non disponible";
+      if (bodyEl) {
+        bodyEl.innerHTML = `
+          <div style="text-align: center; padding: 30px 15px; color: #fff;">
+            <div style="font-size: 3rem; margin-bottom: 12px;">⚠️</div>
+            <h3 style="margin-bottom: 8px;">Document non disponible</h3>
+            <p style="color: var(--text-sub); margin-bottom: 18px; font-size: 0.88rem;">Impossible de charger ce document.</p>
+            <button type="button" class="btn btn-secondary btn-close-dialog">Fermer</button>
+          </div>
+        `;
+        bodyEl.querySelector('.btn-close-dialog')?.addEventListener('click', () => dialog.close());
       }
+      return;
     }
 
-    const cleanFilename = resolved.name || fileName || (mime.includes('pdf') ? 'compte_rendu.pdf' : 'document.jpg');
-    const isImage = !!(mime.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename));
+    const { blob, blobUrl, isTempUrl, mime, name: cleanFilename } = docInfo;
+    const isImage = !!(mime?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename));
     const isPdf = !isImage;
 
-    // Titre humain propre : élimination absolue de tout UUID brut
     const isUuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(cleanFilename) || cleanFilename.length >= 24;
-    let displayTitle = cleanFilename;
-    if (isUuid || cleanFilename.startsWith('blob:') || cleanFilename === 'document.jpg' || cleanFilename === 'compte_rendu.pdf') {
-      displayTitle = extraInfo.text || (isPdf ? 'Compte-rendu de séance (PDF)' : 'Photo de séance');
+    let finalTitle = cleanFilename;
+    if (isUuid || cleanFilename.startsWith('blob:') || cleanFilename === 'document.jpg' || cleanFilename === 'compte_rendu.pdf' || cleanFilename === 'document.pdf') {
+      finalTitle = safeTitle || (isPdf ? 'Document (PDF)' : 'Photo');
+    } else {
+      finalTitle = safeTitle || cleanFilename;
     }
 
-    if (titleEl) titleEl.textContent = displayTitle;
+    if (titleEl) titleEl.textContent = finalTitle;
     if (subtitleEl) {
       subtitleEl.textContent = extraInfo.subtitle || (blob ? `${mime || (isPdf ? 'PDF' : 'Image')} • ${(blob.size / 1024).toFixed(1)} Ko` : (isPdf ? 'Document PDF' : 'Image'));
     }
@@ -7863,74 +7866,73 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     if (bodyEl) {
       bodyEl.innerHTML = '';
 
-      // PC Bureau avec souris : Rendu haute fidélité avec miniatures PDF.js ou Image
       if (isImage) {
-          bodyEl.innerHTML = `
-            <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;">
-              <img src="${blobUrl}" alt="${escapeHtml(displayTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 794px; height: auto; margin: 0 auto; left: auto; right: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); box-sizing: border-box;">
-            </div>
-          `;
-          applyZoom();
-        } else if (isPdf && window.pdfjsLib) {
-          bodyEl.innerHTML = `
-            <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; min-height: 70vh; transform: none; box-sizing: border-box;">
-              <div id="pdf-canvas-container" style="display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;"></div>
-            </div>
-          `;
-          const container = bodyEl.querySelector('#pdf-canvas-container');
-          let renderedViaPdfJs = false;
-          try {
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-            const loadingTask = window.pdfjsLib.getDocument(blobUrl);
-            const pdfDoc = await loadingTask.promise;
-            container.innerHTML = '';
-            const maxPages = Math.min(pdfDoc.numPages, 10);
-            for (let pNum = 1; pNum <= maxPages; pNum++) {
-              const page = await pdfDoc.getPage(pNum);
-              const unscaledViewport = page.getViewport({ scale: 1 });
-              const maxAvail = bodyEl.clientWidth ? Math.max(bodyEl.clientWidth - 24, 280) : (window.innerWidth - 32);
-              const availWidth = Math.min(maxAvail, 794);
-              const fitScale = availWidth / unscaledViewport.width;
-              const viewport = page.getViewport({ scale: fitScale });
+        bodyEl.innerHTML = `
+          <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;">
+            <img src="${blobUrl}" alt="${escapeHtml(finalTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 794px; height: auto; margin: 0 auto; left: auto; right: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); box-sizing: border-box;">
+          </div>
+        `;
+        applyZoom();
+      } else if (isPdf && window.pdfjsLib) {
+        bodyEl.innerHTML = `
+          <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; min-height: 70vh; transform: none; box-sizing: border-box;">
+            <div id="pdf-canvas-container" style="display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;"></div>
+          </div>
+        `;
+        const container = bodyEl.querySelector('#pdf-canvas-container');
+        let renderedViaPdfJs = false;
+        try {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          const loadingTask = window.pdfjsLib.getDocument(blobUrl);
+          const pdfDoc = await loadingTask.promise;
+          container.innerHTML = '';
+          const maxPages = Math.min(pdfDoc.numPages, 10);
+          for (let pNum = 1; pNum <= maxPages; pNum++) {
+            const page = await pdfDoc.getPage(pNum);
+            const unscaledViewport = page.getViewport({ scale: 1 });
+            const maxAvail = bodyEl.clientWidth ? Math.max(bodyEl.clientWidth - 24, 280) : (window.innerWidth - 32);
+            const availWidth = Math.min(maxAvail, 794);
+            const fitScale = availWidth / unscaledViewport.width;
+            const viewport = page.getViewport({ scale: fitScale });
 
-              const canvas = document.createElement('canvas');
-              canvas.className = 'pdf-page-canvas';
-              canvas.height = viewport.height;
-              canvas.width = viewport.width;
-              canvas.style.width = '100%';
-              canvas.style.maxWidth = '794px';
-              canvas.style.height = 'auto';
-              canvas.style.display = 'block';
-              canvas.style.margin = '0 auto 14px auto';
-              canvas.style.left = 'auto';
-              canvas.style.right = 'auto';
-              canvas.style.transform = 'none';
-              canvas.style.borderRadius = '6px';
-              canvas.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
-              canvas.style.boxSizing = 'border-box';
+            const canvas = document.createElement('canvas');
+            canvas.className = 'pdf-page-canvas';
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            canvas.style.width = '100%';
+            canvas.style.maxWidth = '794px';
+            canvas.style.height = 'auto';
+            canvas.style.display = 'block';
+            canvas.style.margin = '0 auto 14px auto';
+            canvas.style.left = 'auto';
+            canvas.style.right = 'auto';
+            canvas.style.transform = 'none';
+            canvas.style.borderRadius = '6px';
+            canvas.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+            canvas.style.boxSizing = 'border-box';
 
-              const ctx = canvas.getContext('2d');
-              await page.render({ canvasContext: ctx, viewport }).promise;
-              container.appendChild(canvas);
-            }
-            renderedViaPdfJs = true;
-          } catch (pdfErr) {
-            console.warn("[openDocumentViewerModal] Rendu PDF.js échoué, repli object:", pdfErr);
+            const ctx = canvas.getContext('2d');
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            container.appendChild(canvas);
           }
+          renderedViaPdfJs = true;
+        } catch (pdfErr) {
+          console.warn("[openUniversalDocument] Rendu PDF.js échoué, repli object:", pdfErr);
+        }
 
-          if (!renderedViaPdfJs) {
-            bodyEl.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: calc(100vh - 60px); border: none;">
-              <iframe src="${blobUrl}" style="width: 100%; height: calc(100vh - 60px); border: none;"></iframe>
-            </object>`;
-          }
-          applyZoom();
-        } else {
+        if (!renderedViaPdfJs) {
           bodyEl.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: calc(100vh - 60px); border: none;">
             <iframe src="${blobUrl}" style="width: 100%; height: calc(100vh - 60px); border: none;"></iframe>
           </object>`;
-          applyZoom();
         }
+        applyZoom();
+      } else {
+        bodyEl.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: calc(100vh - 60px); border: none;">
+          <iframe src="${blobUrl}" style="width: 100%; height: calc(100vh - 60px); border: none;"></iframe>
+        </object>`;
+        applyZoom();
       }
+    }
 
     // Téléchargement direct
     if (downloadBtn) {
@@ -7943,7 +7945,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
         document.body.appendChild(a);
         a.click();
         setTimeout(() => a.remove(), 200);
-        showToast(`Document téléchargé : ${displayTitle}`);
+        showToast(`Document téléchargé : ${finalTitle}`);
       };
     }
 
@@ -7956,16 +7958,16 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
             if (navigator.canShare && navigator.canShare({ files: [file] })) {
               await navigator.share({
                 files: [file],
-                title: displayTitle,
-                text: extraInfo.text || `Document ${displayTitle}`
+                title: finalTitle,
+                text: extraInfo.text || `Document ${finalTitle}`
               });
               return;
             }
           }
           if (navigator.share) {
             await navigator.share({
-              title: displayTitle,
-              text: extraInfo.text || `Document ${displayTitle}`,
+              title: finalTitle,
+              text: extraInfo.text || `Document ${finalTitle}`,
               url: window.location.href
             });
           }
@@ -7975,7 +7977,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
       };
     }
 
-    // Fermeture centralisée via [×]
+    // Fermeture centralisée via [×] et boutons de fermeture
     const closeBtns = dialog.querySelectorAll('.btn-close-dialog, .btn-close, .modal-close');
     closeBtns.forEach(btn => {
       btn.onclick = () => {
@@ -8000,7 +8002,7 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
     dialog.onclose = () => {
       currentZoom = 1.0;
       if (bodyEl) bodyEl.innerHTML = '';
-      if (isTempObjectUrl) {
+      if (isTempUrl) {
         try { URL.revokeObjectURL(blobUrl); } catch (_) {}
       }
     };
@@ -8010,12 +8012,14 @@ async function openDocumentViewerModal(fileData, fileType, fileName, extraInfo =
   }
 }
 
-export const openAttachment = openDocumentViewerModal;
-export const viewDocument = openDocumentViewerModal;
+export const openDocumentViewerModal = openUniversalDocument;
+export const openAttachment = openUniversalDocument;
+export const viewDocument = openUniversalDocument;
 if (typeof window !== 'undefined') {
-  window.openDocumentViewerModal = openDocumentViewerModal;
-  window.openAttachment = openDocumentViewerModal;
-  window.viewDocument = openDocumentViewerModal;
+  window.openUniversalDocument = openUniversalDocument;
+  window.openDocumentViewerModal = openUniversalDocument;
+  window.openAttachment = openUniversalDocument;
+  window.viewDocument = openUniversalDocument;
 }
 
 // SETUP STATIC LISTENERS FOR EXTERNAL SESSION DIALOG
@@ -10292,193 +10296,6 @@ async function checkAndInjectMockData({ force = false } = {}) {
 }
 window.injectMockData = (force = true) => checkAndInjectMockData({ force });
 
-// --- OUVERTURE DE DOCUMENT A4 DANS UN SECOND ONGLET MOBILE SANS REFLOW NI TELECHARGEMENT FORCE ---
-function openA4DocumentInMobileTab(title, sheetContentHtml, subtitle = '') {
-  let win = null;
-  try {
-    win = window.open('', '_blank');
-  } catch (e) {
-    win = null;
-  }
-  if (!win) return false;
-
-  const doc = win.document;
-  doc.open();
-  doc.write(`<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=850, initial-scale=0.45, minimum-scale=0.25, maximum-scale=5.0, user-scalable=yes">
-  <title>${escapeHtml(title)}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.66">
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: #0f172a;
-      min-width: 850px;
-      box-sizing: border-box;
-      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      -webkit-text-size-adjust: 100%;
-    }
-    .mobile-doc-header {
-      position: sticky;
-      top: 0;
-      z-index: 9999;
-      background: rgba(15, 23, 42, 0.96);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-      padding: 12px 24px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      box-sizing: border-box;
-      width: 100%;
-      min-width: 850px;
-    }
-    .mobile-doc-header .doc-info h1 {
-      margin: 0;
-      font-size: 1.15rem;
-      color: #ffffff;
-      font-weight: 600;
-    }
-    .mobile-doc-header .doc-info p {
-      margin: 2px 0 0 0;
-      font-size: 0.8rem;
-      color: #94a3b8;
-    }
-    .mobile-doc-header .doc-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .mobile-doc-header .btn-action {
-      background: linear-gradient(135deg, #D96B27, #f59e0b);
-      color: #ffffff;
-      border: none;
-      border-radius: 8px;
-      padding: 8px 16px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-family: inherit;
-      box-shadow: 0 2px 8px rgba(217, 107, 39, 0.35);
-    }
-    .mobile-doc-header .btn-close {
-      background: rgba(255, 255, 255, 0.12);
-      color: #ffffff;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: 8px;
-      padding: 8px 14px;
-      font-size: 0.85rem;
-      font-weight: 500;
-      cursor: pointer;
-      font-family: inherit;
-    }
-    .mobile-doc-container {
-      padding: 30px 20px 60px 20px;
-      display: flex;
-      justify-content: center;
-      width: 100%;
-      min-width: 850px;
-      box-sizing: border-box;
-    }
-    .official-a4-sheet,
-    .cr-document {
-      width: 794px !important;
-      min-width: 794px !important;
-      max-width: 794px !important;
-      background: #ffffff !important;
-      color: #1e293b !important;
-      border-radius: 8px !important;
-      padding: 20mm !important;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
-      box-sizing: border-box !important;
-      margin: 0 auto !important;
-    }
-    .print-grid-2 {
-      display: flex !important;
-      flex-direction: row !important;
-      justify-content: space-between !important;
-      gap: 20px !important;
-      width: 100% !important;
-    }
-    .print-grid-2 > div {
-      flex: 1 1 0% !important;
-      min-width: 0 !important;
-    }
-    .print-header {
-      display: flex !important;
-      flex-direction: row !important;
-      justify-content: space-between !important;
-      align-items: center !important;
-      width: 100% !important;
-    }
-    .print-app-title {
-      white-space: nowrap !important;
-      font-size: 1.4rem !important;
-      color: #0d9488 !important;
-      font-weight: 700 !important;
-      margin: 0 !important;
-    }
-    @media print {
-      body {
-        background: #ffffff !important;
-        min-width: auto !important;
-      }
-      .mobile-doc-header {
-        display: none !important;
-      }
-      .mobile-doc-container {
-        padding: 0 !important;
-        min-width: auto !important;
-      }
-      .official-a4-sheet,
-      .cr-document {
-        box-shadow: none !important;
-        border-radius: 0 !important;
-        padding: 0 !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        min-width: auto !important;
-      }
-    }
-  </style>
-</head>
-<body>
-  <header class="mobile-doc-header">
-    <div class="doc-info">
-      <h1>${escapeHtml(title)}</h1>
-      ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}
-    </div>
-    <div class="doc-actions">
-      <button type="button" class="btn-action" onclick="window.print()">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 6 2 18 2 18 9"></polyline>
-          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-          <rect x="6" y="14" width="12" height="8"></rect>
-        </svg>
-        <span>Imprimer / PDF</span>
-      </button>
-      <button type="button" class="btn-close" onclick="window.close()">Fermer</button>
-    </div>
-  </header>
-  <main class="mobile-doc-container">
-    ${sheetContentHtml}
-  </main>
-</body>
-</html>`);
-  doc.close();
-  return true;
-}
-
 // --- MODALE COMPTE-RENDU DE SÉANCE PORTAIL ---
 async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}) {
   let session = null;
@@ -10516,8 +10333,9 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   // Si séance externe avec document joint, aiguillage direct vers la visionneuse universelle
   const extAttachment = session.fileData || session.attachments;
   if (session.isExternal && extAttachment) {
-    return await openDocumentViewerModal(extAttachment, session.fileType || session.file_type, session.fileName || session.file_name, {
+    return await openUniversalDocument(extAttachment, session.fileName || session.file_name || 'document.pdf', `Compte-rendu ${session.profession || 'externe'} pour ${animal.nom}`, {
       ...extraInfo,
+      fileType: session.fileType || session.file_type,
       subtitle: `Séance du ${formatDate(session.date_seance)} • ${session.profession || 'Externe'}`,
       text: `Compte-rendu ${session.profession || 'externe'} pour ${animal.nom}`
     });
@@ -10643,7 +10461,8 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
       `;
       attachContent.querySelector('.btn-view-modal-ext-file').onclick = () => {
         const preOpenedTab = prepareMobileTabIfNeeded();
-        openDocumentViewerModal(portalDocResource, session.fileType || session.file_type, session.fileName || session.file_name, {
+        openUniversalDocument(portalDocResource, session.fileName || session.file_name || 'document.pdf', `Document joint pour ${animal.nom}`, {
+          fileType: session.fileType || session.file_type,
           subtitle: `Séance du ${formatDate(session.date_seance)} • ${session.profession || 'Externe'}`,
           text: `Document joint séance pour ${animal.nom}`,
           preOpenedTab
@@ -10671,15 +10490,16 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   const filename = `CR_eKiKare_${cleanAnimalName}_${cleanDate}.pdf`;
   const ownerStr = client ? ` • Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
   const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
+  const title = `Compte-Rendu — ${animal?.nom || 'Animal'}`;
 
-  const pdfGenerator = async () => {
-    const sheetElement = document.getElementById('portal-cr-sheet');
-    return await generatePdfBlobFromElement(sheetElement, filename);
-  };
+  // Pipeline unifié : Compilation obligatoire en VRAI Blob binaire PDF
+  const sheetElement = document.getElementById('portal-cr-sheet');
+  const pdfBlob = await generatePdfBlobFromElement(sheetElement, filename);
+  const blobUrl = URL.createObjectURL(pdfBlob);
 
-  await openDocumentViewerModal(pdfGenerator, 'application/pdf', filename, {
+  await openUniversalDocument(blobUrl, filename, title, {
     ...extraInfo,
-    text: `Compte-Rendu — ${animal?.nom || 'Animal'}`,
+    blob: pdfBlob,
     subtitle: subtitle
   });
 }
@@ -11035,15 +10855,16 @@ async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
     const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
     const filename = `Fiche_Liaison_${cleanAnimalName}.pdf`;
     const subtitle = `${animal.nom} (${animal.espece}) • Dossier édité le ${new Date().toLocaleDateString('fr-FR')}`;
+    const title = `Fiche de Liaison & Dossier de Santé — ${animal.nom}`;
 
-    const pdfGenerator = async () => {
-      const sheetElement = document.getElementById('animal-dossier-preview-sheet');
-      return await generatePdfBlobFromElement(sheetElement, filename);
-    };
+    // Pipeline unifié : Compilation obligatoire en VRAI Blob binaire PDF
+    const sheetElement = document.getElementById('animal-dossier-preview-sheet');
+    const pdfBlob = await generatePdfBlobFromElement(sheetElement, filename);
+    const blobUrl = URL.createObjectURL(pdfBlob);
 
-    await openDocumentViewerModal(pdfGenerator, 'application/pdf', filename, {
+    await openUniversalDocument(blobUrl, filename, title, {
       ...extraInfo,
-      text: `Fiche de Liaison & Dossier de Santé — ${animal.nom}`,
+      blob: pdfBlob,
       subtitle: subtitle
     });
 
