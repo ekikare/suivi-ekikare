@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.69';
+export const APP_VERSION = 'v1.6.70';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7365,7 +7365,7 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
   if (!sourceElement) throw new Error("Élément source introuvable");
   if (typeof html2pdf === 'undefined') throw new Error("Bibliothèque html2pdf non disponible");
 
-  // 1. Conteneur temporaire isolé en coordonnées réelles, invisible sous l'interface
+  // 1. Conteneur temporaire isolé en coordonnées réelles, invisible sous l'interface (en coulisses)
   const sandbox = document.createElement('div');
   sandbox.id = 'pdf-isolation-sandbox';
   sandbox.className = 'pdf-isolation-sandbox';
@@ -7376,9 +7376,11 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
     'width: 794px !important',
     'min-width: 794px !important',
     'max-width: 794px !important',
-    'z-index: -9999 !important',
+    'opacity: 0 !important',
     'pointer-events: none !important',
+    'z-index: -1 !important',
     'background: #ffffff !important',
+    'background-color: #ffffff !important',
     'margin: 0 !important',
     'padding: 20mm !important',
     'box-sizing: border-box !important',
@@ -7504,6 +7506,13 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
         scrollY: 0,
         backgroundColor: '#ffffff',
         onclone: (clonedDoc) => {
+          const sandboxes = clonedDoc.querySelectorAll('#pdf-isolation-sandbox, .pdf-isolation-sandbox');
+          sandboxes.forEach(s => {
+            s.style.setProperty('opacity', '1', 'important');
+            s.style.setProperty('visibility', 'visible', 'important');
+            s.style.setProperty('z-index', '1', 'important');
+          });
+
           const target = clonedDoc.querySelector('#pdf-isolation-sandbox') ||
                          clonedDoc.querySelector('#portal-cr-sheet') || 
                          clonedDoc.querySelector('#animal-dossier-preview-sheet') || 
@@ -7518,6 +7527,8 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
             target.style.maxWidth = '794px !important';
             target.style.boxSizing = 'border-box !important';
             target.style.backgroundColor = '#ffffff !important';
+            target.style.setProperty('opacity', '1', 'important');
+            target.style.setProperty('visibility', 'visible', 'important');
           }
 
           // Verrouillage page-break strict dans le DOM cloné
@@ -7545,9 +7556,13 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
     }
     return blob;
   } finally {
-    // 4. Destruction systématique du conteneur temporaire une fois le Blob obtenu
-    if (sandbox.parentNode) {
-      sandbox.parentNode.removeChild(sandbox);
+    // 4. Suppression systématique du conteneur temporaire du DOM
+    if (sandbox) {
+      if (typeof sandbox.remove === 'function') {
+        sandbox.remove();
+      } else if (sandbox.parentNode) {
+        sandbox.parentNode.removeChild(sandbox);
+      }
     }
   }
 }
@@ -7866,55 +7881,24 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
     const btnZoomIn = document.getElementById('btn-zoom-in-doc-viewer');
     const btnZoomReset = document.getElementById('btn-zoom-reset-doc-viewer');
     const zoomLevelEl = document.getElementById('doc-viewer-zoom-level');
+    const zoomControls = dialog.querySelector('.doc-viewer-zoom-controls');
 
     if (openBtn) openBtn.style.display = 'none';
 
     const safeTitle = (extraInfo.text && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(extraInfo.text)) ? extraInfo.text : (displayTitle && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(displayTitle) ? displayTitle : "Document");
-    if (titleEl) titleEl.textContent = safeTitle;
-    if (subtitleEl) subtitleEl.textContent = extraInfo.subtitle || "Chargement du document...";
-    if (bodyEl) {
-      bodyEl.innerHTML = `
-        <div style="padding: 40px 20px; text-align: center; color: var(--text-sub);">
-          <div class="spinner" style="margin: 0 auto 15px auto; width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--color-primary); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-          <p style="margin: 0; font-size: 0.95rem;">Chargement du document...</p>
-        </div>
-      `;
-    }
-    dialog.showModal();
 
+    // Résolution préalable du Blob et de l'URL (sans ouvrir la modale prématurément)
     let docInfo = null;
     try {
       docInfo = await resolveToBlobAndUrl(rawResource);
     } catch (genErr) {
       console.error("[openUniversalDocument desktop] Erreur résolution:", genErr);
-      if (subtitleEl) subtitleEl.textContent = "Erreur de chargement";
-      if (bodyEl) {
-        bodyEl.innerHTML = `
-          <div style="text-align: center; padding: 30px 15px; color: #fff;">
-            <div style="font-size: 3rem; margin-bottom: 12px;">⚠️</div>
-            <h3 style="margin-bottom: 8px;">Erreur de chargement</h3>
-            <p style="color: var(--text-sub); margin-bottom: 18px; font-size: 0.88rem;">Impossible de charger le document.</p>
-            <button type="button" class="btn btn-secondary btn-close-dialog">Fermer</button>
-          </div>
-        `;
-        bodyEl.querySelector('.btn-close-dialog')?.addEventListener('click', () => dialog.close());
-      }
+      showToast("Impossible de charger le document.", "error");
       return;
     }
 
     if (!docInfo || !docInfo.blobUrl) {
-      if (subtitleEl) subtitleEl.textContent = "Document non disponible";
-      if (bodyEl) {
-        bodyEl.innerHTML = `
-          <div style="text-align: center; padding: 30px 15px; color: #fff;">
-            <div style="font-size: 3rem; margin-bottom: 12px;">⚠️</div>
-            <h3 style="margin-bottom: 8px;">Document non disponible</h3>
-            <p style="color: var(--text-sub); margin-bottom: 18px; font-size: 0.88rem;">Impossible de charger ce document.</p>
-            <button type="button" class="btn btn-secondary btn-close-dialog">Fermer</button>
-          </div>
-        `;
-        bodyEl.querySelector('.btn-close-dialog')?.addEventListener('click', () => dialog.close());
-      }
+      showToast("Document non disponible.", "error");
       return;
     }
 
@@ -7938,17 +7922,16 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
       iconEl.textContent = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
     }
 
-    // Zoom desktop
+    // Zoom desktop (pour images)
     let currentZoom = 1.0;
     const applyZoom = () => {
       if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
-      const zoomableEl = bodyEl.querySelector('.zoomable-document-content');
+      const zoomableEl = bodyEl ? bodyEl.querySelector('.zoomable-document-content') : null;
       if (zoomableEl) {
         zoomableEl.style.transformOrigin = '50% 0';
         zoomableEl.style.transform = `scale(${currentZoom})`;
       }
     };
-    applyZoom();
 
     if (btnZoomOut) {
       btnZoomOut.onclick = (e) => {
@@ -7972,74 +7955,61 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
       };
     }
 
-    if (bodyEl) {
-      bodyEl.innerHTML = '';
+    // Rendu dans la modale
+    if (isPdf) {
+      if (zoomControls) zoomControls.style.display = 'none';
 
-      if (isImage) {
+      // S'assurer de la présence du conteneur #modalPdfViewer et de son iframe
+      let modalPdfViewer = document.getElementById('modalPdfViewer');
+      let iframe = modalPdfViewer ? modalPdfViewer.querySelector('iframe') : null;
+      if (!modalPdfViewer || !iframe) {
+        if (bodyEl) {
+          bodyEl.innerHTML = `
+            <div id="modalPdfViewer">
+              <iframe src="" title="Visionneuse PDF"></iframe>
+            </div>
+          `;
+        }
+        modalPdfViewer = document.getElementById('modalPdfViewer');
+        iframe = modalPdfViewer ? modalPdfViewer.querySelector('iframe') : null;
+      }
+
+      // Action 2 : Injecter ce Blob dans l'iframe de la modale et afficher la modale uniquement une fois l'iframe chargée
+      let hasOpened = false;
+      const showModalOnce = () => {
+        if (!hasOpened) {
+          hasOpened = true;
+          if (!dialog.open) {
+            dialog.showModal();
+          }
+        }
+      };
+
+      if (iframe) {
+        iframe.onload = () => {
+          showModalOnce();
+        };
+        iframe.src = blobUrl;
+      }
+
+      // Timeout de sécurité au cas où onload est déjà déclenché ou synchrone
+      setTimeout(() => {
+        showModalOnce();
+      }, 500);
+
+    } else if (isImage) {
+      if (zoomControls) zoomControls.style.display = 'inline-flex';
+      currentZoom = 1.0;
+      if (bodyEl) {
         bodyEl.innerHTML = `
           <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;">
             <img src="${blobUrl}" alt="${escapeHtml(finalTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 794px; height: auto; margin: 0 auto; left: auto; right: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); box-sizing: border-box;">
           </div>
         `;
-        applyZoom();
-      } else if (isPdf && window.pdfjsLib) {
-        bodyEl.innerHTML = `
-          <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; min-height: 70vh; transform: none; box-sizing: border-box;">
-            <div id="pdf-canvas-container" style="display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;"></div>
-          </div>
-        `;
-        const container = bodyEl.querySelector('#pdf-canvas-container');
-        let renderedViaPdfJs = false;
-        try {
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-          const loadingTask = window.pdfjsLib.getDocument(blobUrl);
-          const pdfDoc = await loadingTask.promise;
-          container.innerHTML = '';
-          const maxPages = Math.min(pdfDoc.numPages, 10);
-          for (let pNum = 1; pNum <= maxPages; pNum++) {
-            const page = await pdfDoc.getPage(pNum);
-            const unscaledViewport = page.getViewport({ scale: 1 });
-            const maxAvail = bodyEl.clientWidth ? Math.max(bodyEl.clientWidth - 24, 280) : (window.innerWidth - 32);
-            const availWidth = Math.min(maxAvail, 794);
-            const fitScale = availWidth / unscaledViewport.width;
-            const viewport = page.getViewport({ scale: fitScale });
-
-            const canvas = document.createElement('canvas');
-            canvas.className = 'pdf-page-canvas';
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            canvas.style.width = '100%';
-            canvas.style.maxWidth = '794px';
-            canvas.style.height = 'auto';
-            canvas.style.display = 'block';
-            canvas.style.margin = '0 auto 14px auto';
-            canvas.style.left = 'auto';
-            canvas.style.right = 'auto';
-            canvas.style.transform = 'none';
-            canvas.style.borderRadius = '6px';
-            canvas.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
-            canvas.style.boxSizing = 'border-box';
-
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            await page.render({ canvasContext: ctx, viewport }).promise;
-            container.appendChild(canvas);
-          }
-          renderedViaPdfJs = true;
-        } catch (pdfErr) {
-          console.warn("[openUniversalDocument] Rendu PDF.js échoué, repli object:", pdfErr);
-        }
-
-        if (!renderedViaPdfJs) {
-          bodyEl.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: calc(100vh - 60px); border: none;">
-            <iframe src="${blobUrl}" style="width: 100%; height: calc(100vh - 60px); border: none;"></iframe>
-          </object>`;
-        }
-        applyZoom();
-      } else {
-        bodyEl.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: calc(100vh - 60px); border: none;">
-          <iframe src="${blobUrl}" style="width: 100%; height: calc(100vh - 60px); border: none;"></iframe>
-        </object>`;
-        applyZoom();
+      }
+      applyZoom();
+      if (!dialog.open) {
+        dialog.showModal();
       }
     }
 
@@ -8110,7 +8080,10 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
 
     dialog.onclose = () => {
       currentZoom = 1.0;
-      if (bodyEl) bodyEl.innerHTML = '';
+      const iframe = document.querySelector('#modalPdfViewer iframe');
+      if (iframe) {
+        iframe.src = 'about:blank';
+      }
       if (isTempUrl) {
         try { URL.revokeObjectURL(blobUrl); } catch (_) {}
       }

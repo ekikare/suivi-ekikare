@@ -2683,8 +2683,9 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   width: 794px !important;
   min-width: 794px !important;
   max-width: 794px !important;
-  z-index: -9999 !important;
+  opacity: 0 !important;
   pointer-events: none !important;
+  z-index: -1 !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
   margin: 0 !important;
@@ -2692,6 +2693,31 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   box-sizing: border-box !important;
   visibility: visible !important;
   display: block !important;
+}
+
+#modalPdfViewer {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+}
+
+#modalPdfViewer iframe {
+  width: 100% !important;
+  max-width: 900px !important;
+  height: calc(90vh - 140px) !important;
+  min-height: 480px !important;
+  border: none !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  display: block !important;
+  margin: 0 auto !important;
+  box-sizing: border-box !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
 }
 
 #animal-dossier-preview-sheet,
