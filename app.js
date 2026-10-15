@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.68';
+export const APP_VERSION = 'v1.6.69';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -5427,7 +5427,7 @@ function setupCanvasListeners() {
   canvasElement = document.getElementById('annotation-canvas');
   if (!canvasElement) return;
   
-  canvasCtx = canvasElement.getContext('2d');
+  canvasCtx = canvasElement.getContext('2d', { willReadFrequently: true });
   const container = document.getElementById('canvas-zoom-container') || canvasElement.parentElement;
   
   // Activer les événements unifiés PointerEvents (stylet, tactile multi-points, souris)
@@ -5828,7 +5828,7 @@ function generateMergedCanvasDataUrl() {
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = canvasElement.width;
     tempCanvas.height = canvasElement.height;
-    const tempCtx = tempCanvas.getContext('2d');
+    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
 
     // Remplir de blanc en fond pour l'impression propre
     tempCtx.fillStyle = '#ffffff';
@@ -7365,24 +7365,25 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
   if (!sourceElement) throw new Error("Élément source introuvable");
   if (typeof html2pdf === 'undefined') throw new Error("Bibliothèque html2pdf non disponible");
 
-  // 1. Conteneur temporaire isolé hors-champ aux dimensions A4 rigides et absolues
+  // 1. Conteneur temporaire isolé en coordonnées réelles, invisible sous l'interface
   const sandbox = document.createElement('div');
   sandbox.id = 'pdf-isolation-sandbox';
   sandbox.className = 'pdf-isolation-sandbox';
   sandbox.style.cssText = [
+    'position: fixed !important',
+    'top: 0 !important',
+    'left: 0 !important',
     'width: 794px !important',
     'min-width: 794px !important',
     'max-width: 794px !important',
-    'box-sizing: border-box !important',
-    'position: absolute !important',
-    'left: -9999px !important',
-    'top: 0 !important',
+    'z-index: -9999 !important',
+    'pointer-events: none !important',
+    'background: #ffffff !important',
     'margin: 0 !important',
     'padding: 20mm !important',
-    'background: #ffffff !important',
+    'box-sizing: border-box !important',
     'visibility: visible !important',
-    'display: block !important',
-    'z-index: -9999 !important'
+    'display: block !important'
   ].join('; ') + ';';
 
   // 2. Clone de l'élément source, inséré dans la sandbox
@@ -7398,6 +7399,22 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
     'visibility: visible !important',
     'display: block !important'
   ].join('; ') + ';';
+
+  // Synchronisation des canvas d'annotations (cloneNode ne copie pas les tracés des canvas)
+  const sourceCanvases = sourceElement.querySelectorAll('canvas');
+  const clonedCanvases = clone.querySelectorAll('canvas');
+  for (let i = 0; i < sourceCanvases.length; i++) {
+    const sCanvas = sourceCanvases[i];
+    const cCanvas = clonedCanvases[i];
+    if (sCanvas && cCanvas) {
+      cCanvas.width = sCanvas.width;
+      cCanvas.height = sCanvas.height;
+      const cCtx = cCanvas.getContext('2d', { willReadFrequently: true });
+      if (cCtx) {
+        cCtx.drawImage(sCanvas, 0, 0);
+      }
+    }
+  }
 
   // Sécuriser les en-têtes officiels (toujours en ligne, logo à gauche et texte/date à droite)
   const headers = clone.querySelectorAll('.print-header');
@@ -7442,6 +7459,23 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
   sandbox.appendChild(clone);
   document.body.appendChild(sandbox);
 
+  // Attendre impérativement le chargement complet des images du document
+  const imgs = Array.from(sandbox.querySelectorAll('img'));
+  await Promise.all(imgs.map(img => {
+    if (img.complete && img.naturalWidth !== 0) return Promise.resolve();
+    return new Promise(resolve => {
+      img.onload = () => resolve();
+      img.onerror = () => resolve();
+      setTimeout(resolve, 300);
+    });
+  }));
+
+  // Attente du rendu des polices et stabilisation du layout
+  if (document.fonts && document.fonts.ready) {
+    try { await document.fonts.ready; } catch (_) {}
+  }
+  await new Promise(resolve => setTimeout(resolve, 150));
+
   // 3. Détection de remplissage de la 1ère page pour forcer un saut de page propre avant le schéma
   schemaBlocs.forEach(bloc => {
     if (bloc.style.display !== 'none') {
@@ -7464,10 +7498,11 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
         scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff',
+        width: 794,
+        windowWidth: 794,
         scrollX: 0,
         scrollY: 0,
-        windowWidth: 794,
+        backgroundColor: '#ffffff',
         onclone: (clonedDoc) => {
           const target = clonedDoc.querySelector('#pdf-isolation-sandbox') ||
                          clonedDoc.querySelector('#portal-cr-sheet') || 
@@ -7686,7 +7721,7 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
             canvas.width = viewport.width;
             canvas.style.cssText = 'width: 100%; max-width: 794px; height: auto; display: block; margin: 0 auto 14px auto; left: auto; right: auto; transform: none; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.6); box-sizing: border-box;';
 
-            const ctx = canvas.getContext('2d');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
             await page.render({ canvasContext: ctx, viewport }).promise;
             canvasWrap.appendChild(canvas);
           }
@@ -7985,7 +8020,7 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
             canvas.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
             canvas.style.boxSizing = 'border-box';
 
-            const ctx = canvas.getContext('2d');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
             await page.render({ canvasContext: ctx, viewport }).promise;
             container.appendChild(canvas);
           }

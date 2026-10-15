@@ -2676,7 +2676,24 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 }
 
 #pdf-isolation-sandbox,
-.pdf-isolation-sandbox,
+.pdf-isolation-sandbox {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 794px !important;
+  min-width: 794px !important;
+  max-width: 794px !important;
+  z-index: -9999 !important;
+  pointer-events: none !important;
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  margin: 0 !important;
+  padding: 20mm !important;
+  box-sizing: border-box !important;
+  visibility: visible !important;
+  display: block !important;
+}
+
 #animal-dossier-preview-sheet,
 #portal-cr-sheet,
 .official-a4-sheet,
@@ -2692,7 +2709,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   min-width: 794px !important;
   max-width: 794px !important;
   margin: 0 !important;
-  left: auto !important;
+  left: 0 !important;
   right: auto !important;
   transform: none !important;
   -webkit-transform: none !important;
