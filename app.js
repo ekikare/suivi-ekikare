@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.67';
+export const APP_VERSION = 'v1.6.68';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7360,32 +7360,104 @@ async function resolveAttachmentResource(resource, fallbackType = '', fallbackNa
   };
 }
 
-// HELPER CENTRAL : GÉNÉRATION BLOB PDF DEPUIS ÉLÉMENT DOM HORS-CHAMP (A4 FIXE)
+// HELPER CENTRAL : GÉNÉRATION BLOB PDF DEPUIS ÉLÉMENT DOM HORS-CHAMP (SANDBOX A4 FIXE 794px)
 async function generatePdfBlobFromElement(sourceElement, filename) {
   if (!sourceElement) throw new Error("Élément source introuvable");
   if (typeof html2pdf === 'undefined') throw new Error("Bibliothèque html2pdf non disponible");
 
-  // Conteneur temporaire hors-champ pour capturer fidèlement l'élément sans afficher de modale
-  const wrapper = document.createElement('div');
-  wrapper.style.cssText = 'position: fixed; top: -99999px; left: 0; width: 794px; z-index: -9999; background: #ffffff; visibility: visible; display: block;';
+  // 1. Conteneur temporaire isolé hors-champ aux dimensions A4 rigides et absolues
+  const sandbox = document.createElement('div');
+  sandbox.id = 'pdf-isolation-sandbox';
+  sandbox.className = 'pdf-isolation-sandbox';
+  sandbox.style.cssText = [
+    'width: 794px !important',
+    'min-width: 794px !important',
+    'max-width: 794px !important',
+    'box-sizing: border-box !important',
+    'position: absolute !important',
+    'left: -9999px !important',
+    'top: 0 !important',
+    'margin: 0 !important',
+    'padding: 20mm !important',
+    'background: #ffffff !important',
+    'visibility: visible !important',
+    'display: block !important',
+    'z-index: -9999 !important'
+  ].join('; ') + ';';
 
+  // 2. Clone de l'élément source, inséré dans la sandbox
   const clone = sourceElement.cloneNode(true);
-  clone.style.cssText = 'display: block; visibility: visible; width: 794px; min-width: 794px; max-width: 794px; box-sizing: border-box; margin: 0 auto; background: #ffffff; padding: 20mm;';
+  clone.style.cssText = [
+    'width: 100% !important',
+    'min-width: 100% !important',
+    'max-width: 100% !important',
+    'box-sizing: border-box !important',
+    'margin: 0 !important',
+    'padding: 0 !important',
+    'background: #ffffff !important',
+    'visibility: visible !important',
+    'display: block !important'
+  ].join('; ') + ';';
 
-  // Sécurisation stricte du saut de page sur le bloc schéma dès le DOM cloné
-  const schemaElements = clone.querySelectorAll('#portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique, .print-canvas-preview, .session-canvas-preview');
-  schemaElements.forEach(el => {
-    el.style.pageBreakInside = 'avoid';
-    el.style.breakInside = 'avoid';
-    el.style.display = 'block';
+  // Sécuriser les en-têtes officiels (toujours en ligne, logo à gauche et texte/date à droite)
+  const headers = clone.querySelectorAll('.print-header');
+  headers.forEach(h => {
+    h.style.cssText = 'display: flex !important; flex-direction: row !important; justify-content: space-between !important; align-items: center !important; width: 100% !important; margin-bottom: 20px !important;';
   });
 
-  wrapper.appendChild(clone);
-  document.body.appendChild(wrapper);
+  // Sécuriser les grilles 2 colonnes (Propriétaire / Animal)
+  const grids = clone.querySelectorAll('.print-grid-2');
+  grids.forEach(g => {
+    g.style.cssText = 'display: flex !important; flex-direction: row !important; justify-content: space-between !important; gap: 20px !important; width: 100% !important;';
+    Array.from(g.children).forEach(col => {
+      col.style.cssText = 'flex: 1 1 0% !important; min-width: 0 !important;';
+    });
+  });
+
+  // Verrouillage du bloc schéma d'annotations (titre + planche ensemble)
+  const schemaBlocs = clone.querySelectorAll('.schema-bloc, #portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique');
+  schemaBlocs.forEach(bloc => {
+    bloc.classList.add('schema-bloc');
+    bloc.style.setProperty('page-break-inside', 'avoid', 'important');
+    bloc.style.setProperty('break-inside', 'avoid', 'important');
+    bloc.style.setProperty('display', 'block', 'important');
+
+    const preview = bloc.querySelector('.print-canvas-preview, .session-canvas-preview');
+    if (preview) {
+      preview.style.setProperty('page-break-inside', 'avoid', 'important');
+      preview.style.setProperty('break-inside', 'avoid', 'important');
+      preview.style.setProperty('display', 'block', 'important');
+    }
+    const img = bloc.querySelector('img');
+    if (img) {
+      img.style.setProperty('page-break-inside', 'avoid', 'important');
+      img.style.setProperty('break-inside', 'avoid', 'important');
+      img.style.setProperty('display', 'block', 'important');
+      img.style.setProperty('max-width', '100%', 'important');
+      img.style.setProperty('height', 'auto', 'important');
+      img.style.setProperty('margin', '0 auto', 'important');
+    }
+  });
+
+  sandbox.appendChild(clone);
+  document.body.appendChild(sandbox);
+
+  // 3. Détection de remplissage de la 1ère page pour forcer un saut de page propre avant le schéma
+  schemaBlocs.forEach(bloc => {
+    if (bloc.style.display !== 'none') {
+      const topOffset = bloc.offsetTop;
+      const height = bloc.offsetHeight || 380;
+      if (topOffset > 480 || (topOffset + height > 920)) {
+        bloc.style.setProperty('page-break-before', 'always', 'important');
+        bloc.style.setProperty('break-before', 'page', 'important');
+        bloc.style.setProperty('padding-top', '15mm', 'important');
+      }
+    }
+  });
 
   try {
     const opt = {
-      margin: [10, 10, 10, 10],
+      margin: 0,
       filename: filename || 'document.pdf',
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: {
@@ -7397,38 +7469,39 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
         scrollY: 0,
         windowWidth: 794,
         onclone: (clonedDoc) => {
-          const target = clonedDoc.querySelector('#portal-cr-sheet') || 
+          const target = clonedDoc.querySelector('#pdf-isolation-sandbox') ||
+                         clonedDoc.querySelector('#portal-cr-sheet') || 
                          clonedDoc.querySelector('#animal-dossier-preview-sheet') || 
                          clonedDoc.querySelector('.official-a4-sheet') || 
                          clonedDoc.querySelector('.cr-document');
           if (target) {
-            target.style.margin = '0 auto';
-            target.style.transform = 'none';
-            target.style.position = 'static';
-            target.style.width = '794px';
-            target.style.minWidth = '794px';
-            target.style.maxWidth = '794px';
-            target.style.boxSizing = 'border-box';
-            target.style.backgroundColor = '#ffffff';
+            target.style.margin = '0 !important';
+            target.style.transform = 'none !important';
+            target.style.position = 'static !important';
+            target.style.width = '794px !important';
+            target.style.minWidth = '794px !important';
+            target.style.maxWidth = '794px !important';
+            target.style.boxSizing = 'border-box !important';
+            target.style.backgroundColor = '#ffffff !important';
           }
 
-          // Protection absolue contre la coupure du schéma anatomique sur deux pages
-          const schemaInClone = clonedDoc.querySelectorAll('#portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique, .print-canvas-preview, .session-canvas-preview');
+          // Verrouillage page-break strict dans le DOM cloné
+          const schemaInClone = clonedDoc.querySelectorAll('.schema-bloc, #portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique, .print-canvas-preview, .session-canvas-preview');
           schemaInClone.forEach(el => {
-            el.style.pageBreakInside = 'avoid';
-            el.style.breakInside = 'avoid';
-            el.style.display = 'block';
+            el.style.setProperty('page-break-inside', 'avoid', 'important');
+            el.style.setProperty('break-inside', 'avoid', 'important');
+            el.style.setProperty('display', 'block', 'important');
           });
         }
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak: { 
         mode: ['avoid-all', 'css', 'legacy'],
-        avoid: ['#portal-cr-section-canvas', '#print-section-canvas', '.schema-section', '.planche-anatomique', '.print-canvas-preview', '.session-canvas-preview', '.print-section', '.print-grid-2', '.print-footer']
+        avoid: ['.schema-bloc', '#portal-cr-section-canvas', '#print-section-canvas', '.schema-section', '.planche-anatomique', '.print-canvas-preview', '.session-canvas-preview', '.print-section', '.print-grid-2', '.print-footer']
       }
     };
 
-    const worker = html2pdf().set(opt).from(clone);
+    const worker = html2pdf().set(opt).from(sandbox);
     let blob = null;
     if (typeof worker.outputPdf === 'function') {
       blob = await worker.outputPdf('blob');
@@ -7437,8 +7510,9 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
     }
     return blob;
   } finally {
-    if (wrapper.parentNode) {
-      wrapper.parentNode.removeChild(wrapper);
+    // 4. Destruction systématique du conteneur temporaire une fois le Blob obtenu
+    if (sandbox.parentNode) {
+      sandbox.parentNode.removeChild(sandbox);
     }
   }
 }

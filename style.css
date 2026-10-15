@@ -2675,21 +2675,23 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   touch-action: pan-y pinch-zoom !important;
 }
 
+#pdf-isolation-sandbox,
+.pdf-isolation-sandbox,
 #animal-dossier-preview-sheet,
 #portal-cr-sheet,
 .official-a4-sheet,
-.cr-document {
+.cr-document:not(#session-print-area) {
   display: block !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
   color: #1f2937 !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15) !important;
-  border-radius: 8px !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
   padding: 20mm !important;
-  width: 100% !important;
+  width: 794px !important;
+  min-width: 794px !important;
   max-width: 794px !important;
-  min-width: 0 !important;
-  margin: 0 auto !important;
+  margin: 0 !important;
   left: auto !important;
   right: auto !important;
   transform: none !important;
@@ -2725,6 +2727,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 }
 
 .print-section,
+.schema-bloc,
 #portal-cr-section-canvas,
 #print-section-canvas,
 .schema-section,
@@ -2733,6 +2736,12 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 .session-canvas-preview,
 .print-footer,
 .print-grid-2 {
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
+  display: block !important;
+}
+
+.schema-bloc {
   page-break-inside: avoid !important;
   break-inside: avoid !important;
   display: block !important;
@@ -3955,14 +3964,14 @@ body.is-printing .collapsible-icon {
     padding-top: 0 !important;
   }
 
-  .print-header {
+  #session-print-area .print-header {
     flex-direction: column !important;
     align-items: flex-start !important;
     gap: 12px !important;
     width: 100% !important;
   }
 
-  .print-header > div:last-child {
+  #session-print-area .print-header > div:last-child {
     align-items: flex-start !important;
   }
 
@@ -4050,16 +4059,11 @@ body.is-printing .collapsible-icon {
     margin: 15px auto !important;
   }
 
-  /* 5. Feuilles A4 officielles / Schémas et documents */
-  #portal-cr-sheet,
-  #animal-dossier-preview-sheet,
-  .official-a4-sheet,
-  .cr-document {
+  /* 5. Live preview écran séance */
+  #session-print-area {
     width: 100% !important;
-    max-width: 794px !important;
-    padding: 20mm !important;
+    max-width: 100% !important;
     box-sizing: border-box !important;
-    margin: 0 auto !important;
   }
 }
 
