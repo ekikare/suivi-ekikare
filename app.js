@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.71';
+export const APP_VERSION = 'v1.6.72';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -4431,10 +4431,17 @@ async function renderSessionDetails(sessionId) {
   };
 
   // Voir le PDF via la modale A4 officielle
-  document.getElementById('btn-print-session').onclick = () => {
-    const preOpenedTab = prepareMobileTabIfNeeded();
-    openPortalSessionModal(session, animal, { preOpenedTab });
-  };
+  const printBtn = document.getElementById('btn-print-session');
+  if (printBtn) {
+    printBtn.onclick = (e) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      const preOpenedTab = prepareMobileTabIfNeeded();
+      openPortalSessionModal(session, animal, { preOpenedTab });
+    };
+  }
 }
 
 // --- QUESTIONNAIRE GENERATOR HELPER ---
@@ -7361,142 +7368,154 @@ async function resolveAttachmentResource(resource, fallbackType = '', fallbackNa
 }
 
 // HELPER CENTRAL : GÉNÉRATION BLOB PDF DEPUIS ÉLÉMENT DOM HORS-CHAMP (SANDBOX A4 FIXE 794px)
+let isPdfGenerating = false;
 async function generatePdfBlobFromElement(sourceElement, filename) {
-  if (!sourceElement) throw new Error("Élément source introuvable");
-  if (typeof html2pdf === 'undefined') throw new Error("Bibliothèque html2pdf non disponible");
-
-  // 1. Conteneur temporaire isolé (invisible sous l'interface z-index: -999 mais calculable et visible pour html2canvas)
-  const container = document.createElement('div');
-  container.id = 'pdf-isolation-sandbox';
-  container.className = 'pdf-isolation-sandbox';
-  container.style.position = 'fixed';
-  container.style.top = '0';
-  container.style.left = '0';
-  container.style.width = '794px';
-  container.style.zIndex = '-999';
-  container.style.opacity = '1';
-  container.style.visibility = 'visible';
-  container.style.background = '#ffffff';
-  container.style.backgroundColor = '#ffffff';
-  container.style.color = '#1f2937';
-  container.style.margin = '0';
-  container.style.padding = '20mm';
-  container.style.boxSizing = 'border-box';
-  container.style.pointerEvents = 'none';
-  container.style.display = 'block';
-
-  // 2. Clone de l'élément source, inséré dans la sandbox
-  const clone = sourceElement.cloneNode(true);
-  clone.style.width = '100%';
-  clone.style.minWidth = '100%';
-  clone.style.maxWidth = '100%';
-  clone.style.boxSizing = 'border-box';
-  clone.style.margin = '0';
-  clone.style.padding = '0';
-  clone.style.background = '#ffffff';
-  clone.style.backgroundColor = '#ffffff';
-  clone.style.color = '#1f2937';
-  clone.style.opacity = '1';
-  clone.style.visibility = 'visible';
-  clone.style.display = 'block';
-
-  // Synchronisation des canvas d'annotations (cloneNode ne copie pas les tracés des canvas)
-  const sourceCanvases = sourceElement.querySelectorAll('canvas');
-  const clonedCanvases = clone.querySelectorAll('canvas');
-  for (let i = 0; i < sourceCanvases.length; i++) {
-    const sCanvas = sourceCanvases[i];
-    const cCanvas = clonedCanvases[i];
-    if (sCanvas && cCanvas) {
-      cCanvas.width = sCanvas.width;
-      cCanvas.height = sCanvas.height;
-      const cCtx = cCanvas.getContext('2d', { willReadFrequently: true });
-      if (cCtx) {
-        cCtx.drawImage(sCanvas, 0, 0);
-      }
-    }
+  if (isPdfGenerating) {
+    console.warn("Génération PDF déjà en cours, appel ignoré.");
+    return null;
   }
-
-  // Sécuriser les en-têtes officiels (toujours en ligne, logo à gauche et texte/date à droite)
-  const headers = clone.querySelectorAll('.print-header');
-  headers.forEach(h => {
-    h.style.cssText = 'display: flex !important; flex-direction: row !important; justify-content: space-between !important; align-items: center !important; width: 100% !important; margin-bottom: 20px !important;';
-  });
-
-  // Sécuriser les grilles 2 colonnes (Propriétaire / Animal)
-  const grids = clone.querySelectorAll('.print-grid-2');
-  grids.forEach(g => {
-    g.style.cssText = 'display: flex !important; flex-direction: row !important; justify-content: space-between !important; gap: 20px !important; width: 100% !important;';
-    Array.from(g.children).forEach(col => {
-      col.style.cssText = 'flex: 1 1 0% !important; min-width: 0 !important;';
-    });
-  });
-
-  // Verrouillage du bloc schéma d'annotations (titre + planche ensemble)
-  const schemaBlocs = clone.querySelectorAll('.schema-bloc, #portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique');
-  schemaBlocs.forEach(bloc => {
-    bloc.classList.add('schema-bloc');
-    bloc.style.setProperty('page-break-inside', 'avoid', 'important');
-    bloc.style.setProperty('break-inside', 'avoid', 'important');
-    bloc.style.setProperty('display', 'block', 'important');
-
-    const preview = bloc.querySelector('.print-canvas-preview, .session-canvas-preview');
-    if (preview) {
-      preview.style.setProperty('page-break-inside', 'avoid', 'important');
-      preview.style.setProperty('break-inside', 'avoid', 'important');
-      preview.style.setProperty('display', 'block', 'important');
-    }
-    const img = bloc.querySelector('img');
-    if (img) {
-      img.style.setProperty('page-break-inside', 'avoid', 'important');
-      img.style.setProperty('break-inside', 'avoid', 'important');
-      img.style.setProperty('display', 'block', 'important');
-      img.style.setProperty('max-width', '100%', 'important');
-      img.style.setProperty('height', 'auto', 'important');
-      img.style.setProperty('margin', '0 auto', 'important');
-    }
-  });
-
-  container.appendChild(clone);
-  document.body.appendChild(container);
-
-  // 1. Logs de contrôle demandés
-  console.log("Conteneur cible html2pdf :", container);
-  console.log("Longueur du contenu HTML :", container.innerHTML.length);
-  if (container.innerHTML.length < 500) {
-    console.warn("⚠️ Attention : longueur HTML anormalement faible (< 500) :", container.innerHTML.length);
-  }
-
-  // Attendre impérativement le chargement complet des images du document
-  const imgs = Array.from(container.querySelectorAll('img'));
-  await Promise.all(imgs.map(img => {
-    if (img.complete && img.naturalWidth !== 0) return Promise.resolve();
-    return new Promise(resolve => {
-      img.onload = () => resolve();
-      img.onerror = () => resolve();
-      setTimeout(resolve, 300);
-    });
-  }));
-
-  // 3. Attente stricte du rendu : stabilisation des polices et du DOM
-  if (document.fonts && document.fonts.ready) {
-    try { await document.fonts.ready; } catch (_) {}
-  }
-  await new Promise(r => setTimeout(r, 200));
-
-  // Détection de remplissage de la 1ère page pour forcer un saut de page propre avant le schéma
-  schemaBlocs.forEach(bloc => {
-    if (bloc.style.display !== 'none') {
-      const topOffset = bloc.offsetTop;
-      const height = bloc.offsetHeight || 380;
-      if (topOffset > 480 || (topOffset + height > 920)) {
-        bloc.style.setProperty('page-break-before', 'always', 'important');
-        bloc.style.setProperty('break-before', 'page', 'important');
-        bloc.style.setProperty('padding-top', '15mm', 'important');
-      }
-    }
-  });
+  isPdfGenerating = true;
 
   try {
+    if (!sourceElement) throw new Error("Élément source introuvable");
+    if (typeof html2pdf === 'undefined') throw new Error("Bibliothèque html2pdf non disponible");
+
+    // 1. Conteneur temporaire isolé (visible pour html2canvas mais dissimulé derrière la modale ouverte)
+    const container = document.createElement('div');
+    container.id = 'pdf-isolation-sandbox';
+    container.className = 'pdf-isolation-sandbox';
+    container.style.cssText = [
+      'position: fixed !important',
+      'top: 0 !important',
+      'left: 0 !important',
+      'width: 794px !important',
+      'min-width: 794px !important',
+      'max-width: 794px !important',
+      'z-index: 99999 !important',
+      'background: #ffffff !important',
+      'background-color: #ffffff !important',
+      'color: #1f2937 !important',
+      'opacity: 1 !important',
+      'visibility: visible !important',
+      'pointer-events: none !important',
+      'margin: 0 !important',
+      'padding: 20mm !important',
+      'box-sizing: border-box !important',
+      'display: block !important'
+    ].join('; ') + ';';
+
+    // 2. Clone de l'élément source, inséré dans le conteneur
+    const clone = sourceElement.cloneNode(true);
+    clone.style.width = '100%';
+    clone.style.minWidth = '100%';
+    clone.style.maxWidth = '100%';
+    clone.style.boxSizing = 'border-box';
+    clone.style.margin = '0';
+    clone.style.padding = '0';
+    clone.style.background = '#ffffff';
+    clone.style.backgroundColor = '#ffffff';
+    clone.style.color = '#1f2937';
+    clone.style.opacity = '1';
+    clone.style.visibility = 'visible';
+    clone.style.display = 'block';
+
+    // Synchronisation des canvas d'annotations (cloneNode ne copie pas les tracés des canvas)
+    const sourceCanvases = sourceElement.querySelectorAll('canvas');
+    const clonedCanvases = clone.querySelectorAll('canvas');
+    for (let i = 0; i < sourceCanvases.length; i++) {
+      const sCanvas = sourceCanvases[i];
+      const cCanvas = clonedCanvases[i];
+      if (sCanvas && cCanvas) {
+        cCanvas.width = sCanvas.width;
+        cCanvas.height = sCanvas.height;
+        const cCtx = cCanvas.getContext('2d', { willReadFrequently: true });
+        if (cCtx) {
+          cCtx.drawImage(sCanvas, 0, 0);
+        }
+      }
+    }
+
+    // Sécuriser les en-têtes officiels (toujours en ligne, logo à gauche et texte/date à droite)
+    const headers = clone.querySelectorAll('.print-header');
+    headers.forEach(h => {
+      h.style.cssText = 'display: flex !important; flex-direction: row !important; justify-content: space-between !important; align-items: center !important; width: 100% !important; margin-bottom: 20px !important;';
+    });
+
+    // Sécuriser les grilles 2 colonnes (Propriétaire / Animal)
+    const grids = clone.querySelectorAll('.print-grid-2');
+    grids.forEach(g => {
+      g.style.cssText = 'display: flex !important; flex-direction: row !important; justify-content: space-between !important; gap: 20px !important; width: 100% !important;';
+      Array.from(g.children).forEach(col => {
+        col.style.cssText = 'flex: 1 1 0% !important; min-width: 0 !important;';
+      });
+    });
+
+    // Verrouillage du bloc schéma d'annotations (titre + planche ensemble)
+    const schemaBlocs = clone.querySelectorAll('.schema-bloc, #portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique');
+    schemaBlocs.forEach(bloc => {
+      bloc.classList.add('schema-bloc');
+      bloc.style.setProperty('page-break-inside', 'avoid', 'important');
+      bloc.style.setProperty('break-inside', 'avoid', 'important');
+      bloc.style.setProperty('display', 'block', 'important');
+
+      const preview = bloc.querySelector('.print-canvas-preview, .session-canvas-preview');
+      if (preview) {
+        preview.style.setProperty('page-break-inside', 'avoid', 'important');
+        preview.style.setProperty('break-inside', 'avoid', 'important');
+        preview.style.setProperty('display', 'block', 'important');
+      }
+      const img = bloc.querySelector('img');
+      if (img) {
+        img.style.setProperty('page-break-inside', 'avoid', 'important');
+        img.style.setProperty('break-inside', 'avoid', 'important');
+        img.style.setProperty('display', 'block', 'important');
+        img.style.setProperty('max-width', '100%', 'important');
+        img.style.setProperty('height', 'auto', 'important');
+        img.style.setProperty('margin', '0 auto', 'important');
+      }
+    });
+
+    container.appendChild(clone);
+    document.body.appendChild(container);
+
+    // 1. Logs de contrôle demandés
+    console.log("Conteneur cible html2pdf :", container);
+    console.log("Longueur du contenu HTML :", container.innerHTML.length);
+    if (container.innerHTML.length < 500) {
+      console.warn("⚠️ Attention : longueur HTML anormalement faible (< 500) :", container.innerHTML.length);
+    }
+
+    // Attendre impérativement le chargement complet des images du document
+    const imgs = Array.from(container.querySelectorAll('img'));
+    await Promise.all(imgs.map(img => {
+      if (img.complete && img.naturalWidth !== 0) return Promise.resolve();
+      return new Promise(resolve => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+        setTimeout(resolve, 300);
+      });
+    }));
+
+    // 3. Attente stricte du rendu : stabilisation des polices et du DOM
+    if (document.fonts && document.fonts.ready) {
+      try { await document.fonts.ready; } catch (_) {}
+    }
+    await new Promise(r => setTimeout(r, 200));
+
+    // Détection de remplissage de la 1ère page pour forcer un saut de page propre avant le schéma
+    schemaBlocs.forEach(bloc => {
+      if (bloc.style.display !== 'none') {
+        const topOffset = bloc.offsetTop;
+        const height = bloc.offsetHeight || 380;
+        if (topOffset > 480 || (topOffset + height > 920)) {
+          bloc.style.setProperty('page-break-before', 'always', 'important');
+          bloc.style.setProperty('break-before', 'page', 'important');
+          bloc.style.setProperty('padding-top', '15mm', 'important');
+        }
+      }
+    });
+
+    // 3. Configuration html2canvas dans les options html2pdf
     const opt = {
       margin: 0,
       filename: filename || 'document.pdf',
@@ -7504,51 +7523,9 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
       html2canvas: {
         scale: 2,
         useCORS: true,
-        logging: true,
-        width: 794,
-        windowWidth: 794,
         scrollX: 0,
         scrollY: 0,
-        backgroundColor: '#ffffff',
-        onclone: (clonedDoc) => {
-          const sandboxes = clonedDoc.querySelectorAll('#pdf-isolation-sandbox, .pdf-isolation-sandbox');
-          sandboxes.forEach(s => {
-            s.style.setProperty('opacity', '1', 'important');
-            s.style.setProperty('visibility', 'visible', 'important');
-            s.style.setProperty('display', 'block', 'important');
-            s.style.setProperty('z-index', '1', 'important');
-            s.style.setProperty('background-color', '#ffffff', 'important');
-            s.style.setProperty('color', '#1f2937', 'important');
-          });
-
-          const target = clonedDoc.querySelector('#pdf-isolation-sandbox') ||
-                         clonedDoc.querySelector('#portal-cr-sheet') || 
-                         clonedDoc.querySelector('#animal-dossier-preview-sheet') || 
-                         clonedDoc.querySelector('.official-a4-sheet') || 
-                         clonedDoc.querySelector('.cr-document');
-          if (target) {
-            target.style.margin = '0 !important';
-            target.style.transform = 'none !important';
-            target.style.position = 'static !important';
-            target.style.width = '794px !important';
-            target.style.minWidth = '794px !important';
-            target.style.maxWidth = '794px !important';
-            target.style.boxSizing = 'border-box !important';
-            target.style.backgroundColor = '#ffffff !important';
-            target.style.setProperty('opacity', '1', 'important');
-            target.style.setProperty('visibility', 'visible', 'important');
-            target.style.setProperty('display', 'block', 'important');
-            target.style.setProperty('color', '#1f2937', 'important');
-          }
-
-          // Verrouillage page-break strict dans le DOM cloné
-          const schemaInClone = clonedDoc.querySelectorAll('.schema-bloc, #portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique, .print-canvas-preview, .session-canvas-preview');
-          schemaInClone.forEach(el => {
-            el.style.setProperty('page-break-inside', 'avoid', 'important');
-            el.style.setProperty('break-inside', 'avoid', 'important');
-            el.style.setProperty('display', 'block', 'important');
-          });
-        }
+        windowWidth: 794
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak: { 
@@ -7566,14 +7543,12 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
     }
     return blob;
   } finally {
-    // 4. Nettoyage systématique avec container.remove()
-    if (container) {
-      if (typeof container.remove === 'function') {
-        container.remove();
-      } else if (container.parentNode) {
-        container.parentNode.removeChild(container);
-      }
+    // 2 & 4. Nettoyage systématique avec container.remove()
+    const sandbox = document.getElementById('pdf-isolation-sandbox');
+    if (sandbox) {
+      sandbox.remove();
     }
+    isPdfGenerating = false;
   }
 }
 
@@ -7610,497 +7585,516 @@ function prepareMobileTabIfNeeded() {
 // 100% des documents (CR internes, Dossiers de santé, Pièces jointes PDF/Images)
 // convergent vers cette fonction unique.
 // ============================================================================
+let isUniversalDocOpening = false;
 export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
-  if (!resource) {
-    showToast("Aucun document joint à afficher.", "error");
+  if (isUniversalDocOpening) {
+    console.warn("openUniversalDocument déjà en cours, appel ignoré.");
     return;
   }
-
-  // Normalisation des arguments pour supporter les signatures :
-  // - openUniversalDocument(blobUrlOrBlob, filename, title, extraInfo)
-  // - openDocumentViewerModal(fileData, fileType, fileName, extraInfo)
-  let rawResource = resource;
-  let filename = '';
-  let displayTitle = '';
-  let extraInfo = {};
-
-  if (typeof arg2 === 'string' && (arg2.includes('/') || arg2 === '')) {
-    // Signature héritée : (fileData, fileType, fileName, extraInfo)
-    filename = arg3 || 'document.pdf';
-    extraInfo = (typeof arg4 === 'object' && arg4 !== null) ? arg4 : {};
-    displayTitle = extraInfo.text || filename;
-  } else {
-    // Signature unifiée : (blobUrlOrBlob, filename, title, extraInfo)
-    filename = (typeof arg2 === 'string' && arg2) ? arg2 : 'document.pdf';
-    if (typeof arg3 === 'object' && arg3 !== null) {
-      extraInfo = arg3;
-      displayTitle = extraInfo.text || filename;
-    } else {
-      displayTitle = arg3 || filename;
-      extraInfo = (typeof arg4 === 'object' && arg4 !== null) ? arg4 : {};
-    }
-  }
-
-  // 1. Détection stricte de l'environnement matériel et d'affichage
-  const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
-  const isMobileOrTabletBrowser = isMobileOrTabletBrowserEnvironment();
-
-  // Helper interne pour résoudre le Blob et créer le blobUrl
-  async function resolveToBlobAndUrl(data) {
-    let resolvedData = data;
-    if (typeof data === 'function') {
-      resolvedData = await data();
-    }
-    if (resolvedData instanceof Blob) {
-      const url = URL.createObjectURL(resolvedData);
-      return { blob: resolvedData, blobUrl: url, isTempUrl: true, mime: resolvedData.type || 'application/pdf', name: filename };
-    }
-    if (typeof resolvedData === 'string' && (resolvedData.startsWith('blob:') || resolvedData.startsWith('http://') || resolvedData.startsWith('https://'))) {
-      return { blob: extraInfo.blob || null, blobUrl: resolvedData, isTempUrl: false, mime: (filename.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'), name: filename };
-    }
-    // Données base64 ou attachments de la base IndexedDB
-    const resolved = await resolveAttachmentResource(resolvedData, extraInfo.fileType || (filename.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'), filename);
-    let url = resolved.blobUrl;
-    let isTemp = false;
-    if (!url && resolved.blob) {
-      url = URL.createObjectURL(resolved.blob);
-      isTemp = true;
-    }
-    return {
-      blob: resolved.blob,
-      blobUrl: url,
-      isTempUrl: isTemp,
-      mime: resolved.mime || (filename.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
-      name: resolved.name || filename
-    };
-  }
-
-  // ==========================================================================
-  // RÈGLE TERMINAL 1 : Tablette & Smartphone en application PWA installée (standalone)
-  // Maintien strict de l'affichage plein écran avec croix [×] en haut à droite
-  // ==========================================================================
-  if (isStandalone) {
-    let standaloneViewer = document.getElementById('standalone-document-viewer');
-    if (!standaloneViewer) {
-      standaloneViewer = document.createElement('div');
-      standaloneViewer.id = 'standalone-document-viewer';
-      standaloneViewer.setAttribute('role', 'dialog');
-      standaloneViewer.setAttribute('aria-modal', 'true');
-      standaloneViewer.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 99990; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; margin: 0; padding: 20px 0; box-sizing: border-box; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch;';
-      document.body.appendChild(standaloneViewer);
-    }
-
-    standaloneViewer.innerHTML = `
-      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100vh; color: #94a3b8;">
-        <div style="width: 38px; height: 38px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #D96B27; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
-        <p style="margin: 0; font-size: 0.9rem;">Chargement du document...</p>
-      </div>
-    `;
-    standaloneViewer.style.display = 'flex';
-
-    let docInfo = null;
-    try {
-      docInfo = await resolveToBlobAndUrl(rawResource);
-    } catch (err) {
-      console.error("[openUniversalDocument standalone] Erreur résolution:", err);
-      standaloneViewer.style.display = 'none';
-      showToast("Erreur lors de la préparation du document.", "error");
-      return;
-    }
-
-    if (!docInfo || !docInfo.blobUrl) {
-      standaloneViewer.style.display = 'none';
-      showToast("Document non disponible ou introuvable.", "error");
-      return;
-    }
-
-    const { blobUrl, isTempUrl, mime, name } = docInfo;
-    const isPdf = !!(mime?.includes('pdf') || name?.toLowerCase().endsWith('.pdf'));
-
-    if (isPdf) {
-      let renderedViaPdfJs = false;
-      if (window.pdfjsLib) {
-        try {
-          standaloneViewer.innerHTML = `
-            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100vh; color: #94a3b8;">
-              <div style="width: 38px; height: 38px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #D96B27; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
-              <p style="margin: 0; font-size: 0.9rem;">Affichage du document...</p>
-            </div>
-          `;
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-          const loadingTask = window.pdfjsLib.getDocument(blobUrl);
-          const pdfDoc = await loadingTask.promise;
-
-          const canvasWrap = document.createElement('div');
-          canvasWrap.style.cssText = 'width: 100%; min-height: 100vh; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 20px 0; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;';
-
-          const availWidth = Math.max(window.innerWidth - 32, 280);
-          for (let pNum = 1; pNum <= pdfDoc.numPages; pNum++) {
-            const page = await pdfDoc.getPage(pNum);
-            const unscaledViewport = page.getViewport({ scale: 1 });
-            const fitScale = Math.min(availWidth, 794) / unscaledViewport.width;
-            const viewport = page.getViewport({ scale: fitScale });
-
-            const canvas = document.createElement('canvas');
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            canvas.style.cssText = 'width: 100%; max-width: 794px; height: auto; display: block; margin: 0 auto 14px auto; left: auto; right: auto; transform: none; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.6); box-sizing: border-box;';
-
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            await page.render({ canvasContext: ctx, viewport }).promise;
-            canvasWrap.appendChild(canvas);
-          }
-          standaloneViewer.innerHTML = '';
-          standaloneViewer.appendChild(canvasWrap);
-          renderedViaPdfJs = true;
-        } catch (pdfErr) {
-          console.warn("[openUniversalDocument standalone] Rendu PDF.js échoué, repli object:", pdfErr);
-        }
-      }
-
-      if (!renderedViaPdfJs) {
-        standaloneViewer.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: 100vh; border: none;">
-          <iframe src="${blobUrl}" style="width: 100%; height: 100vh; border: none;"></iframe>
-        </object>`;
-      }
-    } else {
-      standaloneViewer.innerHTML = `<img src="${blobUrl}" style="max-width: 100%; max-height: 100vh; object-fit: contain; margin: auto; display: block;" />`;
-    }
-
-    // Supprimer tout éventuel bouton flottant précédent
-    const oldCloseBtn = document.getElementById('floating-doc-close-btn');
-    if (oldCloseBtn) oldCloseBtn.remove();
-
-    // Bouton flottant universel de fermeture en haut à droite
-    const closeBtn = document.createElement('button');
-    closeBtn.id = 'floating-doc-close-btn';
-    closeBtn.innerHTML = '&times;';
-    closeBtn.setAttribute('aria-label', 'Fermer le document');
-    closeBtn.style.cssText = 'position: fixed; top: 14px; right: 14px; z-index: 99999; background: rgba(0,0,0,0.75); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 42px; height: 42px; font-size: 26px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); -webkit-tap-highlight-color: transparent;';
-
-    const closeViewer = () => {
-      if (standaloneViewer) {
-        standaloneViewer.innerHTML = '';
-        standaloneViewer.style.display = 'none';
-      }
-      if (closeBtn && closeBtn.parentNode) {
-        closeBtn.remove();
-      }
-      if (isTempUrl) {
-        try { URL.revokeObjectURL(blobUrl); } catch (_) {}
-      }
-      window.removeEventListener('keydown', onEscKey);
-    };
-
-    const onEscKey = (e) => {
-      if (e.key === 'Escape') closeViewer();
-    };
-    window.addEventListener('keydown', onEscKey);
-
-    closeBtn.onclick = () => {
-      closeViewer();
-    };
-
-    document.body.appendChild(closeBtn);
-    return;
-  }
-
-  // ==========================================================================
-  // RÈGLE TERMINAL 2 : Mobile & Tablette Chrome (navigateurs classiques)
-  // Ouverture directe du blobUrl dans un second onglet natif
-  // Déblocage Chrome Mobile : utilisation de l'onglet pré-ouvert de façon synchrone lors du clic utilisateur
-  // ==========================================================================
-  if (isMobileOrTabletBrowser) {
-    let targetTab = extraInfo.preOpenedTab || null;
-    if (!targetTab) {
-      try {
-        targetTab = window.open('about:blank', '_blank');
-        if (targetTab) {
-          targetTab.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px;">Génération du document en cours...</p>');
-          try { targetTab.document.close(); } catch (_) {}
-        }
-      } catch (_) {}
-    }
-
-    let docInfo = null;
-    try {
-      docInfo = await resolveToBlobAndUrl(rawResource);
-    } catch (err) {
-      console.error("[openUniversalDocument mobile] Erreur résolution:", err);
-      if (targetTab && !targetTab.closed) {
-        try {
-          targetTab.document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #ef4444;">Erreur lors de la génération du document.</p>';
-        } catch (_) {}
-      }
-      showToast("Erreur lors de la préparation du document.", "error");
-      return;
-    }
-
-    if (!docInfo || !docInfo.blobUrl) {
-      if (targetTab && !targetTab.closed) {
-        try {
-          targetTab.document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #ef4444;">Document non disponible ou introuvable.</p>';
-        } catch (_) {}
-      }
-      showToast("Document non disponible ou introuvable.", "error");
-      return;
-    }
-
-    const { blobUrl, isTempUrl } = docInfo;
-
-    // Navigation dans l'onglet ouvert, ou repli dans la fenêtre courante
-    if (targetTab && !targetTab.closed) {
-      try {
-        targetTab.location.href = blobUrl;
-      } catch (navErr) {
-        console.warn("Navigation targetTab échouée, redirection directe:", navErr);
-        window.location.href = blobUrl;
-      }
-    } else {
-      window.location.href = blobUrl;
-    }
-
-    if (isTempUrl) {
-      setTimeout(() => {
-        try { URL.revokeObjectURL(blobUrl); } catch (_) {}
-      }, 120000);
-    }
-    return;
-  }
-
-  // ==========================================================================
-  // RÈGLE TERMINAL 3 : PC Desktop (bureau avec souris)
-  // Boîte modale centrée (#dialog-document-viewer) avec lecteur PDF propre,
-  // boutons "Télécharger le PDF" et "Fermer".
-  // ==========================================================================
-  const dialog = document.getElementById('dialog-document-viewer');
-  if (!dialog) {
-    showToast("Visionneuse de document non disponible.", "error");
-    return;
-  }
+  isUniversalDocOpening = true;
 
   try {
-    const titleEl = document.getElementById('doc-viewer-title');
-    const subtitleEl = document.getElementById('doc-viewer-subtitle');
-    const iconEl = document.getElementById('doc-viewer-icon');
-    const bodyEl = document.getElementById('doc-viewer-body') || dialog.querySelector('.modal-pj-body');
-    const downloadBtn = document.getElementById('btn-download-doc-viewer');
-    const shareBtn = document.getElementById('btn-share-doc-viewer');
-    const openBtn = document.getElementById('btn-open-doc-viewer');
-    const btnZoomOut = document.getElementById('btn-zoom-out-doc-viewer');
-    const btnZoomIn = document.getElementById('btn-zoom-in-doc-viewer');
-    const btnZoomReset = document.getElementById('btn-zoom-reset-doc-viewer');
-    const zoomLevelEl = document.getElementById('doc-viewer-zoom-level');
-    const zoomControls = dialog.querySelector('.doc-viewer-zoom-controls');
-
-    if (openBtn) openBtn.style.display = 'none';
-
-    const safeTitle = (extraInfo.text && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(extraInfo.text)) ? extraInfo.text : (displayTitle && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(displayTitle) ? displayTitle : "Document");
-
-    // Résolution préalable du Blob et de l'URL (sans ouvrir la modale prématurément)
-    let docInfo = null;
-    try {
-      docInfo = await resolveToBlobAndUrl(rawResource);
-    } catch (genErr) {
-      console.error("[openUniversalDocument desktop] Erreur résolution:", genErr);
-      showToast("Impossible de charger le document.", "error");
+    if (!resource) {
+      showToast("Aucun document joint à afficher.", "error");
       return;
     }
 
-    if (!docInfo || !docInfo.blobUrl) {
-      showToast("Document non disponible.", "error");
-      return;
-    }
+    // Normalisation des arguments pour supporter les signatures :
+    // - openUniversalDocument(blobUrlOrBlob, filename, title, extraInfo)
+    // - openDocumentViewerModal(fileData, fileType, fileName, extraInfo)
+    let rawResource = resource;
+    let filename = '';
+    let displayTitle = '';
+    let extraInfo = {};
 
-    const { blob, blobUrl, isTempUrl, mime, name: cleanFilename } = docInfo;
-    const isImage = !!(mime?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename));
-    const isPdf = !isImage;
-
-    const isUuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(cleanFilename) || cleanFilename.length >= 24;
-    let finalTitle = cleanFilename;
-    if (isUuid || cleanFilename.startsWith('blob:') || cleanFilename === 'document.jpg' || cleanFilename === 'compte_rendu.pdf' || cleanFilename === 'document.pdf') {
-      finalTitle = safeTitle || (isPdf ? 'Document (PDF)' : 'Photo');
+    if (typeof arg2 === 'string' && (arg2.includes('/') || arg2 === '')) {
+      // Signature héritée : (fileData, fileType, fileName, extraInfo)
+      filename = arg3 || 'document.pdf';
+      extraInfo = (typeof arg4 === 'object' && arg4 !== null) ? arg4 : {};
+      displayTitle = extraInfo.text || filename;
     } else {
-      finalTitle = safeTitle || cleanFilename;
-    }
-
-    if (titleEl) titleEl.textContent = finalTitle;
-    if (subtitleEl) {
-      subtitleEl.textContent = extraInfo.subtitle || (blob ? `${mime || (isPdf ? 'PDF' : 'Image')} • ${(blob.size / 1024).toFixed(1)} Ko` : (isPdf ? 'Document PDF' : 'Image'));
-    }
-    if (iconEl) {
-      iconEl.textContent = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
-    }
-
-    // Zoom desktop (pour images)
-    let currentZoom = 1.0;
-    const applyZoom = () => {
-      if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
-      const zoomableEl = bodyEl ? bodyEl.querySelector('.zoomable-document-content') : null;
-      if (zoomableEl) {
-        zoomableEl.style.transformOrigin = '50% 0';
-        zoomableEl.style.transform = `scale(${currentZoom})`;
+      // Signature unifiée : (blobUrlOrBlob, filename, title, extraInfo)
+      filename = (typeof arg2 === 'string' && arg2) ? arg2 : 'document.pdf';
+      if (typeof arg3 === 'object' && arg3 !== null) {
+        extraInfo = arg3;
+        displayTitle = extraInfo.text || filename;
+      } else {
+        displayTitle = arg3 || filename;
+        extraInfo = (typeof arg4 === 'object' && arg4 !== null) ? arg4 : {};
       }
-    };
-
-    if (btnZoomOut) {
-      btnZoomOut.onclick = (e) => {
-        e.stopPropagation();
-        currentZoom = Math.max(0.5, Math.round((currentZoom - 0.2) * 10) / 10);
-        applyZoom();
-      };
-    }
-    if (btnZoomIn) {
-      btnZoomIn.onclick = (e) => {
-        e.stopPropagation();
-        currentZoom = Math.min(3.0, Math.round((currentZoom + 0.2) * 10) / 10);
-        applyZoom();
-      };
-    }
-    if (btnZoomReset) {
-      btnZoomReset.onclick = (e) => {
-        e.stopPropagation();
-        currentZoom = 1.0;
-        applyZoom();
-      };
     }
 
-    // Rendu dans la modale
-    if (isPdf) {
-      if (zoomControls) zoomControls.style.display = 'none';
+    // 1. Détection stricte de l'environnement matériel et d'affichage
+    const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
+    const isMobileOrTabletBrowser = isMobileOrTabletBrowserEnvironment();
 
-      // S'assurer de la présence du conteneur #modalPdfViewer et de son iframe
-      let modalPdfViewer = document.getElementById('modalPdfViewer');
-      let iframe = modalPdfViewer ? modalPdfViewer.querySelector('iframe') : null;
-      if (!modalPdfViewer || !iframe) {
-        if (bodyEl) {
-          bodyEl.innerHTML = `
-            <div id="modalPdfViewer">
-              <iframe src="" title="Visionneuse PDF"></iframe>
-            </div>
-          `;
-        }
-        modalPdfViewer = document.getElementById('modalPdfViewer');
-        iframe = modalPdfViewer ? modalPdfViewer.querySelector('iframe') : null;
+    // Helper interne pour résoudre le Blob et créer le blobUrl
+    async function resolveToBlobAndUrl(data) {
+      let resolvedData = data;
+      if (typeof data === 'function') {
+        resolvedData = await data();
+      }
+      if (resolvedData instanceof Blob) {
+        const url = URL.createObjectURL(resolvedData);
+        return { blob: resolvedData, blobUrl: url, isTempUrl: true, mime: resolvedData.type || 'application/pdf', name: filename };
+      }
+      if (typeof resolvedData === 'string' && (resolvedData.startsWith('blob:') || resolvedData.startsWith('http://') || resolvedData.startsWith('https://'))) {
+        return { blob: extraInfo.blob || null, blobUrl: resolvedData, isTempUrl: false, mime: (filename.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'), name: filename };
+      }
+      // Données base64 ou attachments de la base IndexedDB
+      const resolved = await resolveAttachmentResource(resolvedData, extraInfo.fileType || (filename.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'), filename);
+      let url = resolved.blobUrl;
+      let isTemp = false;
+      if (!url && resolved.blob) {
+        url = URL.createObjectURL(resolved.blob);
+        isTemp = true;
+      }
+      return {
+        blob: resolved.blob,
+        blobUrl: url,
+        isTempUrl: isTemp,
+        mime: resolved.mime || (filename.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
+        name: resolved.name || filename
+      };
+    }
+
+    // ==========================================================================
+    // RÈGLE TERMINAL 1 : Tablette & Smartphone en application PWA installée (standalone)
+    // Maintien strict de l'affichage plein écran avec croix [×] en haut à droite
+    // ==========================================================================
+    if (isStandalone) {
+      let standaloneViewer = document.getElementById('standalone-document-viewer');
+      if (!standaloneViewer) {
+        standaloneViewer = document.createElement('div');
+        standaloneViewer.id = 'standalone-document-viewer';
+        standaloneViewer.setAttribute('role', 'dialog');
+        standaloneViewer.setAttribute('aria-modal', 'true');
+        standaloneViewer.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 100000; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; margin: 0; padding: 20px 0; box-sizing: border-box; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch;';
+        document.body.appendChild(standaloneViewer);
       }
 
-      // Action 2 : Injecter ce Blob dans l'iframe de la modale et afficher la modale uniquement une fois l'iframe chargée
-      let hasOpened = false;
-      const showModalOnce = () => {
-        if (!hasOpened) {
-          hasOpened = true;
-          if (!dialog.open) {
-            dialog.showModal();
+      standaloneViewer.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100vh; color: #94a3b8;">
+          <div style="width: 38px; height: 38px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #D96B27; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
+          <p style="margin: 0; font-size: 0.9rem;">Génération du document...</p>
+        </div>
+      `;
+      standaloneViewer.style.display = 'flex';
+
+      let docInfo = null;
+      try {
+        docInfo = await resolveToBlobAndUrl(rawResource);
+      } catch (err) {
+        console.error("[openUniversalDocument standalone] Erreur résolution:", err);
+        standaloneViewer.style.display = 'none';
+        showToast("Erreur lors de la préparation du document.", "error");
+        return;
+      }
+
+      // Nettoyage immédiat du conteneur de compilation
+      const sandbox = document.getElementById('pdf-isolation-sandbox');
+      if (sandbox) {
+        sandbox.remove();
+      }
+
+      if (!docInfo || !docInfo.blobUrl) {
+        standaloneViewer.style.display = 'none';
+        showToast("Document non disponible ou introuvable.", "error");
+        return;
+      }
+
+      const { blobUrl, isTempUrl, mime, name } = docInfo;
+      const isPdf = !!(mime?.includes('pdf') || name?.toLowerCase().endsWith('.pdf'));
+
+      if (isPdf) {
+        let renderedViaPdfJs = false;
+        if (window.pdfjsLib) {
+          try {
+            standaloneViewer.innerHTML = `
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100vh; color: #94a3b8;">
+                <div style="width: 38px; height: 38px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #D96B27; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
+                <p style="margin: 0; font-size: 0.9rem;">Affichage du document...</p>
+              </div>
+            `;
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            const loadingTask = window.pdfjsLib.getDocument(blobUrl);
+            const pdfDoc = await loadingTask.promise;
+
+            const canvasWrap = document.createElement('div');
+            canvasWrap.style.cssText = 'width: 100%; min-height: 100vh; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 20px 0; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;';
+
+            const availWidth = Math.max(window.innerWidth - 32, 280);
+            for (let pNum = 1; pNum <= pdfDoc.numPages; pNum++) {
+              const page = await pdfDoc.getPage(pNum);
+              const unscaledViewport = page.getViewport({ scale: 1 });
+              const fitScale = Math.min(availWidth, 794) / unscaledViewport.width;
+              const viewport = page.getViewport({ scale: fitScale });
+
+              const canvas = document.createElement('canvas');
+              canvas.height = viewport.height;
+              canvas.width = viewport.width;
+              canvas.style.cssText = 'width: 100%; max-width: 794px; height: auto; display: block; margin: 0 auto 14px auto; left: auto; right: auto; transform: none; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.6); box-sizing: border-box;';
+
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              await page.render({ canvasContext: ctx, viewport }).promise;
+              canvasWrap.appendChild(canvas);
+            }
+            standaloneViewer.innerHTML = '';
+            standaloneViewer.appendChild(canvasWrap);
+            renderedViaPdfJs = true;
+          } catch (pdfErr) {
+            console.warn("[openUniversalDocument standalone] Rendu PDF.js échoué, repli object:", pdfErr);
           }
         }
-      };
 
-      if (iframe) {
-        iframe.onload = () => {
-          showModalOnce();
-        };
-        iframe.src = blobUrl;
+        if (!renderedViaPdfJs) {
+          standaloneViewer.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: 100vh; border: none;">
+            <iframe src="${blobUrl}" style="width: 100%; height: 100vh; border: none;"></iframe>
+          </object>`;
+        }
+      } else {
+        standaloneViewer.innerHTML = `<img src="${blobUrl}" style="max-width: 100%; max-height: 100vh; object-fit: contain; margin: auto; display: block;" />`;
       }
 
-      // Timeout de sécurité au cas où onload est déjà déclenché ou synchrone
-      setTimeout(() => {
-        showModalOnce();
-      }, 500);
+      // Supprimer tout éventuel bouton flottant précédent
+      const oldCloseBtn = document.getElementById('floating-doc-close-btn');
+      if (oldCloseBtn) oldCloseBtn.remove();
 
-    } else if (isImage) {
-      if (zoomControls) zoomControls.style.display = 'inline-flex';
-      currentZoom = 1.0;
+      // Bouton flottant universel de fermeture en haut à droite
+      const closeBtn = document.createElement('button');
+      closeBtn.id = 'floating-doc-close-btn';
+      closeBtn.innerHTML = '&times;';
+      closeBtn.setAttribute('aria-label', 'Fermer le document');
+      closeBtn.style.cssText = 'position: fixed; top: 14px; right: 14px; z-index: 100001; background: rgba(0,0,0,0.75); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 42px; height: 42px; font-size: 26px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); -webkit-tap-highlight-color: transparent;';
+
+      const closeViewer = () => {
+        if (standaloneViewer) {
+          standaloneViewer.innerHTML = '';
+          standaloneViewer.style.display = 'none';
+        }
+        if (closeBtn && closeBtn.parentNode) {
+          closeBtn.remove();
+        }
+        if (isTempUrl) {
+          try { URL.revokeObjectURL(blobUrl); } catch (_) {}
+        }
+        window.removeEventListener('keydown', onEscKey);
+      };
+
+      const onEscKey = (e) => {
+        if (e.key === 'Escape') closeViewer();
+      };
+      window.addEventListener('keydown', onEscKey);
+
+      closeBtn.onclick = () => {
+        closeViewer();
+      };
+
+      document.body.appendChild(closeBtn);
+      return;
+    }
+
+    // ==========================================================================
+    // RÈGLE TERMINAL 2 : Mobile & Tablette Chrome (navigateurs classiques)
+    // Ouverture directe du blobUrl dans un second onglet natif
+    // Déblocage Chrome Mobile : utilisation de l'onglet pré-ouvert de façon synchrone lors du clic utilisateur
+    // ==========================================================================
+    if (isMobileOrTabletBrowser) {
+      let targetTab = extraInfo.preOpenedTab || null;
+      if (!targetTab) {
+        try {
+          targetTab = window.open('about:blank', '_blank');
+          if (targetTab) {
+            targetTab.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px;">Génération du document en cours...</p>');
+            try { targetTab.document.close(); } catch (_) {}
+          }
+        } catch (_) {}
+      }
+
+      let docInfo = null;
+      try {
+        docInfo = await resolveToBlobAndUrl(rawResource);
+      } catch (err) {
+        console.error("[openUniversalDocument mobile] Erreur résolution:", err);
+        if (targetTab && !targetTab.closed) {
+          try {
+            targetTab.document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #ef4444;">Erreur lors de la génération du document.</p>';
+          } catch (_) {}
+        }
+        showToast("Erreur lors de la préparation du document.", "error");
+        return;
+      }
+
+      // Nettoyage immédiat du conteneur de compilation
+      const sandbox = document.getElementById('pdf-isolation-sandbox');
+      if (sandbox) {
+        sandbox.remove();
+      }
+
+      if (!docInfo || !docInfo.blobUrl) {
+        if (targetTab && !targetTab.closed) {
+          try {
+            targetTab.document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #ef4444;">Document non disponible ou introuvable.</p>';
+          } catch (_) {}
+        }
+        showToast("Document non disponible ou introuvable.", "error");
+        return;
+      }
+
+      const { blobUrl, isTempUrl } = docInfo;
+
+      // Navigation dans l'onglet ouvert, ou repli dans la fenêtre courante
+      if (targetTab && !targetTab.closed) {
+        try {
+          targetTab.location.href = blobUrl;
+        } catch (navErr) {
+          console.warn("Navigation targetTab échouée, redirection directe:", navErr);
+          window.location.href = blobUrl;
+        }
+      } else {
+        window.location.href = blobUrl;
+      }
+
+      if (isTempUrl) {
+        setTimeout(() => {
+          try { URL.revokeObjectURL(blobUrl); } catch (_) {}
+        }, 120000);
+      }
+      return;
+    }
+
+    // ==========================================================================
+    // RÈGLE TERMINAL 3 : PC Desktop (bureau avec souris)
+    // Boîte modale centrée (#dialog-document-viewer) avec lecteur PDF propre,
+    // boutons "Télécharger le PDF" et "Fermer".
+    // ==========================================================================
+    const dialog = document.getElementById('dialog-document-viewer');
+    if (!dialog) {
+      showToast("Visionneuse de document non disponible.", "error");
+      return;
+    }
+
+    try {
+      const titleEl = document.getElementById('doc-viewer-title');
+      const subtitleEl = document.getElementById('doc-viewer-subtitle');
+      const iconEl = document.getElementById('doc-viewer-icon');
+      const bodyEl = document.getElementById('doc-viewer-body') || dialog.querySelector('.modal-pj-body');
+      const downloadBtn = document.getElementById('btn-download-doc-viewer');
+      const shareBtn = document.getElementById('btn-share-doc-viewer');
+      const openBtn = document.getElementById('btn-open-doc-viewer');
+      const btnZoomOut = document.getElementById('btn-zoom-out-doc-viewer');
+      const btnZoomIn = document.getElementById('btn-zoom-in-doc-viewer');
+      const btnZoomReset = document.getElementById('btn-zoom-reset-doc-viewer');
+      const zoomLevelEl = document.getElementById('doc-viewer-zoom-level');
+      const zoomControls = dialog.querySelector('.doc-viewer-zoom-controls');
+
+      if (openBtn) openBtn.style.display = 'none';
+
+      const safeTitle = (extraInfo.text && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(extraInfo.text)) ? extraInfo.text : (displayTitle && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(displayTitle) ? displayTitle : "Document");
+
+      // 2. Éviter le flash visuel pour l'utilisateur :
+      // Ouvrir d'abord la modale avec un écran de chargement ("Génération du document...")
+      // qui recouvre tout l'écran pendant les quelques millisecondes de compilation.
+      if (titleEl) titleEl.textContent = safeTitle;
+      if (subtitleEl) subtitleEl.textContent = extraInfo.subtitle || "Génération du document...";
+      if (iconEl) iconEl.textContent = '📄';
+      if (zoomControls) zoomControls.style.display = 'none';
+
       if (bodyEl) {
         bodyEl.innerHTML = `
-          <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;">
-            <img src="${blobUrl}" alt="${escapeHtml(finalTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 794px; height: auto; margin: 0 auto; left: auto; right: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); box-sizing: border-box;">
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; min-height: 480px; color: #94a3b8; background: rgba(15, 23, 42, 0.7); border-radius: 8px;">
+            <div style="width: 44px; height: 44px; border: 4px solid rgba(255,255,255,0.2); border-top-color: #D96B27; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px;"></div>
+            <p style="margin: 0; font-size: 1.1rem; font-weight: 600; color: #f8fafc;">Génération du document...</p>
+            <p style="margin: 8px 0 0 0; font-size: 0.85rem; color: #94a3b8;">Veuillez patienter pendant la compilation du document</p>
           </div>
         `;
       }
-      applyZoom();
+
       if (!dialog.open) {
         dialog.showModal();
       }
-    }
 
-    // Téléchargement direct
-    if (downloadBtn) {
-      const span = downloadBtn.querySelector('.btn-text');
-      if (span) span.textContent = isPdf ? 'Télécharger le PDF' : 'Télécharger';
-      downloadBtn.onclick = () => {
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = cleanFilename.endsWith('.pdf') ? cleanFilename : (isPdf ? `${cleanFilename}.pdf` : cleanFilename);
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => a.remove(), 200);
-        showToast(`Document téléchargé : ${finalTitle}`);
-      };
-    }
+      // Résolution du Blob et de l'URL pendant que la modale de chargement recouvre l'écran
+      let docInfo = null;
+      try {
+        docInfo = await resolveToBlobAndUrl(rawResource);
+      } catch (genErr) {
+        console.error("[openUniversalDocument desktop] Erreur résolution:", genErr);
+        if (dialog.open) dialog.close();
+        showToast("Impossible de charger le document.", "error");
+        return;
+      }
 
-    // Partage
-    if (shareBtn) {
-      shareBtn.onclick = async () => {
-        try {
-          if (blob) {
-            const file = new File([blob], cleanFilename, { type: mime || 'application/octet-stream' });
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-              await navigator.share({
-                files: [file],
-                title: finalTitle,
-                text: extraInfo.text || `Document ${finalTitle}`
-              });
-              return;
-            }
-          }
-          if (navigator.share) {
-            await navigator.share({
-              title: finalTitle,
-              text: extraInfo.text || `Document ${finalTitle}`,
-              url: window.location.href
-            });
-          }
-        } catch (e) {
-          if (e.name !== 'AbortError') console.warn('Share error:', e);
+      // Dès que html2pdf().output('blob') a terminé : supprimer le sandbox si encore présent
+      const sandbox = document.getElementById('pdf-isolation-sandbox');
+      if (sandbox) {
+        sandbox.remove();
+      }
+
+      if (!docInfo || !docInfo.blobUrl) {
+        if (dialog.open) dialog.close();
+        showToast("Document non disponible.", "error");
+        return;
+      }
+
+      const { blob, blobUrl, isTempUrl, mime, name: cleanFilename } = docInfo;
+      const isImage = !!(mime?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename));
+      const isPdf = !isImage;
+
+      const isUuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(cleanFilename) || cleanFilename.length >= 24;
+      let finalTitle = cleanFilename;
+      if (isUuid || cleanFilename.startsWith('blob:') || cleanFilename === 'document.jpg' || cleanFilename === 'compte_rendu.pdf' || cleanFilename === 'document.pdf') {
+        finalTitle = safeTitle || (isPdf ? 'Document (PDF)' : 'Photo');
+      } else {
+        finalTitle = safeTitle || cleanFilename;
+      }
+
+      if (titleEl) titleEl.textContent = finalTitle;
+      if (subtitleEl) {
+        subtitleEl.textContent = extraInfo.subtitle || (blob ? `${mime || (isPdf ? 'PDF' : 'Image')} • ${(blob.size / 1024).toFixed(1)} Ko` : (isPdf ? 'Document PDF' : 'Image'));
+      }
+      if (iconEl) {
+        iconEl.textContent = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
+      }
+
+      // Zoom desktop (pour images)
+      let currentZoom = 1.0;
+      const applyZoom = () => {
+        if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
+        const zoomableEl = bodyEl ? bodyEl.querySelector('.zoomable-document-content') : null;
+        if (zoomableEl) {
+          zoomableEl.style.transformOrigin = '50% 0';
+          zoomableEl.style.transform = `scale(${currentZoom})`;
         }
       };
-    }
 
-    // Fermeture centralisée via [×] et boutons de fermeture
-    const closeBtns = dialog.querySelectorAll('.btn-close-dialog, .btn-close, .modal-close');
-    closeBtns.forEach(btn => {
-      btn.onclick = () => {
-        if (typeof dialog.close === 'function') dialog.close();
-        else dialog.removeAttribute('open');
+      if (btnZoomOut) {
+        btnZoomOut.onclick = (e) => {
+          e.stopPropagation();
+          currentZoom = Math.max(0.5, Math.round((currentZoom - 0.2) * 10) / 10);
+          applyZoom();
+        };
+      }
+      if (btnZoomIn) {
+        btnZoomIn.onclick = (e) => {
+          e.stopPropagation();
+          currentZoom = Math.min(3.0, Math.round((currentZoom + 0.2) * 10) / 10);
+          applyZoom();
+        };
+      }
+      if (btnZoomReset) {
+        btnZoomReset.onclick = (e) => {
+          e.stopPropagation();
+          currentZoom = 1.0;
+          applyZoom();
+        };
+      }
+
+      // Action 2 : Remplacer le contenu de la modale par l'iframe avec le blobUrl
+      if (isPdf) {
+        if (zoomControls) zoomControls.style.display = 'none';
+
+        if (bodyEl) {
+          bodyEl.innerHTML = `
+            <div id="modalPdfViewer">
+              <iframe src="${blobUrl}" title="Visionneuse PDF"></iframe>
+            </div>
+          `;
+        }
+      } else if (isImage) {
+        if (zoomControls) zoomControls.style.display = 'inline-flex';
+        currentZoom = 1.0;
+        if (bodyEl) {
+          bodyEl.innerHTML = `
+            <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;">
+              <img src="${blobUrl}" alt="${escapeHtml(finalTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 794px; height: auto; margin: 0 auto; left: auto; right: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); box-sizing: border-box;">
+            </div>
+          `;
+        }
+        applyZoom();
+      }
+
+      // Téléchargement direct
+      if (downloadBtn) {
+        const span = downloadBtn.querySelector('.btn-text');
+        if (span) span.textContent = isPdf ? 'Télécharger le PDF' : 'Télécharger';
+        downloadBtn.onclick = () => {
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = cleanFilename.endsWith('.pdf') ? cleanFilename : (isPdf ? `${cleanFilename}.pdf` : cleanFilename);
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => a.remove(), 200);
+          showToast(`Document téléchargé : ${finalTitle}`);
+        };
+      }
+
+      // Partage
+      if (shareBtn) {
+        shareBtn.onclick = async () => {
+          try {
+            if (blob) {
+              const file = new File([blob], cleanFilename, { type: mime || 'application/octet-stream' });
+              if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                  files: [file],
+                  title: finalTitle,
+                  text: extraInfo.text || `Document ${finalTitle}`
+                });
+                return;
+              }
+            }
+            if (navigator.share) {
+              await navigator.share({
+                title: finalTitle,
+                text: extraInfo.text || `Document ${finalTitle}`,
+                url: window.location.href
+              });
+            }
+          } catch (e) {
+            if (e.name !== 'AbortError') console.warn('Share error:', e);
+          }
+        };
+      }
+
+      // Fermeture centralisée via [×] et boutons de fermeture
+      const closeBtns = dialog.querySelectorAll('.btn-close-dialog, .btn-close, .modal-close');
+      closeBtns.forEach(btn => {
+        btn.onclick = () => {
+          if (typeof dialog.close === 'function') dialog.close();
+          else dialog.removeAttribute('open');
+        };
+      });
+
+      dialog.onclick = (e) => {
+        const rect = dialog.getBoundingClientRect();
+        if (
+          e.clientX < rect.left ||
+          e.clientX > rect.right ||
+          e.clientY < rect.top ||
+          e.clientY > rect.bottom
+        ) {
+          if (typeof dialog.close === 'function') dialog.close();
+          else dialog.removeAttribute('open');
+        }
       };
-    });
 
-    dialog.onclick = (e) => {
-      const rect = dialog.getBoundingClientRect();
-      if (
-        e.clientX < rect.left ||
-        e.clientX > rect.right ||
-        e.clientY < rect.top ||
-        e.clientY > rect.bottom
-      ) {
-        if (typeof dialog.close === 'function') dialog.close();
-        else dialog.removeAttribute('open');
-      }
-    };
-
-    dialog.onclose = () => {
-      currentZoom = 1.0;
-      const iframe = document.querySelector('#modalPdfViewer iframe');
-      if (iframe) {
-        iframe.src = 'about:blank';
-      }
-      if (isTempUrl) {
-        try { URL.revokeObjectURL(blobUrl); } catch (_) {}
-      }
-    };
-  } catch (err) {
-    console.error("Erreur lors de l'ouverture du document", err);
-    showToast("Impossible d'ouvrir le document joint.", "error");
+      dialog.onclose = () => {
+        currentZoom = 1.0;
+        const iframe = document.querySelector('#modalPdfViewer iframe');
+        if (iframe) {
+          iframe.src = 'about:blank';
+        }
+        if (isTempUrl) {
+          try { URL.revokeObjectURL(blobUrl); } catch (_) {}
+        }
+      };
+    } catch (err) {
+      console.error("Erreur lors de l'ouverture du document", err);
+      showToast("Impossible d'ouvrir le document joint.", "error");
+    }
+  } finally {
+    isUniversalDocOpening = false;
   }
 }
 
@@ -10389,13 +10383,21 @@ async function checkAndInjectMockData({ force = false } = {}) {
 window.injectMockData = (force = true) => checkAndInjectMockData({ force });
 
 // --- MODALE COMPTE-RENDU DE SÉANCE PORTAIL ---
+let isPortalSessionModalOpening = false;
 async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}) {
-  let session = null;
-  if (typeof sessionOrId === 'object' && sessionOrId !== null) {
-    session = sessionOrId;
-  } else {
-    session = await getById('sessions', Number(sessionOrId));
+  if (isPortalSessionModalOpening) {
+    console.warn("openPortalSessionModal déjà en cours, appel ignoré.");
+    return;
   }
+  isPortalSessionModalOpening = true;
+
+  try {
+    let session = null;
+    if (typeof sessionOrId === 'object' && sessionOrId !== null) {
+      session = sessionOrId;
+    } else {
+      session = await getById('sessions', Number(sessionOrId));
+    }
 
   if (!session) {
     showToast('Compte-rendu introuvable.', 'error');
@@ -10584,31 +10586,46 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
   const title = `Compte-Rendu — ${animal?.nom || 'Animal'}`;
 
-  // Pipeline unifié : Compilation obligatoire en VRAI Blob binaire PDF
+  // Pipeline unifié : Compilation en Blob PDF via écran de chargement modal immédiat
   const sheetElement = document.getElementById('portal-cr-sheet');
-  const pdfBlob = await generatePdfBlobFromElement(sheetElement, filename);
-  const blobUrl = URL.createObjectURL(pdfBlob);
-
-  await openUniversalDocument(blobUrl, filename, title, {
-    ...extraInfo,
-    blob: pdfBlob,
-    subtitle: subtitle
-  });
+  await openUniversalDocument(
+    () => generatePdfBlobFromElement(sheetElement, filename),
+    filename,
+    title,
+    {
+      ...extraInfo,
+      subtitle: subtitle
+    }
+  );
+  } catch (err) {
+    console.error("Erreur openPortalSessionModal:", err);
+    showToast("Erreur lors de l'ouverture du compte-rendu.", "error");
+  } finally {
+    isPortalSessionModalOpening = false;
+  }
 }
 
 // --- MODALE ET EXPORT PDF : FICHE DE LIAISON / DOSSIER DE SANTE ANIMAL ---
+let isExportAnimalDossierModalOpening = false;
 async function openExportAnimalDossierModal(animalOrId) {
-  let animal = null;
-  if (typeof animalOrId === 'object' && animalOrId !== null) {
-    animal = animalOrId;
-  } else {
-    animal = await getById('animals', Number(animalOrId));
-  }
-
-  if (!animal) {
-    showToast("Animal introuvable pour l'export.", "error");
+  if (isExportAnimalDossierModalOpening) {
+    console.warn("openExportAnimalDossierModal déjà en cours, appel ignoré.");
     return;
   }
+  isExportAnimalDossierModalOpening = true;
+
+  try {
+    let animal = null;
+    if (typeof animalOrId === 'object' && animalOrId !== null) {
+      animal = animalOrId;
+    } else {
+      animal = await getById('animals', Number(animalOrId));
+    }
+
+    if (!animal) {
+      showToast("Animal introuvable pour l'export.", "error");
+      return;
+    }
 
   const dialog = document.getElementById('dialog-export-animal-dossier');
   if (!dialog) return;
@@ -10684,10 +10701,20 @@ async function openExportAnimalDossierModal(animalOrId) {
     }
   };
 
-  dialog.showModal();
+    dialog.showModal();
+  } finally {
+    isExportAnimalDossierModalOpening = false;
+  }
 }
 
+let isAnimalDossierPreviewOpening = false;
 async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
+  if (isAnimalDossierPreviewOpening) {
+    console.warn("openAnimalDossierPreviewModal déjà en cours, appel ignoré.");
+    return;
+  }
+  isAnimalDossierPreviewOpening = true;
+
   const dialog = document.getElementById('dialog-preview-animal-dossier');
   if (!dialog) return;
 
@@ -10949,20 +10976,23 @@ async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
     const subtitle = `${animal.nom} (${animal.espece}) • Dossier édité le ${new Date().toLocaleDateString('fr-FR')}`;
     const title = `Fiche de Liaison & Dossier de Santé — ${animal.nom}`;
 
-    // Pipeline unifié : Compilation obligatoire en VRAI Blob binaire PDF
+    // Pipeline unifié : Compilation en Blob PDF via écran de chargement modal immédiat
     const sheetElement = document.getElementById('animal-dossier-preview-sheet');
-    const pdfBlob = await generatePdfBlobFromElement(sheetElement, filename);
-    const blobUrl = URL.createObjectURL(pdfBlob);
-
-    await openUniversalDocument(blobUrl, filename, title, {
-      ...extraInfo,
-      blob: pdfBlob,
-      subtitle: subtitle
-    });
+    await openUniversalDocument(
+      () => generatePdfBlobFromElement(sheetElement, filename),
+      filename,
+      title,
+      {
+        ...extraInfo,
+        subtitle: subtitle
+      }
+    );
 
   } catch (err) {
     console.error("Erreur lors de l'ouverture de la prévisualisation du dossier:", err);
     showToast("Erreur lors de l'affichage du dossier.", "error");
+  } finally {
+    isAnimalDossierPreviewOpening = false;
   }
 }
 

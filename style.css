@@ -2144,9 +2144,11 @@ textarea.form-control {
   gap: 15px;
 }
 
-.app-dialog::backdrop {
+.app-dialog::backdrop,
+#dialog-document-viewer::backdrop {
   background-color: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
+  z-index: 99999 !important;
 }
 
 .dialog-header {
@@ -2548,6 +2550,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   padding: 0 !important;
   transform: none !important;
   zoom: 1 !important;
+  z-index: 100000 !important;
 }
 
 /* Masquage strict par défaut tant qu'aucune action d'ouverture n'est déclenchée */
@@ -2683,13 +2686,13 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   width: 794px !important;
   min-width: 794px !important;
   max-width: 794px !important;
-  z-index: -999 !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: none !important;
+  z-index: 99999 !important; /* Doit être visible pour le moteur de capture */
   background: #ffffff !important;
   background-color: #ffffff !important;
   color: #1f2937 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: none !important;
   margin: 0 !important;
   padding: 20mm !important;
   box-sizing: border-box !important;
