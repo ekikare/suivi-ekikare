@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.70';
+export const APP_VERSION = 'v1.6.71';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7365,42 +7365,40 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
   if (!sourceElement) throw new Error("Élément source introuvable");
   if (typeof html2pdf === 'undefined') throw new Error("Bibliothèque html2pdf non disponible");
 
-  // 1. Conteneur temporaire isolé en coordonnées réelles, invisible sous l'interface (en coulisses)
-  const sandbox = document.createElement('div');
-  sandbox.id = 'pdf-isolation-sandbox';
-  sandbox.className = 'pdf-isolation-sandbox';
-  sandbox.style.cssText = [
-    'position: fixed !important',
-    'top: 0 !important',
-    'left: 0 !important',
-    'width: 794px !important',
-    'min-width: 794px !important',
-    'max-width: 794px !important',
-    'opacity: 0 !important',
-    'pointer-events: none !important',
-    'z-index: -1 !important',
-    'background: #ffffff !important',
-    'background-color: #ffffff !important',
-    'margin: 0 !important',
-    'padding: 20mm !important',
-    'box-sizing: border-box !important',
-    'visibility: visible !important',
-    'display: block !important'
-  ].join('; ') + ';';
+  // 1. Conteneur temporaire isolé (invisible sous l'interface z-index: -999 mais calculable et visible pour html2canvas)
+  const container = document.createElement('div');
+  container.id = 'pdf-isolation-sandbox';
+  container.className = 'pdf-isolation-sandbox';
+  container.style.position = 'fixed';
+  container.style.top = '0';
+  container.style.left = '0';
+  container.style.width = '794px';
+  container.style.zIndex = '-999';
+  container.style.opacity = '1';
+  container.style.visibility = 'visible';
+  container.style.background = '#ffffff';
+  container.style.backgroundColor = '#ffffff';
+  container.style.color = '#1f2937';
+  container.style.margin = '0';
+  container.style.padding = '20mm';
+  container.style.boxSizing = 'border-box';
+  container.style.pointerEvents = 'none';
+  container.style.display = 'block';
 
   // 2. Clone de l'élément source, inséré dans la sandbox
   const clone = sourceElement.cloneNode(true);
-  clone.style.cssText = [
-    'width: 100% !important',
-    'min-width: 100% !important',
-    'max-width: 100% !important',
-    'box-sizing: border-box !important',
-    'margin: 0 !important',
-    'padding: 0 !important',
-    'background: #ffffff !important',
-    'visibility: visible !important',
-    'display: block !important'
-  ].join('; ') + ';';
+  clone.style.width = '100%';
+  clone.style.minWidth = '100%';
+  clone.style.maxWidth = '100%';
+  clone.style.boxSizing = 'border-box';
+  clone.style.margin = '0';
+  clone.style.padding = '0';
+  clone.style.background = '#ffffff';
+  clone.style.backgroundColor = '#ffffff';
+  clone.style.color = '#1f2937';
+  clone.style.opacity = '1';
+  clone.style.visibility = 'visible';
+  clone.style.display = 'block';
 
   // Synchronisation des canvas d'annotations (cloneNode ne copie pas les tracés des canvas)
   const sourceCanvases = sourceElement.querySelectorAll('canvas');
@@ -7458,11 +7456,18 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
     }
   });
 
-  sandbox.appendChild(clone);
-  document.body.appendChild(sandbox);
+  container.appendChild(clone);
+  document.body.appendChild(container);
+
+  // 1. Logs de contrôle demandés
+  console.log("Conteneur cible html2pdf :", container);
+  console.log("Longueur du contenu HTML :", container.innerHTML.length);
+  if (container.innerHTML.length < 500) {
+    console.warn("⚠️ Attention : longueur HTML anormalement faible (< 500) :", container.innerHTML.length);
+  }
 
   // Attendre impérativement le chargement complet des images du document
-  const imgs = Array.from(sandbox.querySelectorAll('img'));
+  const imgs = Array.from(container.querySelectorAll('img'));
   await Promise.all(imgs.map(img => {
     if (img.complete && img.naturalWidth !== 0) return Promise.resolve();
     return new Promise(resolve => {
@@ -7472,13 +7477,13 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
     });
   }));
 
-  // Attente du rendu des polices et stabilisation du layout
+  // 3. Attente stricte du rendu : stabilisation des polices et du DOM
   if (document.fonts && document.fonts.ready) {
     try { await document.fonts.ready; } catch (_) {}
   }
-  await new Promise(resolve => setTimeout(resolve, 150));
+  await new Promise(r => setTimeout(r, 200));
 
-  // 3. Détection de remplissage de la 1ère page pour forcer un saut de page propre avant le schéma
+  // Détection de remplissage de la 1ère page pour forcer un saut de page propre avant le schéma
   schemaBlocs.forEach(bloc => {
     if (bloc.style.display !== 'none') {
       const topOffset = bloc.offsetTop;
@@ -7499,7 +7504,7 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
       html2canvas: {
         scale: 2,
         useCORS: true,
-        logging: false,
+        logging: true,
         width: 794,
         windowWidth: 794,
         scrollX: 0,
@@ -7510,7 +7515,10 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
           sandboxes.forEach(s => {
             s.style.setProperty('opacity', '1', 'important');
             s.style.setProperty('visibility', 'visible', 'important');
+            s.style.setProperty('display', 'block', 'important');
             s.style.setProperty('z-index', '1', 'important');
+            s.style.setProperty('background-color', '#ffffff', 'important');
+            s.style.setProperty('color', '#1f2937', 'important');
           });
 
           const target = clonedDoc.querySelector('#pdf-isolation-sandbox') ||
@@ -7529,6 +7537,8 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
             target.style.backgroundColor = '#ffffff !important';
             target.style.setProperty('opacity', '1', 'important');
             target.style.setProperty('visibility', 'visible', 'important');
+            target.style.setProperty('display', 'block', 'important');
+            target.style.setProperty('color', '#1f2937', 'important');
           }
 
           // Verrouillage page-break strict dans le DOM cloné
@@ -7547,7 +7557,7 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
       }
     };
 
-    const worker = html2pdf().set(opt).from(sandbox);
+    const worker = html2pdf().set(opt).from(container);
     let blob = null;
     if (typeof worker.outputPdf === 'function') {
       blob = await worker.outputPdf('blob');
@@ -7556,12 +7566,12 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
     }
     return blob;
   } finally {
-    // 4. Suppression systématique du conteneur temporaire du DOM
-    if (sandbox) {
-      if (typeof sandbox.remove === 'function') {
-        sandbox.remove();
-      } else if (sandbox.parentNode) {
-        sandbox.parentNode.removeChild(sandbox);
+    // 4. Nettoyage systématique avec container.remove()
+    if (container) {
+      if (typeof container.remove === 'function') {
+        container.remove();
+      } else if (container.parentNode) {
+        container.parentNode.removeChild(container);
       }
     }
   }

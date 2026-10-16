@@ -2683,15 +2683,16 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   width: 794px !important;
   min-width: 794px !important;
   max-width: 794px !important;
-  opacity: 0 !important;
+  z-index: -999 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
   pointer-events: none !important;
-  z-index: -1 !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
+  color: #1f2937 !important;
   margin: 0 !important;
   padding: 20mm !important;
   box-sizing: border-box !important;
-  visibility: visible !important;
   display: block !important;
 }
 
