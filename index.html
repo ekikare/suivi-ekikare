@@ -31,7 +31,7 @@
     }
   </script>
   <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="manifest.json?v=1.6.79">
+  <link rel="manifest" href="manifest.json?v=1.6.80">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,17 +39,17 @@
   <meta name="apple-mobile-web-app-title" content="eKiKare">
 
   <!-- Icons (Favicon & Touch Icons) -->
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.79">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.79">
-  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.79">
-  <link rel="shortcut icon" href="favicon.ico?v=1.6.79">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.79">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.80">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.80">
+  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.80">
+  <link rel="shortcut icon" href="favicon.ico?v=1.6.80">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.80">
 
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.79">
+  <link rel="stylesheet" href="style.css?v=1.6.80">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -60,7 +60,7 @@
   <!-- PDF.js library for high-fidelity canvas PDF rendering & zoom on mobile/tablets -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <!-- PinchZoom library for touch gestures & continuous focal zoom -->
-  <script src="lib/pinch-zoom.umd.js?v=1.6.79"></script>
+  <script src="lib/pinch-zoom.umd.js?v=1.6.80"></script>
 </head>
 <body>
   <div class="app-container">
@@ -110,7 +110,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <p class="app-version">eKiKare v1.6.79 &bull; Offline Database</p>
+        <p class="app-version">eKiKare v1.6.80 &bull; Offline Database</p>
       </div>
     </aside>
 
@@ -2471,7 +2471,7 @@
         <div class="print-text-block" id="portal-cr-session-resume-content">-</div>
       </div>
 
-      <div class="schema-bloc print-section schema-section planche-anatomique" id="portal-cr-section-canvas" style="display: none; page-break-inside: avoid !important; break-inside: avoid !important; display: block;">
+      <div class="schema-bloc print-section schema-section planche-anatomique" id="portal-cr-section-canvas" style="display: none; page-break-inside: avoid !important; break-inside: avoid !important;">
         <h3 class="print-section-title">Schéma d'annotations</h3>
         <div class="print-canvas-preview" style="page-break-inside: avoid !important; break-inside: avoid !important; display: block;">
           <img id="portal-cr-session-canvas-img" src="" alt="Schéma d'annotations de la séance" style="page-break-inside: avoid !important; break-inside: avoid !important; display: block;">
@@ -2482,6 +2482,12 @@
       <div class="print-section" id="portal-cr-section-precisions" style="display: none; margin-top: 20px;">
         <h3 class="print-section-title">Précisions générales de la séance</h3>
         <div class="print-text-block" id="portal-cr-session-precisions-content">-</div>
+      </div>
+
+      <!-- Document joint pour séances externes (si présent) -->
+      <div class="print-section" id="portal-cr-section-attachment" style="display: none; margin-top: 20px;">
+        <h3 class="print-section-title">Document joint</h3>
+        <div id="portal-cr-session-attachment-content" style="margin-top: 8px;"></div>
       </div>
 
       <!-- Bas de page officiel avec Mentions Légales & Avertissement Vétérinaire -->
@@ -3061,13 +3067,13 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.79"></script>
+  <script type="module" src="app.js?v=1.6.80"></script>
 
   <!-- Service Worker PWA -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1.6.79')
+        navigator.serviceWorker.register('./sw.js?v=1.6.80')
           .then((reg) => {
             console.log('[PWA] Service Worker actif (scope:', reg.scope, ')');
           })

@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.79';
+export const APP_VERSION = 'v1.6.80';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7408,7 +7408,7 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       'max-width: 794px !important',
       'min-width: 794px !important',
       'margin: 0 !important',
-      'padding: 15mm !important',
+      'padding: 20mm !important',
       'box-sizing: border-box !important',
       'height: auto !important',
       'min-height: 1123px !important',
@@ -7462,7 +7462,7 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     });
 
     // S'assurer que le flux des éléments internes n'est pas effondré
-    const internalElements = sandbox.querySelectorAll('#portal-cr-sheet, #animal-dossier-preview-sheet, .cr-document, .official-a4-sheet, section');
+    const internalElements = sandbox.querySelectorAll('#portal-cr-sheet, #animal-dossier-preview-sheet, .cr-document, .official-a4-sheet, div, section');
     internalElements.forEach(el => {
       if (el.style.height === '100%' || el.style.height === '100vh') {
         el.style.setProperty('height', 'auto', 'important');
@@ -7483,9 +7483,10 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     await new Promise(r => setTimeout(r, 200));
 
     const sandboxToPrint = document.getElementById('pdf-isolation-sandbox') || sandbox;
-    console.log("Sandbox monté dans le DOM - dimensions mesurées :", sandboxToPrint.offsetWidth, "x", sandboxToPrint.scrollHeight);
+    const contentHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || 1123);
+    console.log("Sandbox monté dans le DOM - dimensions mesurées :", sandboxToPrint.offsetWidth, "x", contentHeight);
 
-    // 4. Ciblage direct par l'élément monté avec ancrage (0, 0) et largeur fixe 794px
+    // 4. Configuration html2canvas avec options complètes et logging
     const opt = {
       margin: 0,
       filename: filename || 'document.pdf',
@@ -7493,21 +7494,30 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       html2canvas: {
         scale: 2,
         useCORS: true,
-        logging: false,
-        x: 0,                // Démarre la capture pile au bord gauche (supprime le décalage de 238px)
+        logging: true,
+        x: 0,
         y: 0,
         scrollX: 0,
         scrollY: 0,
         width: 794,
-        windowWidth: 794
+        windowWidth: 794,
+        height: contentHeight,
+        windowHeight: contentHeight
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
     };
 
-    // 5. Génération et extraction du Blob
-    const worker = html2pdf().set(opt).from(sandboxToPrint);
-    const pdfBlob = await worker.output('blob');
+    // 5. Génération et extraction du Blob avec try/catch diagnostique explicite
+    let pdfBlob = null;
+    try {
+      console.log("Contenu sandbox HTML brut :", sandboxToPrint.innerHTML.substring(0, 300));
+      const worker = html2pdf().set(opt).from(sandboxToPrint);
+      pdfBlob = await worker.output('blob');
+    } catch (error) {
+      console.error("ERREUR DÉTECTÉE DANS HTML2PDF :", error);
+      throw error;
+    }
 
     // 6. Nettoyage
     sandboxToPrint.remove();
@@ -10511,9 +10521,10 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   if (canvasSection && canvasImg) {
     if (session.canvas_annotation_image_blob) {
       canvasImg.src = session.canvas_annotation_image_blob;
-      canvasSection.style.display = 'block';
+      canvasImg.setAttribute('src', session.canvas_annotation_image_blob);
+      canvasSection.style.setProperty('display', 'block', 'important');
     } else {
-      canvasSection.style.display = 'none';
+      canvasSection.style.setProperty('display', 'none', 'important');
     }
   }
 
@@ -10523,9 +10534,35 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   if (precisionsSection && precisionsContentEl) {
     if (session.precisions && session.precisions.trim()) {
       precisionsContentEl.innerHTML = interpretMarkdownToHtml(session.precisions);
-      precisionsSection.style.display = 'block';
+      precisionsSection.style.setProperty('display', 'block', 'important');
     } else {
-      precisionsSection.style.display = 'none';
+      precisionsSection.style.setProperty('display', 'none', 'important');
+    }
+  }
+
+  // 8. Document joint (séances externes)
+  const attachSection = document.getElementById('portal-cr-section-attachment');
+  const attachContent = document.getElementById('portal-cr-session-attachment-content');
+  if (attachSection && attachContent) {
+    const portalDocResource = session.fileData || session.attachments;
+    if (portalDocResource) {
+      attachContent.innerHTML = `
+        <button type="button" class="btn btn-secondary btn-small btn-view-modal-ext-file" style="display: inline-flex; align-items: center; gap: 6px;">
+          📎 Consulter le document joint (${session.fileName || session.file_name || 'Fichier'})
+        </button>
+      `;
+      attachContent.querySelector('.btn-view-modal-ext-file').onclick = () => {
+        const preOpenedTab = prepareMobileTabIfNeeded();
+        openUniversalDocument(portalDocResource, session.fileName || session.file_name || 'document.pdf', `Document joint pour ${animal.nom}`, {
+          fileType: session.fileType || session.file_type,
+          subtitle: `Séance du ${formatDate(session.date_seance)} • ${session.profession || 'Externe'}`,
+          text: `Document joint séance pour ${animal.nom}`,
+          preOpenedTab
+        });
+      };
+      attachSection.style.setProperty('display', 'block', 'important');
+    } else {
+      attachSection.style.setProperty('display', 'none', 'important');
     }
   }
 
