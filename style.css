@@ -2689,19 +2689,17 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 
 #pdf-isolation-sandbox,
 .pdf-isolation-sandbox {
-  position: fixed !important;
-  top: 0 !important;
+  position: absolute !important;
   left: 0 !important;
+  top: 0 !important;
   width: 794px !important;
   min-width: 794px !important;
   max-width: 794px !important;
-  z-index: 99999 !important; /* Doit être visible pour le moteur de capture */
+  height: auto !important;
+  min-height: 1123px !important;
   background: #ffffff !important;
-  background-color: #ffffff !important;
   color: #1f2937 !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: none !important;
+  z-index: 9999 !important;
   margin: 0 !important;
   padding: 20mm !important;
   box-sizing: border-box !important;

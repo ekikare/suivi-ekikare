@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.73';
+export const APP_VERSION = 'v1.6.74';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7399,19 +7399,17 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
     container.id = 'pdf-isolation-sandbox';
     container.className = 'pdf-isolation-sandbox';
     container.style.cssText = [
-      'position: fixed !important',
-      'top: 0 !important',
+      'position: absolute !important',
       'left: 0 !important',
+      'top: 0 !important',
       'width: 794px !important',
       'min-width: 794px !important',
       'max-width: 794px !important',
-      'z-index: 99999 !important',
+      'height: auto !important',
+      'min-height: 1123px !important',
       'background: #ffffff !important',
-      'background-color: #ffffff !important',
       'color: #1f2937 !important',
-      'opacity: 1 !important',
-      'visibility: visible !important',
-      'pointer-events: none !important',
+      'z-index: 9999 !important',
       'margin: 0 !important',
       'padding: 20mm !important',
       'box-sizing: border-box !important',
@@ -7537,6 +7535,7 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
       html2canvas: {
         scale: 2,
         useCORS: true,
+        logging: true, // Laisser true temporairement pour voir les logs html2canvas dans la console
         scrollX: 0,
         scrollY: 0,
         windowWidth: 794
@@ -7548,9 +7547,16 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
       }
     };
 
-    const worker = html2pdf().set(opt).from(container);
-    const pdfBlob = await worker.output('blob'); // Attendre explicitement le blob
-    container.remove(); // Supprimer le sandbox UNIQUEMENT après la résolution du Blob
+    // Génération séquentielle garantie
+    const pdfBlob = await html2pdf()
+      .set(opt)
+      .from(container)
+      .toPdf()
+      .get('pdf')
+      .then(pdf => pdf.output('blob'));
+
+    // Destruction du sandbox uniquement après obtention du blob
+    container.remove();
     return pdfBlob;
   } finally {
     // Nettoyage de sécurité si une erreur est survenue avant container.remove()
@@ -8015,6 +8021,10 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
               <iframe src="${blobUrl}" title="Visionneuse PDF"></iframe>
             </div>
           `;
+          const pdfIframe = document.querySelector('#modalPdfViewer iframe');
+          if (pdfIframe) {
+            pdfIframe.src = blobUrl;
+          }
         }
       } else if (isImage) {
         if (zoomControls) zoomControls.style.display = 'inline-flex';
