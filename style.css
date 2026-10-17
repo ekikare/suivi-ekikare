@@ -2693,16 +2693,17 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   left: 0 !important;
   top: 0 !important;
   width: 794px !important;
-  min-width: 794px !important;
   max-width: 794px !important;
+  min-width: 794px !important;
   height: auto !important;
-  min-height: 1123px !important; /* Hauteur A4 minimale pour interdire le 0px */
+  min-height: 1123px !important;
   display: block !important;
   overflow: visible !important;
   background: #ffffff !important;
+  color: #1f2937 !important;
   box-sizing: border-box !important;
   margin: 0 !important;
-  padding: 0 !important;
+  padding: 15mm !important;
   transform: none !important;
 }
 
@@ -2747,11 +2748,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 #animal-dossier-preview-sheet,
 #portal-cr-sheet,
 .official-a4-sheet,
-.cr-document:not(#session-print-area),
-#pdf-isolation-sandbox .cr-document,
-#pdf-isolation-sandbox .official-a4-sheet,
-#pdf-isolation-sandbox > div,
-#pdf-isolation-sandbox > section {
+.cr-document:not(#session-print-area) {
   display: block !important;
   height: auto !important;
   min-height: 100% !important;
@@ -2761,7 +2758,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   color: #1f2937 !important;
   box-shadow: none !important;
   border-radius: 0 !important;
-  padding: 20mm !important;
+  padding: 15mm !important;
   width: 794px !important;
   min-width: 794px !important;
   max-width: 794px !important;
@@ -2808,8 +2805,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 .planche-anatomique,
 .print-canvas-preview,
 .session-canvas-preview,
-.print-footer,
-.print-grid-2 {
+.print-footer {
   page-break-inside: avoid !important;
   break-inside: avoid !important;
   display: block !important;
@@ -2821,21 +2817,32 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   display: block !important;
 }
 
+#pdf-isolation-sandbox .print-grid-2,
 .cr-document .print-grid-2,
 #portal-cr-sheet .print-grid-2,
-.official-a4-sheet .print-grid-2 {
+.official-a4-sheet .print-grid-2,
+.print-grid-2 {
   display: flex !important;
   flex-direction: row !important;
   justify-content: space-between !important;
-  gap: 20px !important;
+  align-items: flex-start !important;
+  gap: 24px !important;
   width: 100% !important;
+  margin-bottom: 20px !important;
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
 }
 
+#pdf-isolation-sandbox .print-grid-2 > div,
 .cr-document .print-grid-2 > div,
 #portal-cr-sheet .print-grid-2 > div,
-.official-a4-sheet .print-grid-2 > div {
+.official-a4-sheet .print-grid-2 > div,
+.print-grid-2 > div {
   flex: 1 1 0% !important;
+  width: calc(50% - 12px) !important;
+  max-width: calc(50% - 12px) !important;
   min-width: 0 !important;
+  box-sizing: border-box !important;
 }
 
 .cr-document .print-header,
@@ -4014,6 +4021,7 @@ body.is-printing .collapsible-icon {
     width: 100% !important;
   }
 
+  #pdf-isolation-sandbox .print-grid-2,
   .cr-document .print-grid-2,
   #portal-cr-sheet .print-grid-2,
   #animal-dossier-preview-sheet .print-grid-2,
@@ -4026,11 +4034,14 @@ body.is-printing .collapsible-icon {
     grid-template-columns: none !important;
   }
 
+  #pdf-isolation-sandbox .print-grid-2 > div,
   .cr-document .print-grid-2 > div,
   #portal-cr-sheet .print-grid-2 > div,
   #animal-dossier-preview-sheet .print-grid-2 > div,
   .official-a4-sheet .print-grid-2 > div {
     flex: 1 1 0% !important;
+    width: calc(50% - 10px) !important;
+    max-width: calc(50% - 10px) !important;
     min-width: 0 !important;
     border-left: none !important;
     border-top: none !important;

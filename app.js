@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.78';
+export const APP_VERSION = 'v1.6.79';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7400,26 +7400,69 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     const sandbox = document.createElement('div');
     sandbox.id = 'pdf-isolation-sandbox';
     sandbox.className = 'print-container official-a4-sheet cr-document';
-    sandbox.style.position = 'fixed';
-    sandbox.style.left = '0px';
-    sandbox.style.top = '0px';
-    sandbox.style.width = '794px';
-    sandbox.style.minWidth = '794px';
-    sandbox.style.maxWidth = '794px';
-    sandbox.style.height = 'auto';
-    sandbox.style.minHeight = '1123px';
-    sandbox.style.display = 'block';
-    sandbox.style.overflow = 'visible';
-    sandbox.style.background = '#ffffff';
-    sandbox.style.boxSizing = 'border-box';
-    sandbox.style.margin = '0px';
-    sandbox.style.padding = '0px';
-    sandbox.style.transform = 'none';
+    sandbox.style.cssText = [
+      'position: fixed !important',
+      'left: 0 !important',
+      'top: 0 !important',
+      'width: 794px !important',
+      'max-width: 794px !important',
+      'min-width: 794px !important',
+      'margin: 0 !important',
+      'padding: 15mm !important',
+      'box-sizing: border-box !important',
+      'height: auto !important',
+      'min-height: 1123px !important',
+      'display: block !important',
+      'overflow: visible !important',
+      'background: #ffffff !important',
+      'color: #1f2937 !important',
+      'transform: none !important'
+    ].join('; ') + ';';
     sandbox.innerHTML = (typeof htmlContent === 'string') ? htmlContent : (htmlContent?.innerHTML || '');
     document.body.appendChild(sandbox);
 
+    // En-tête : Forcer la structure 2 colonnes (Client à gauche, Animal à droite)
+    const grids = sandbox.querySelectorAll('.print-grid-2');
+    grids.forEach(g => {
+      g.style.setProperty('display', 'flex', 'important');
+      g.style.setProperty('flex-direction', 'row', 'important');
+      g.style.setProperty('justify-content', 'space-between', 'important');
+      g.style.setProperty('align-items', 'flex-start', 'important');
+      g.style.setProperty('gap', '24px', 'important');
+      g.style.setProperty('width', '100%', 'important');
+      g.style.setProperty('margin-bottom', '20px', 'important');
+      Array.from(g.children).forEach(col => {
+        col.style.setProperty('flex', '1 1 0%', 'important');
+        col.style.setProperty('width', 'calc(50% - 12px)', 'important');
+        col.style.setProperty('max-width', 'calc(50% - 12px)', 'important');
+        col.style.setProperty('box-sizing', 'border-box', 'important');
+      });
+    });
+
+    // En-tête : Titre à gauche, logo à droite
+    const headers = sandbox.querySelectorAll('.print-header');
+    headers.forEach(h => {
+      h.style.setProperty('display', 'flex', 'important');
+      h.style.setProperty('flex-direction', 'row', 'important');
+      h.style.setProperty('justify-content', 'space-between', 'important');
+      h.style.setProperty('align-items', 'center', 'important');
+      h.style.setProperty('width', '100%', 'important');
+    });
+
+    // Bas de page : Mentions légales visibles et intégrales
+    const footers = sandbox.querySelectorAll('.print-footer');
+    footers.forEach(f => {
+      f.style.setProperty('display', 'block', 'important');
+      f.style.setProperty('visibility', 'visible', 'important');
+      f.style.setProperty('opacity', '1', 'important');
+      f.style.setProperty('width', '100%', 'important');
+      f.style.setProperty('margin-top', '30px', 'important');
+      f.style.setProperty('border-top', '1px solid #cbd5e1', 'important');
+      f.style.setProperty('padding-top', '15px', 'important');
+    });
+
     // S'assurer que le flux des éléments internes n'est pas effondré
-    const internalElements = sandbox.querySelectorAll('#portal-cr-sheet, #animal-dossier-preview-sheet, .cr-document, .official-a4-sheet, div, section');
+    const internalElements = sandbox.querySelectorAll('#portal-cr-sheet, #animal-dossier-preview-sheet, .cr-document, .official-a4-sheet, section');
     internalElements.forEach(el => {
       if (el.style.height === '100%' || el.style.height === '100vh') {
         el.style.setProperty('height', 'auto', 'important');
@@ -7440,10 +7483,9 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     await new Promise(r => setTimeout(r, 200));
 
     const sandboxToPrint = document.getElementById('pdf-isolation-sandbox') || sandbox;
-    const contentHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || 1123);
-    console.log("Sandbox monté dans le DOM - dimensions mesurées :", sandboxToPrint.offsetWidth, "x", contentHeight);
+    console.log("Sandbox monté dans le DOM - dimensions mesurées :", sandboxToPrint.offsetWidth, "x", sandboxToPrint.scrollHeight);
 
-    // 4. Ciblage direct par l'élément monté avec hauteur réelle transmise et ancrage (0, 0)
+    // 4. Ciblage direct par l'élément monté avec ancrage (0, 0) et largeur fixe 794px
     const opt = {
       margin: 0,
       filename: filename || 'document.pdf',
@@ -7457,9 +7499,7 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
         scrollX: 0,
         scrollY: 0,
         width: 794,
-        windowWidth: 794,
-        height: contentHeight,
-        windowHeight: contentHeight
+        windowWidth: 794
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
@@ -10489,31 +10529,7 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
     }
   }
 
-  // 8. Document joint (séances externes)
-  const attachSection = document.getElementById('portal-cr-section-attachment');
-  const attachContent = document.getElementById('portal-cr-session-attachment-content');
-  if (attachSection && attachContent) {
-    const portalDocResource = session.fileData || session.attachments;
-    if (portalDocResource) {
-      attachContent.innerHTML = `
-        <button type="button" class="btn btn-secondary btn-small btn-view-modal-ext-file" style="display: inline-flex; align-items: center; gap: 6px;">
-          📎 Consulter le document joint (${session.fileName || session.file_name || 'Fichier'})
-        </button>
-      `;
-      attachContent.querySelector('.btn-view-modal-ext-file').onclick = () => {
-        const preOpenedTab = prepareMobileTabIfNeeded();
-        openUniversalDocument(portalDocResource, session.fileName || session.file_name || 'document.pdf', `Document joint pour ${animal.nom}`, {
-          fileType: session.fileType || session.file_type,
-          subtitle: `Séance du ${formatDate(session.date_seance)} • ${session.profession || 'Externe'}`,
-          text: `Document joint séance pour ${animal.nom}`,
-          preOpenedTab
-        });
-      };
-      attachSection.style.display = 'block';
-    } else {
-      attachSection.style.display = 'none';
-    }
-  }
+
 
   // 9. Date de génération
   const genDateEl = document.getElementById('portal-cr-generation-date');
