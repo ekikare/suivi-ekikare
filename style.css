@@ -2695,10 +2695,17 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   width: 794px !important;
   min-width: 794px !important;
   max-width: 794px !important;
+  height: auto !important;
+  min-height: 1123px !important; /* Hauteur A4 minimale pour interdire le 0px */
+  display: block !important;
+  overflow: visible !important;
   background: #ffffff !important;
-  color: #1f2937 !important;
-  z-index: -1 !important;
+  box-sizing: border-box !important;
   padding: 20mm !important;
+}
+
+#pdf-isolation-sandbox *,
+.pdf-isolation-sandbox * {
   box-sizing: border-box !important;
 }
 
@@ -2738,8 +2745,15 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 #animal-dossier-preview-sheet,
 #portal-cr-sheet,
 .official-a4-sheet,
-.cr-document:not(#session-print-area) {
+.cr-document:not(#session-print-area),
+#pdf-isolation-sandbox .cr-document,
+#pdf-isolation-sandbox .official-a4-sheet,
+#pdf-isolation-sandbox > div,
+#pdf-isolation-sandbox > section {
   display: block !important;
+  height: auto !important;
+  min-height: 100% !important;
+  overflow: visible !important;
   background: #ffffff !important;
   background-color: #ffffff !important;
   color: #1f2937 !important;

@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.75';
+export const APP_VERSION = 'v1.6.76';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7400,9 +7400,33 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     const sandbox = document.createElement('div');
     sandbox.id = 'pdf-isolation-sandbox';
     sandbox.className = 'print-container official-a4-sheet cr-document';
-    sandbox.style.cssText = 'position: absolute; left: 0; top: 0; width: 794px; min-width: 794px; max-width: 794px; background: #ffffff; color: #1f2937; z-index: -1; padding: 20mm; box-sizing: border-box;';
+    sandbox.style.cssText = [
+      'position: absolute !important',
+      'left: 0 !important',
+      'top: 0 !important',
+      'width: 794px !important',
+      'min-width: 794px !important',
+      'max-width: 794px !important',
+      'height: auto !important',
+      'min-height: 1123px !important',
+      'display: block !important',
+      'overflow: visible !important',
+      'background: #ffffff !important',
+      'box-sizing: border-box !important',
+      'padding: 20mm !important'
+    ].join('; ') + ';';
     sandbox.innerHTML = (typeof htmlContent === 'string') ? htmlContent : (htmlContent?.innerHTML || '');
     document.body.appendChild(sandbox);
+
+    // S'assurer que le flux des éléments internes n'est pas effondré
+    const internalElements = sandbox.querySelectorAll('#portal-cr-sheet, #animal-dossier-preview-sheet, .cr-document, .official-a4-sheet, div, section');
+    internalElements.forEach(el => {
+      if (el.style.height === '100%' || el.style.height === '100vh') {
+        el.style.setProperty('height', 'auto', 'important');
+        el.style.setProperty('min-height', '100%', 'important');
+      }
+      el.style.setProperty('overflow', 'visible', 'important');
+    });
 
     // 3. Attente stricte du chargement des polices et images
     if (document.fonts && document.fonts.ready) {
@@ -7415,6 +7439,8 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     }));
     await new Promise(r => setTimeout(r, 200));
 
+    console.log("Sandbox monté dans le DOM - dimensions :", sandbox.offsetWidth, "x", sandbox.offsetHeight, "(scrollHeight:", sandbox.scrollHeight, ")");
+
     // 4. Ciblage direct par l'élément monté
     const opt = {
       margin: 0,
@@ -7424,8 +7450,7 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
         scale: 2,
         useCORS: true,
         logging: true,
-        scrollX: 0,
-        scrollY: 0,
+        width: 794,
         windowWidth: 794
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
