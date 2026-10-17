@@ -31,7 +31,7 @@
     }
   </script>
   <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="manifest.json?v=1.6.72">
+  <link rel="manifest" href="manifest.json?v=1.6.73">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,17 +39,17 @@
   <meta name="apple-mobile-web-app-title" content="eKiKare">
 
   <!-- Icons (Favicon & Touch Icons) -->
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.72">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.72">
-  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.72">
-  <link rel="shortcut icon" href="favicon.ico?v=1.6.72">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.72">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.6.73">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.6.73">
+  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.6.73">
+  <link rel="shortcut icon" href="favicon.ico?v=1.6.73">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.6.73">
 
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.6.72">
+  <link rel="stylesheet" href="style.css?v=1.6.73">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -60,7 +60,7 @@
   <!-- PDF.js library for high-fidelity canvas PDF rendering & zoom on mobile/tablets -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <!-- PinchZoom library for touch gestures & continuous focal zoom -->
-  <script src="lib/pinch-zoom.umd.js?v=1.6.72"></script>
+  <script src="lib/pinch-zoom.umd.js?v=1.6.73"></script>
 </head>
 <body>
   <div class="app-container">
@@ -110,7 +110,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <p class="app-version">eKiKare v1.6.72 &bull; Offline Database</p>
+        <p class="app-version">eKiKare v1.6.73 &bull; Offline Database</p>
       </div>
     </aside>
 
@@ -2371,8 +2371,8 @@
 
   <!-- Modal Visualisation Document / Compte-Rendu Joint -->
   <dialog class="app-dialog glass-card modal-dialog modal-content" id="dialog-document-viewer">
-    <!-- En-tête : Titre à gauche et bouton [×] fixe à droite -->
-    <div class="dialog-header modal-header" style="position: sticky; top: 0; background: rgba(15, 23, 42, 0.96); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 20; border-bottom: 1px solid var(--glass-border); padding: 10px 14px; margin: 0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; box-sizing: border-box; width: 100%;">
+    <!-- En-tête : Titre à gauche et bouton [×] fixe à droite (statique dans le flexbox, aucun chevauchement) -->
+    <div class="dialog-header modal-header" style="background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid var(--glass-border); padding: 10px 14px; margin: 0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; box-sizing: border-box; width: 100%;">
       <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; min-width: 0; flex: 1 1 auto;">
         <span style="font-size: 1.4rem; flex-shrink: 0;" id="doc-viewer-icon">📎</span>
         <div style="overflow: hidden; min-width: 0;">
@@ -2420,8 +2420,8 @@
       </div>
     </div>
 
-    <!-- Conteneur défilable du document -->
-    <div id="doc-viewer-body" class="modal-pj-body viewer-container">
+    <!-- Zone principale du document (flex: 1, padding: 0, overflow: hidden) -->
+    <div id="doc-viewer-body" class="modal-pj-body viewer-container modal-body">
       <div id="modalPdfViewer">
         <iframe src="" title="Visionneuse PDF"></iframe>
       </div>
@@ -3067,13 +3067,13 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.6.72"></script>
+  <script type="module" src="app.js?v=1.6.73"></script>
 
   <!-- Service Worker PWA -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1.6.72')
+        navigator.serviceWorker.register('./sw.js?v=1.6.73')
           .then((reg) => {
             console.log('[PWA] Service Worker actif (scope:', reg.scope, ')');
           })

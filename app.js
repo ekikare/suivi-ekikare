@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.72';
+export const APP_VERSION = 'v1.6.73';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -2911,6 +2911,12 @@ async function renderAnimalDetails(animalId) {
 
         item.querySelector('.btn-print-direct').addEventListener('click', (e) => {
           e.stopPropagation();
+          const btn = e.currentTarget;
+          if (btn && btn.disabled) return;
+          if (btn) {
+            btn.disabled = true;
+            setTimeout(() => { btn.disabled = false; }, 2000);
+          }
           const preOpenedTab = prepareMobileTabIfNeeded();
           openPortalSessionModal(s, animal, { preOpenedTab });
         });
@@ -4438,6 +4444,11 @@ async function renderSessionDetails(sessionId) {
         e.preventDefault();
         e.stopPropagation();
       }
+      if (printBtn.disabled || isPdfGenerating || isPortalSessionModalOpening) {
+        return;
+      }
+      printBtn.disabled = true;
+      setTimeout(() => { printBtn.disabled = false; }, 2000);
       const preOpenedTab = prepareMobileTabIfNeeded();
       openPortalSessionModal(session, animal, { preOpenedTab });
     };
@@ -7369,12 +7380,15 @@ async function resolveAttachmentResource(resource, fallbackType = '', fallbackNa
 
 // HELPER CENTRAL : GÉNÉRATION BLOB PDF DEPUIS ÉLÉMENT DOM HORS-CHAMP (SANDBOX A4 FIXE 794px)
 let isPdfGenerating = false;
+let lastPdfGenerateTime = 0;
 async function generatePdfBlobFromElement(sourceElement, filename) {
-  if (isPdfGenerating) {
-    console.warn("Génération PDF déjà en cours, appel ignoré.");
+  const now = Date.now();
+  if (isPdfGenerating || (now - lastPdfGenerateTime < 1500)) {
+    console.warn("Génération PDF déjà en cours ou trop rapprochée, appel ignoré.");
     return null;
   }
   isPdfGenerating = true;
+  lastPdfGenerateTime = now;
 
   try {
     if (!sourceElement) throw new Error("Élément source introuvable");
@@ -7535,15 +7549,11 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
     };
 
     const worker = html2pdf().set(opt).from(container);
-    let blob = null;
-    if (typeof worker.outputPdf === 'function') {
-      blob = await worker.outputPdf('blob');
-    } else if (typeof worker.output === 'function') {
-      blob = await worker.output('blob');
-    }
-    return blob;
+    const pdfBlob = await worker.output('blob'); // Attendre explicitement le blob
+    container.remove(); // Supprimer le sandbox UNIQUEMENT après la résolution du Blob
+    return pdfBlob;
   } finally {
-    // 2 & 4. Nettoyage systématique avec container.remove()
+    // Nettoyage de sécurité si une erreur est survenue avant container.remove()
     const sandbox = document.getElementById('pdf-isolation-sandbox');
     if (sandbox) {
       sandbox.remove();
@@ -7586,12 +7596,15 @@ function prepareMobileTabIfNeeded() {
 // convergent vers cette fonction unique.
 // ============================================================================
 let isUniversalDocOpening = false;
+let lastUniversalDocTime = 0;
 export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
-  if (isUniversalDocOpening) {
-    console.warn("openUniversalDocument déjà en cours, appel ignoré.");
+  const now = Date.now();
+  if (isUniversalDocOpening || (now - lastUniversalDocTime < 1500)) {
+    console.warn("openUniversalDocument déjà en cours ou trop rapprochée, appel ignoré.");
     return;
   }
   isUniversalDocOpening = true;
+  lastUniversalDocTime = now;
 
   try {
     if (!resource) {
@@ -7995,6 +8008,8 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
         if (zoomControls) zoomControls.style.display = 'none';
 
         if (bodyEl) {
+          bodyEl.classList.remove('has-image');
+          bodyEl.classList.add('has-pdf');
           bodyEl.innerHTML = `
             <div id="modalPdfViewer">
               <iframe src="${blobUrl}" title="Visionneuse PDF"></iframe>
@@ -8005,6 +8020,8 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
         if (zoomControls) zoomControls.style.display = 'inline-flex';
         currentZoom = 1.0;
         if (bodyEl) {
+          bodyEl.classList.remove('has-pdf');
+          bodyEl.classList.add('has-image');
           bodyEl.innerHTML = `
             <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;">
               <img src="${blobUrl}" alt="${escapeHtml(finalTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 794px; height: auto; margin: 0 auto; left: auto; right: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); box-sizing: border-box;">
@@ -10384,12 +10401,15 @@ window.injectMockData = (force = true) => checkAndInjectMockData({ force });
 
 // --- MODALE COMPTE-RENDU DE SÉANCE PORTAIL ---
 let isPortalSessionModalOpening = false;
+let lastPortalSessionModalTime = 0;
 async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}) {
-  if (isPortalSessionModalOpening) {
-    console.warn("openPortalSessionModal déjà en cours, appel ignoré.");
+  const now = Date.now();
+  if (isPortalSessionModalOpening || (now - lastPortalSessionModalTime < 1500)) {
+    console.warn("openPortalSessionModal déjà en cours ou trop rapprochée, appel ignoré.");
     return;
   }
   isPortalSessionModalOpening = true;
+  lastPortalSessionModalTime = now;
 
   try {
     let session = null;

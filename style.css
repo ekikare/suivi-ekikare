@@ -2537,17 +2537,21 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   border-radius: 16px;
 }
 
-/* 1. Figer définitivement la taille de la modale de document joint */
-#dialog-document-viewer {
-  width: 95vw !important;
-  max-width: 900px !important;
-  height: 90vh !important;
-  max-height: 90vh !important;
+/* 1. Modale de visualisation structurée en flexbox verticale stricte */
+.modal-content,
+#dialog-document-viewer,
+#dialog-document-viewer.modal-content,
+.modal-content#dialog-document-viewer {
   display: flex !important;
   flex-direction: column !important;
+  height: 90vh !important;
+  max-height: 90vh !important;
+  width: 95vw !important;
+  max-width: 900px !important;
   overflow: hidden !important;
   box-sizing: border-box !important;
   padding: 0 !important;
+  margin: auto !important;
   transform: none !important;
   zoom: 1 !important;
   z-index: 100000 !important;
@@ -2563,12 +2567,14 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   flex-direction: column !important;
 }
 
-/* 2. En-tête propre : uniquement titre à gauche et fermeture [×] à droite */
+/* 2. En-tête propre sans aucun chevauchement */
 #dialog-document-viewer .dialog-header,
-#dialog-document-viewer .modal-header {
-  position: sticky !important;
-  top: 0 !important;
-  z-index: 1050 !important;
+#dialog-document-viewer .modal-header,
+.modal-header {
+  flex-shrink: 0 !important;
+  position: static !important;
+  top: auto !important;
+  z-index: 10 !important;
   background: rgba(15, 23, 42, 0.98) !important;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -2578,7 +2584,6 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   display: flex !important;
   justify-content: space-between !important;
   align-items: center !important;
-  flex-shrink: 0 !important;
   box-sizing: border-box !important;
   width: 100% !important;
 }
@@ -2587,7 +2592,6 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 #dialog-document-viewer .btn-close,
 #dialog-document-viewer .modal-close {
   position: relative !important;
-  z-index: 1050 !important;
   flex-shrink: 0 !important;
   margin-left: auto !important;
   padding: 4px 8px !important;
@@ -2611,28 +2615,33 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   flex-shrink: 0 !important;
   box-sizing: border-box !important;
   width: 100% !important;
-  z-index: 20 !important;
+  z-index: 9 !important;
 }
 
-/* 3. Conteneur scrollable du document : flexbox vertical centré, overflow-x auto, padding 20px 0 */
+/* 3. Corps de la modale occupant 100% de la zone restante sans déborder sous le header */
+#dialog-document-viewer .modal-body,
 #dialog-document-viewer #doc-viewer-body,
-.modal-pj-body,
-.viewer-container,
 .modal-body {
+  flex: 1 1 auto !important;
+  overflow: hidden !important;
+  position: relative !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
   display: flex !important;
   flex-direction: column !important;
-  align-items: center !important;
-  justify-content: flex-start !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  padding: 20px 0 !important;
   box-sizing: border-box !important;
+}
+
+/* Défilement spécifique si une image zoomable est chargée */
+#dialog-document-viewer #doc-viewer-body.has-image,
+#dialog-document-viewer #doc-viewer-body:has(.zoomable-document-content) {
   overflow-y: auto !important;
   overflow-x: auto !important;
-  -webkit-overflow-scrolling: touch !important;
-  flex: 1 1 auto !important;
-  margin: 0 auto !important;
-  touch-action: pan-y pinch-zoom !important;
+  padding: 20px 0 !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
 }
 
 #dialog-document-viewer #doc-viewer-zoom-wrapper,
@@ -2699,29 +2708,37 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   display: block !important;
 }
 
+#dialog-document-viewer #modalPdfViewer,
 #modalPdfViewer {
   width: 100% !important;
   max-width: 100% !important;
   height: 100% !important;
+  flex: 1 1 auto !important;
+  overflow: hidden !important;
   display: flex !important;
   flex-direction: column !important;
-  align-items: center !important;
-  justify-content: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
   box-sizing: border-box !important;
 }
 
+#dialog-document-viewer .modal-body iframe,
+#dialog-document-viewer #doc-viewer-body iframe,
+#dialog-document-viewer #modalPdfViewer iframe,
+.modal-body iframe,
 #modalPdfViewer iframe {
   width: 100% !important;
-  max-width: 900px !important;
-  height: calc(90vh - 140px) !important;
-  min-height: 480px !important;
+  height: 100% !important;
+  flex: 1 1 auto !important;
   border: none !important;
-  border-radius: 8px !important;
-  background: #ffffff !important;
   display: block !important;
-  margin: 0 auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
   box-sizing: border-box !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
 }
 
 #animal-dossier-preview-sheet,
@@ -4192,14 +4209,16 @@ body.is-printing .collapsible-icon {
   margin: 10px auto !important;
 }
 
-.modal-content {
+dialog#dialog-cgv-rgpd .modal-content,
+#modal-cgv .modal-content {
   max-height: 92vh !important;
   max-height: 92dvh !important;
   display: flex !important;
   flex-direction: column !important;
 }
 
-.modal-body {
+dialog#dialog-cgv-rgpd .modal-body,
+#modal-cgv .modal-body {
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch !important;
   flex: 1 1 auto !important;
