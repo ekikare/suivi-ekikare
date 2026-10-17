@@ -2695,15 +2695,11 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   width: 794px !important;
   min-width: 794px !important;
   max-width: 794px !important;
-  height: auto !important;
-  min-height: 1123px !important;
   background: #ffffff !important;
   color: #1f2937 !important;
-  z-index: 9999 !important;
-  margin: 0 !important;
+  z-index: -1 !important;
   padding: 20mm !important;
   box-sizing: border-box !important;
-  display: block !important;
 }
 
 #dialog-document-viewer #modalPdfViewer,

@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.74';
+export const APP_VERSION = 'v1.6.75';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7378,10 +7378,11 @@ async function resolveAttachmentResource(resource, fallbackType = '', fallbackNa
   };
 }
 
-// HELPER CENTRAL : GÉNÉRATION BLOB PDF DEPUIS ÉLÉMENT DOM HORS-CHAMP (SANDBOX A4 FIXE 794px)
+// HELPER CENTRAL : GÉNÉRATION BLOB PDF DEPUIS HTML (SANDBOX A4 FIXE 794px)
 let isPdfGenerating = false;
 let lastPdfGenerateTime = 0;
-async function generatePdfBlobFromElement(sourceElement, filename) {
+
+async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
   const now = Date.now();
   if (isPdfGenerating || (now - lastPdfGenerateTime < 1500)) {
     console.warn("Génération PDF déjà en cours ou trop rapprochée, appel ignoré.");
@@ -7391,143 +7392,30 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
   lastPdfGenerateTime = now;
 
   try {
-    if (!sourceElement) throw new Error("Élément source introuvable");
-    if (typeof html2pdf === 'undefined') throw new Error("Bibliothèque html2pdf non disponible");
+    // 1. Nettoyage préventif
+    const oldSandbox = document.getElementById('pdf-isolation-sandbox');
+    if (oldSandbox) oldSandbox.remove();
 
-    // 1. Conteneur temporaire isolé (visible pour html2canvas mais dissimulé derrière la modale ouverte)
-    const container = document.createElement('div');
-    container.id = 'pdf-isolation-sandbox';
-    container.className = 'pdf-isolation-sandbox';
-    container.style.cssText = [
-      'position: absolute !important',
-      'left: 0 !important',
-      'top: 0 !important',
-      'width: 794px !important',
-      'min-width: 794px !important',
-      'max-width: 794px !important',
-      'height: auto !important',
-      'min-height: 1123px !important',
-      'background: #ffffff !important',
-      'color: #1f2937 !important',
-      'z-index: 9999 !important',
-      'margin: 0 !important',
-      'padding: 20mm !important',
-      'box-sizing: border-box !important',
-      'display: block !important'
-    ].join('; ') + ';';
+    // 2. Création et insertion dans le DOM réel
+    const sandbox = document.createElement('div');
+    sandbox.id = 'pdf-isolation-sandbox';
+    sandbox.className = 'print-container official-a4-sheet cr-document';
+    sandbox.style.cssText = 'position: absolute; left: 0; top: 0; width: 794px; min-width: 794px; max-width: 794px; background: #ffffff; color: #1f2937; z-index: -1; padding: 20mm; box-sizing: border-box;';
+    sandbox.innerHTML = (typeof htmlContent === 'string') ? htmlContent : (htmlContent?.innerHTML || '');
+    document.body.appendChild(sandbox);
 
-    // 2. Clone de l'élément source, inséré dans le conteneur
-    const clone = sourceElement.cloneNode(true);
-    clone.style.width = '100%';
-    clone.style.minWidth = '100%';
-    clone.style.maxWidth = '100%';
-    clone.style.boxSizing = 'border-box';
-    clone.style.margin = '0';
-    clone.style.padding = '0';
-    clone.style.background = '#ffffff';
-    clone.style.backgroundColor = '#ffffff';
-    clone.style.color = '#1f2937';
-    clone.style.opacity = '1';
-    clone.style.visibility = 'visible';
-    clone.style.display = 'block';
-
-    // Synchronisation des canvas d'annotations (cloneNode ne copie pas les tracés des canvas)
-    const sourceCanvases = sourceElement.querySelectorAll('canvas');
-    const clonedCanvases = clone.querySelectorAll('canvas');
-    for (let i = 0; i < sourceCanvases.length; i++) {
-      const sCanvas = sourceCanvases[i];
-      const cCanvas = clonedCanvases[i];
-      if (sCanvas && cCanvas) {
-        cCanvas.width = sCanvas.width;
-        cCanvas.height = sCanvas.height;
-        const cCtx = cCanvas.getContext('2d', { willReadFrequently: true });
-        if (cCtx) {
-          cCtx.drawImage(sCanvas, 0, 0);
-        }
-      }
-    }
-
-    // Sécuriser les en-têtes officiels (toujours en ligne, logo à gauche et texte/date à droite)
-    const headers = clone.querySelectorAll('.print-header');
-    headers.forEach(h => {
-      h.style.cssText = 'display: flex !important; flex-direction: row !important; justify-content: space-between !important; align-items: center !important; width: 100% !important; margin-bottom: 20px !important;';
-    });
-
-    // Sécuriser les grilles 2 colonnes (Propriétaire / Animal)
-    const grids = clone.querySelectorAll('.print-grid-2');
-    grids.forEach(g => {
-      g.style.cssText = 'display: flex !important; flex-direction: row !important; justify-content: space-between !important; gap: 20px !important; width: 100% !important;';
-      Array.from(g.children).forEach(col => {
-        col.style.cssText = 'flex: 1 1 0% !important; min-width: 0 !important;';
-      });
-    });
-
-    // Verrouillage du bloc schéma d'annotations (titre + planche ensemble)
-    const schemaBlocs = clone.querySelectorAll('.schema-bloc, #portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique');
-    schemaBlocs.forEach(bloc => {
-      bloc.classList.add('schema-bloc');
-      bloc.style.setProperty('page-break-inside', 'avoid', 'important');
-      bloc.style.setProperty('break-inside', 'avoid', 'important');
-      bloc.style.setProperty('display', 'block', 'important');
-
-      const preview = bloc.querySelector('.print-canvas-preview, .session-canvas-preview');
-      if (preview) {
-        preview.style.setProperty('page-break-inside', 'avoid', 'important');
-        preview.style.setProperty('break-inside', 'avoid', 'important');
-        preview.style.setProperty('display', 'block', 'important');
-      }
-      const img = bloc.querySelector('img');
-      if (img) {
-        img.style.setProperty('page-break-inside', 'avoid', 'important');
-        img.style.setProperty('break-inside', 'avoid', 'important');
-        img.style.setProperty('display', 'block', 'important');
-        img.style.setProperty('max-width', '100%', 'important');
-        img.style.setProperty('height', 'auto', 'important');
-        img.style.setProperty('margin', '0 auto', 'important');
-      }
-    });
-
-    container.appendChild(clone);
-    document.body.appendChild(container);
-
-    // 1. Logs de contrôle demandés
-    console.log("Conteneur cible html2pdf :", container);
-    console.log("Longueur du contenu HTML :", container.innerHTML.length);
-    if (container.innerHTML.length < 500) {
-      console.warn("⚠️ Attention : longueur HTML anormalement faible (< 500) :", container.innerHTML.length);
-    }
-
-    // Attendre impérativement le chargement complet des images du document
-    const imgs = Array.from(container.querySelectorAll('img'));
-    await Promise.all(imgs.map(img => {
-      if (img.complete && img.naturalWidth !== 0) return Promise.resolve();
-      return new Promise(resolve => {
-        img.onload = () => resolve();
-        img.onerror = () => resolve();
-        setTimeout(resolve, 300);
-      });
-    }));
-
-    // 3. Attente stricte du rendu : stabilisation des polices et du DOM
+    // 3. Attente stricte du chargement des polices et images
     if (document.fonts && document.fonts.ready) {
       try { await document.fonts.ready; } catch (_) {}
     }
+    const images = Array.from(sandbox.querySelectorAll('img'));
+    await Promise.all(images.map(img => {
+      if (img.complete) return Promise.resolve();
+      return new Promise(resolve => { img.onload = img.onerror = resolve; });
+    }));
     await new Promise(r => setTimeout(r, 200));
 
-    // Détection de remplissage de la 1ère page pour forcer un saut de page propre avant le schéma
-    schemaBlocs.forEach(bloc => {
-      if (bloc.style.display !== 'none') {
-        const topOffset = bloc.offsetTop;
-        const height = bloc.offsetHeight || 380;
-        if (topOffset > 480 || (topOffset + height > 920)) {
-          bloc.style.setProperty('page-break-before', 'always', 'important');
-          bloc.style.setProperty('break-before', 'page', 'important');
-          bloc.style.setProperty('padding-top', '15mm', 'important');
-        }
-      }
-    });
-
-    // 3. Configuration html2canvas dans les options html2pdf
+    // 4. Ciblage direct par l'élément monté
     const opt = {
       margin: 0,
       filename: filename || 'document.pdf',
@@ -7535,37 +7423,33 @@ async function generatePdfBlobFromElement(sourceElement, filename) {
       html2canvas: {
         scale: 2,
         useCORS: true,
-        logging: true, // Laisser true temporairement pour voir les logs html2canvas dans la console
+        logging: true,
         scrollX: 0,
         scrollY: 0,
         windowWidth: 794
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { 
-        mode: ['avoid-all', 'css', 'legacy'],
-        avoid: ['.schema-bloc', '#portal-cr-section-canvas', '#print-section-canvas', '.schema-section', '.planche-anatomique', '.print-canvas-preview', '.session-canvas-preview', '.print-section', '.print-grid-2', '.print-footer']
-      }
+      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
     };
 
-    // Génération séquentielle garantie
-    const pdfBlob = await html2pdf()
-      .set(opt)
-      .from(container)
-      .toPdf()
-      .get('pdf')
-      .then(pdf => pdf.output('blob'));
+    // 5. Génération et extraction du Blob
+    const elementToPrint = document.getElementById('pdf-isolation-sandbox');
+    const pdfBlob = await html2pdf().set(opt).from(elementToPrint).output('blob');
 
-    // Destruction du sandbox uniquement après obtention du blob
-    container.remove();
+    // 6. Nettoyage
+    sandbox.remove();
+
     return pdfBlob;
   } finally {
-    // Nettoyage de sécurité si une erreur est survenue avant container.remove()
-    const sandbox = document.getElementById('pdf-isolation-sandbox');
-    if (sandbox) {
-      sandbox.remove();
-    }
+    const s = document.getElementById('pdf-isolation-sandbox');
+    if (s) s.remove();
     isPdfGenerating = false;
   }
+}
+
+async function generatePdfBlobFromElement(sourceElement, filename) {
+  const content = (sourceElement && sourceElement.innerHTML) ? sourceElement.innerHTML : (sourceElement || '');
+  return generatePdfBlobFromHtml(content, filename);
 }
 
 // HELPER : Détection stricte du contexte navigateur mobile / tablette (non standalone)
@@ -10619,7 +10503,7 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   // Pipeline unifié : Compilation en Blob PDF via écran de chargement modal immédiat
   const sheetElement = document.getElementById('portal-cr-sheet');
   await openUniversalDocument(
-    () => generatePdfBlobFromElement(sheetElement, filename),
+    () => generatePdfBlobFromHtml(sheetElement.innerHTML, filename),
     filename,
     title,
     {
@@ -11009,7 +10893,7 @@ async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
     // Pipeline unifié : Compilation en Blob PDF via écran de chargement modal immédiat
     const sheetElement = document.getElementById('animal-dossier-preview-sheet');
     await openUniversalDocument(
-      () => generatePdfBlobFromElement(sheetElement, filename),
+      () => generatePdfBlobFromHtml(sheetElement.innerHTML, filename),
       filename,
       title,
       {
