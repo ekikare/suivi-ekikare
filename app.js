@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.76';
+export const APP_VERSION = 'v1.6.77';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7439,9 +7439,11 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     }));
     await new Promise(r => setTimeout(r, 200));
 
-    console.log("Sandbox monté dans le DOM - dimensions :", sandbox.offsetWidth, "x", sandbox.offsetHeight, "(scrollHeight:", sandbox.scrollHeight, ")");
+    const sandboxToPrint = document.getElementById('pdf-isolation-sandbox') || sandbox;
+    const contentHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || 1123);
+    console.log("Sandbox monté dans le DOM - dimensions mesurées :", sandboxToPrint.offsetWidth, "x", contentHeight);
 
-    // 4. Ciblage direct par l'élément monté
+    // 4. Ciblage direct par l'élément monté avec hauteur réelle transmise
     const opt = {
       margin: 0,
       filename: filename || 'document.pdf',
@@ -7451,18 +7453,22 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
         useCORS: true,
         logging: true,
         width: 794,
-        windowWidth: 794
+        windowWidth: 794,
+        height: contentHeight,       // Force la hauteur réelle mesurée (2816 px)
+        windowHeight: contentHeight, // Empêche l'iframe interne de html2canvas de valoir 0
+        y: 0,
+        scrollY: 0
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
     };
 
     // 5. Génération et extraction du Blob
-    const elementToPrint = document.getElementById('pdf-isolation-sandbox');
-    const pdfBlob = await html2pdf().set(opt).from(elementToPrint).output('blob');
+    const worker = html2pdf().set(opt).from(sandboxToPrint);
+    const pdfBlob = await worker.output('blob');
 
     // 6. Nettoyage
-    sandbox.remove();
+    sandboxToPrint.remove();
 
     return pdfBlob;
   } finally {
