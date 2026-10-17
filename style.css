@@ -2798,23 +2798,40 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 }
 
 .print-section,
-.schema-bloc,
-#portal-cr-section-canvas,
-#print-section-canvas,
-.schema-section,
-.planche-anatomique,
 .print-canvas-preview,
 .session-canvas-preview,
-.print-footer {
+.print-footer,
+.legal-notice {
   page-break-inside: avoid !important;
   break-inside: avoid !important;
   display: block !important;
 }
 
-.schema-bloc {
+.schema-bloc,
+.schema-section,
+.planche-anatomique,
+#portal-cr-section-canvas,
+#print-section-canvas {
+  page-break-before: always !important;
+  break-before: page !important;
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
+  padding-top: 15mm !important;
+  display: block !important;
+}
+
+.legal-notice {
+  margin-top: 20px !important;
+  font-size: 8pt !important;
+  color: #6b7280 !important;
+  border-top: 1px solid #e5e7eb !important;
+  padding-top: 8px !important;
+  text-align: justify !important;
   page-break-inside: avoid !important;
   break-inside: avoid !important;
   display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 
 #pdf-isolation-sandbox .print-grid-2,
