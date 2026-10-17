@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.77';
+export const APP_VERSION = 'v1.6.78';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7400,21 +7400,21 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     const sandbox = document.createElement('div');
     sandbox.id = 'pdf-isolation-sandbox';
     sandbox.className = 'print-container official-a4-sheet cr-document';
-    sandbox.style.cssText = [
-      'position: absolute !important',
-      'left: 0 !important',
-      'top: 0 !important',
-      'width: 794px !important',
-      'min-width: 794px !important',
-      'max-width: 794px !important',
-      'height: auto !important',
-      'min-height: 1123px !important',
-      'display: block !important',
-      'overflow: visible !important',
-      'background: #ffffff !important',
-      'box-sizing: border-box !important',
-      'padding: 20mm !important'
-    ].join('; ') + ';';
+    sandbox.style.position = 'fixed';
+    sandbox.style.left = '0px';
+    sandbox.style.top = '0px';
+    sandbox.style.width = '794px';
+    sandbox.style.minWidth = '794px';
+    sandbox.style.maxWidth = '794px';
+    sandbox.style.height = 'auto';
+    sandbox.style.minHeight = '1123px';
+    sandbox.style.display = 'block';
+    sandbox.style.overflow = 'visible';
+    sandbox.style.background = '#ffffff';
+    sandbox.style.boxSizing = 'border-box';
+    sandbox.style.margin = '0px';
+    sandbox.style.padding = '0px';
+    sandbox.style.transform = 'none';
     sandbox.innerHTML = (typeof htmlContent === 'string') ? htmlContent : (htmlContent?.innerHTML || '');
     document.body.appendChild(sandbox);
 
@@ -7443,7 +7443,7 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     const contentHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || 1123);
     console.log("Sandbox monté dans le DOM - dimensions mesurées :", sandboxToPrint.offsetWidth, "x", contentHeight);
 
-    // 4. Ciblage direct par l'élément monté avec hauteur réelle transmise
+    // 4. Ciblage direct par l'élément monté avec hauteur réelle transmise et ancrage (0, 0)
     const opt = {
       margin: 0,
       filename: filename || 'document.pdf',
@@ -7451,13 +7451,15 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       html2canvas: {
         scale: 2,
         useCORS: true,
-        logging: true,
+        logging: false,
+        x: 0,                // Démarre la capture pile au bord gauche (supprime le décalage de 238px)
+        y: 0,
+        scrollX: 0,
+        scrollY: 0,
         width: 794,
         windowWidth: 794,
-        height: contentHeight,       // Force la hauteur réelle mesurée (2816 px)
-        windowHeight: contentHeight, // Empêche l'iframe interne de html2canvas de valoir 0
-        y: 0,
-        scrollY: 0
+        height: contentHeight,
+        windowHeight: contentHeight
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
