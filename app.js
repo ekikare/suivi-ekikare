@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.83';
+export const APP_VERSION = 'v1.6.84';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7459,14 +7459,13 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       bloc.style.setProperty('break-inside', 'avoid', 'important');
     });
 
-    // Bas de page : Mentions légales insérées STRICTEMENT tout en bas du conteneur capturé
+    // Bas de page : Mentions légales insérées tout en bas du template (après le conteneur du schéma)
     sandbox.querySelectorAll('.cr-legal-notice, .legal-notice, .print-footer').forEach(el => el.remove());
-
-    const legalNotice = document.createElement('div');
-    legalNotice.className = 'cr-legal-notice';
-    legalNotice.style.cssText = 'margin-top: 30px; padding-top: 12px; border-top: 1px solid #cbd5e1; font-size: 8pt; line-height: 1.4; color: #4b5563; text-align: justify; page-break-inside: avoid !important; break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;';
-    legalNotice.textContent = "Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.";
-    sandbox.appendChild(legalNotice);
+    sandbox.insertAdjacentHTML('beforeend', `
+      <div class="cr-legal-notice" style="margin-top: 30px; padding-top: 10px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
+        Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.
+      </div>
+    `);
 
     // S'assurer que le flux des éléments internes n'est pas effondré
     const internalElements = sandbox.querySelectorAll('#portal-cr-sheet, #animal-dossier-preview-sheet, .cr-document, .official-a4-sheet, div, section');
@@ -7512,8 +7511,7 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak: { 
-        mode: ['avoid-all', 'css', 'legacy'],
-        avoid: ['.cr-legal-notice', '.schema-bloc', '#portal-cr-section-canvas', '#print-section-canvas', '.schema-section', '.planche-anatomique']
+        mode: ['css', 'legacy']
       }
     };
 
@@ -10596,6 +10594,15 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
 
   // Pipeline unifié : Compilation en Blob PDF via écran de chargement modal immédiat
   const sheetElement = document.getElementById('portal-cr-sheet');
+
+  // Insertion obligatoire du bloc des mentions légales tout en bas du template du CR (après le conteneur du schéma)
+  sheetElement.querySelectorAll('.cr-legal-notice, .legal-notice, .print-footer').forEach(el => el.remove());
+  sheetElement.insertAdjacentHTML('beforeend', `
+    <div class="cr-legal-notice" style="margin-top: 30px; padding-top: 10px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important;">
+      Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.
+    </div>
+  `);
+
   await openUniversalDocument(
     () => generatePdfBlobFromHtml(sheetElement.innerHTML, filename),
     filename,
