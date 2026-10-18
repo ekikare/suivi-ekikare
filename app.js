@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.84';
+export const APP_VERSION = 'v1.6.85';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7457,15 +7457,32 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       bloc.style.setProperty('break-before', 'page', 'important');
       bloc.style.setProperty('page-break-inside', 'avoid', 'important');
       bloc.style.setProperty('break-inside', 'avoid', 'important');
+      bloc.style.setProperty('height', 'auto', 'important');
+      bloc.style.setProperty('max-height', 'none', 'important');
+      bloc.style.setProperty('overflow', 'visible', 'important');
     });
 
-    // Bas de page : Mentions légales insérées tout en bas du template (après le conteneur du schéma)
-    sandbox.querySelectorAll('.cr-legal-notice, .legal-notice, .print-footer').forEach(el => el.remove());
-    sandbox.insertAdjacentHTML('beforeend', `
+    const schemaPreviews = sandbox.querySelectorAll('.print-canvas-preview, .print-canvas-preview img, #portal-cr-session-canvas-img, #print-session-canvas-img');
+    schemaPreviews.forEach(el => {
+      el.style.setProperty('max-height', 'none', 'important');
+      el.style.setProperty('overflow', 'visible', 'important');
+      el.style.setProperty('page-break-inside', 'avoid', 'important');
+      el.style.setProperty('break-inside', 'avoid', 'important');
+    });
+
+    // Bas de page : Mentions légales insérées juste après la section du schéma si active, ou tout en bas du template
+    const canvasSectionInSandbox = sandbox.querySelector('#portal-cr-section-canvas, .schema-bloc');
+    const legalNoticeHtml = `
       <div class="cr-legal-notice" style="margin-top: 30px; padding-top: 10px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
         Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.
       </div>
-    `);
+    `;
+    sandbox.querySelectorAll('.cr-legal-notice, .legal-notice, .print-footer').forEach(el => el.remove());
+    if (canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none') {
+      canvasSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
+    } else {
+      sandbox.insertAdjacentHTML('beforeend', legalNoticeHtml);
+    }
 
     // S'assurer que le flux des éléments internes n'est pas effondré
     const internalElements = sandbox.querySelectorAll('#portal-cr-sheet, #animal-dossier-preview-sheet, .cr-document, .official-a4-sheet, div, section');
@@ -7489,7 +7506,16 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     await new Promise(r => setTimeout(r, 200));
 
     const sandboxToPrint = document.getElementById('pdf-isolation-sandbox') || sandbox;
-    const contentHeight = Math.ceil((sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || 1123) + 60);
+
+    // Sonde de présence dans le DOM (diagnostic obligatoire demandé)
+    console.warn("Vérification mentions dans le DOM :", sandbox.querySelector('.cr-legal-notice'));
+
+    const hasSchema = canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none';
+    let measuredHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || 1123);
+    if (hasSchema && measuredHeight < 2246) {
+      measuredHeight = 2246; // Garantir 2 pages complètes A4 (2 x 1123px) pour que la page 2 ne soit jamais rognée
+    }
+    const contentHeight = measuredHeight + 60;
 
     // 4. Configuration html2canvas avec options complètes et logging désactivé
     const opt = {
