@@ -2822,12 +2822,12 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 
 .legal-notice,
 .cr-legal-notice {
-  margin-top: 25px !important;
-  font-size: 7.5pt !important;
-  line-height: 1.35 !important;
+  margin-top: 30px !important;
+  font-size: 8pt !important;
+  line-height: 1.4 !important;
   color: #4b5563 !important;
-  border-top: 1px solid #d1d5db !important;
-  padding-top: 10px !important;
+  border-top: 1px solid #cbd5e1 !important;
+  padding-top: 12px !important;
   text-align: justify !important;
   page-break-inside: avoid !important;
   break-inside: avoid !important;

@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.82';
+export const APP_VERSION = 'v1.6.83';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7459,28 +7459,14 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       bloc.style.setProperty('break-inside', 'avoid', 'important');
     });
 
-    // Bas de page : Mentions légales insérées tout en bas du compte-rendu
-    let legalNotice = sandbox.querySelector('.cr-legal-notice');
-    if (!legalNotice) {
-      legalNotice = document.createElement('div');
-      legalNotice.className = 'cr-legal-notice';
-      legalNotice.style.cssText = 'margin-top: 25px; padding-top: 10px; border-top: 1px solid #d1d5db; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; break-inside: avoid !important; display: block !important;';
-      legalNotice.textContent = "Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.";
-      sandbox.appendChild(legalNotice);
-    } else {
-      legalNotice.style.setProperty('display', 'block', 'important');
-      legalNotice.style.setProperty('visibility', 'visible', 'important');
-      legalNotice.style.setProperty('opacity', '1', 'important');
-      legalNotice.style.setProperty('margin-top', '25px', 'important');
-      legalNotice.style.setProperty('padding-top', '10px', 'important');
-      legalNotice.style.setProperty('border-top', '1px solid #d1d5db', 'important');
-      legalNotice.style.setProperty('font-size', '7.5pt', 'important');
-      legalNotice.style.setProperty('line-height', '1.35', 'important');
-      legalNotice.style.setProperty('color', '#4b5563', 'important');
-      legalNotice.style.setProperty('text-align', 'justify', 'important');
-      legalNotice.style.setProperty('page-break-inside', 'avoid', 'important');
-      legalNotice.style.setProperty('break-inside', 'avoid', 'important');
-    }
+    // Bas de page : Mentions légales insérées STRICTEMENT tout en bas du conteneur capturé
+    sandbox.querySelectorAll('.cr-legal-notice, .legal-notice, .print-footer').forEach(el => el.remove());
+
+    const legalNotice = document.createElement('div');
+    legalNotice.className = 'cr-legal-notice';
+    legalNotice.style.cssText = 'margin-top: 30px; padding-top: 12px; border-top: 1px solid #cbd5e1; font-size: 8pt; line-height: 1.4; color: #4b5563; text-align: justify; page-break-inside: avoid !important; break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;';
+    legalNotice.textContent = "Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.";
+    sandbox.appendChild(legalNotice);
 
     // S'assurer que le flux des éléments internes n'est pas effondré
     const internalElements = sandbox.querySelectorAll('#portal-cr-sheet, #animal-dossier-preview-sheet, .cr-document, .official-a4-sheet, div, section');
@@ -7504,7 +7490,7 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     await new Promise(r => setTimeout(r, 200));
 
     const sandboxToPrint = document.getElementById('pdf-isolation-sandbox') || sandbox;
-    const contentHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || 1123);
+    const contentHeight = Math.ceil((sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || 1123) + 60);
 
     // 4. Configuration html2canvas avec options complètes et logging désactivé
     const opt = {
@@ -7525,7 +7511,10 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
         windowHeight: contentHeight
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+      pagebreak: { 
+        mode: ['avoid-all', 'css', 'legacy'],
+        avoid: ['.cr-legal-notice', '.schema-bloc', '#portal-cr-section-canvas', '#print-section-canvas', '.schema-section', '.planche-anatomique']
+      }
     };
 
     // 5. Génération et extraction du Blob avec try/catch diagnostique explicite
