@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.85';
+export const APP_VERSION = 'v1.6.95';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
