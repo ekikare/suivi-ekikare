@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.97';
+export const APP_VERSION = 'v1.6.98';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7557,11 +7557,15 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     console.warn("Vérification mentions dans le DOM :", sandbox.querySelector('.cr-legal-notice'));
 
     const hasSchema = canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none';
-    let measuredHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || 1123);
-    if (hasSchema && measuredHeight < 2246) {
-      measuredHeight = 2246; // Garantir 2 pages complètes A4 (2 x 1123px) pour que la page 2 ne soit jamais rognée
+    const pageUnitHeight = Math.floor(794 * (297 / 210)); // 1122px (hauteur exacte d'une page A4 pour html2pdf à 794px de large)
+    let contentHeight;
+    if (hasSchema) {
+      contentHeight = pageUnitHeight * 2; // Exactement 2244px pour 2 pages A4 complètes, évitant tout débordement sur une 3ème page
+    } else {
+      const naturalHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || pageUnitHeight);
+      const neededPages = Math.max(1, Math.ceil(naturalHeight / pageUnitHeight));
+      contentHeight = neededPages * pageUnitHeight;
     }
-    const contentHeight = measuredHeight + 60;
 
     // 4. Configuration html2canvas avec options complètes et logging désactivé
     const opt = {
@@ -7587,10 +7591,21 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       }
     };
 
-    // 5. Génération et extraction du Blob avec try/catch diagnostique explicite
+    // 5. Génération et extraction du Blob avec suppression garantie de page blanche terminale
     let pdfBlob = null;
     try {
-      const worker = html2pdf().set(opt).from(sandboxToPrint);
+      const worker = html2pdf()
+        .set(opt)
+        .from(sandboxToPrint)
+        .toPdf()
+        .get('pdf')
+        .then((pdf) => {
+          if (hasSchema && pdf && pdf.internal && typeof pdf.internal.getNumberOfPages === 'function') {
+            while (pdf.internal.getNumberOfPages() > 2 && typeof pdf.deletePage === 'function') {
+              pdf.deletePage(pdf.internal.getNumberOfPages());
+            }
+          }
+        });
       pdfBlob = await worker.output('blob');
     } catch (error) {
       console.error("ERREUR DÉTECTÉE DANS HTML2PDF :", error);
