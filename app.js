@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.98';
+export const APP_VERSION = 'v1.6.99';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7514,21 +7514,34 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     const canvasSectionInSandbox = sandbox.querySelector('#portal-cr-section-canvas, .schema-bloc');
     const precisionsSectionInSandbox = sandbox.querySelector('#portal-cr-section-precisions, #print-section-precisions');
     const attachmentSectionInSandbox = sandbox.querySelector('#portal-cr-section-attachment');
-    const legalNoticeHtml = `
-      <div class="cr-legal-notice" style="margin-top: 30px; padding-top: 10px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
-        Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.
-      </div>
-    `;
-    sandbox.querySelectorAll('.cr-legal-notice, .legal-notice, .print-footer').forEach(el => el.remove());
-    if (attachmentSectionInSandbox && attachmentSectionInSandbox.style.display !== 'none') {
-      attachmentSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
-    } else if (precisionsSectionInSandbox && precisionsSectionInSandbox.style.display !== 'none') {
-      precisionsSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
-    } else if (canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none') {
-      canvasSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
-    } else {
-      sandbox.insertAdjacentHTML('beforeend', legalNoticeHtml);
+    const isAnimalDossier = !!sandbox.querySelector('#animal-dossier-preview-sheet');
+
+    // Ne pas injecter de mentions légales supplémentaires sur le dossier de suivi (il possède déjà son propre pied de page officiel complet)
+    if (!isAnimalDossier) {
+      const legalNoticeHtml = `
+        <div class="cr-legal-notice" style="margin-top: 30px; padding-top: 10px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
+          Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.
+        </div>
+      `;
+      sandbox.querySelectorAll('.cr-legal-notice, .legal-notice, .print-footer').forEach(el => el.remove());
+      if (attachmentSectionInSandbox && attachmentSectionInSandbox.style.display !== 'none') {
+        attachmentSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
+      } else if (precisionsSectionInSandbox && precisionsSectionInSandbox.style.display !== 'none') {
+        precisionsSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
+      } else if (canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none') {
+        canvasSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
+      } else {
+        sandbox.insertAdjacentHTML('beforeend', legalNoticeHtml);
+      }
     }
+
+    // Espacement pour le dossier de suivi en page 2 (padding-top: 15mm pour respirer sous le bord supérieur)
+    const dossierSessionsSections = sandbox.querySelectorAll('.dossier-section-sessions');
+    dossierSessionsSections.forEach(sec => {
+      sec.style.setProperty('padding-top', '15mm', 'important');
+      sec.style.setProperty('page-break-before', 'always', 'important');
+      sec.style.setProperty('break-before', 'page', 'important');
+    });
 
     // S'assurer que le flux des éléments internes n'est pas effondré
     const internalElements = sandbox.querySelectorAll('#portal-cr-sheet, #animal-dossier-preview-sheet, .cr-document, .official-a4-sheet, div, section');
@@ -7559,11 +7572,16 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     const hasSchema = canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none';
     const pageUnitHeight = Math.floor(794 * (297 / 210)); // 1122px (hauteur exacte d'une page A4 pour html2pdf à 794px de large)
     let contentHeight;
+    let neededPages = 1;
     if (hasSchema) {
       contentHeight = pageUnitHeight * 2; // Exactement 2244px pour 2 pages A4 complètes, évitant tout débordement sur une 3ème page
+    } else if (isAnimalDossier) {
+      const naturalHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || pageUnitHeight);
+      neededPages = Math.max(2, Math.ceil(naturalHeight / pageUnitHeight));
+      contentHeight = neededPages * pageUnitHeight;
     } else {
       const naturalHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || pageUnitHeight);
-      const neededPages = Math.max(1, Math.ceil(naturalHeight / pageUnitHeight));
+      neededPages = Math.max(1, Math.ceil(naturalHeight / pageUnitHeight));
       contentHeight = neededPages * pageUnitHeight;
     }
 
@@ -7594,14 +7612,15 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     // 5. Génération et extraction du Blob avec suppression garantie de page blanche terminale
     let pdfBlob = null;
     try {
+      const maxAllowedPages = hasSchema ? 2 : (isAnimalDossier ? 2 : neededPages);
       const worker = html2pdf()
         .set(opt)
         .from(sandboxToPrint)
         .toPdf()
         .get('pdf')
         .then((pdf) => {
-          if (hasSchema && pdf && pdf.internal && typeof pdf.internal.getNumberOfPages === 'function') {
-            while (pdf.internal.getNumberOfPages() > 2 && typeof pdf.deletePage === 'function') {
+          if (pdf && pdf.internal && typeof pdf.internal.getNumberOfPages === 'function') {
+            while (pdf.internal.getNumberOfPages() > maxAllowedPages && typeof pdf.deletePage === 'function') {
               pdf.deletePage(pdf.internal.getNumberOfPages());
             }
           }
@@ -10882,7 +10901,7 @@ async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
         <tr>
           <td style="vertical-align: top; padding: 0 0 16px 0;">
             <h1 style="font-size: 1.4rem; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">
-              <span style="color: #D96B27;">eKiKare</span> • Fiche de Liaison & Dossier de Santé
+              <span style="color: #D96B27;">eKiKare</span> • Dossier de suivi
             </h1>
             <p style="font-size: 0.85rem; color: #64748b; margin: 0 0 8px 0;">Dossier de suivi bien-être et de liaison interprofessionnelle</p>
             <div style="display: inline-block; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #D96B27; padding: 8px 14px; border-radius: 6px; font-size: 0.95rem; font-weight: 600; color: #0f172a;">
@@ -10901,7 +10920,7 @@ async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
     // SECTION 1: FICHE D'IDENTITE
     if (options.includeIdentity) {
       html += `
-        <div style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
+        <div class="dossier-section-identity" style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
           <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1.5px solid #e2e8f0;">
             <span style="color: #D96B27;">1.</span> Signalement & Fiche d'Identité
           </div>
@@ -10962,7 +10981,7 @@ async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
       });
 
       html += `
-        <div style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
+        <div class="dossier-section-medical" style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
           <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1.5px solid #e2e8f0;">
             <span style="color: #D96B27;">2.</span> Historique Médical & Pathologies
           </div>
@@ -11010,8 +11029,12 @@ async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
 
     // SECTION 3: HISTORIQUE DES SEANCES DE SOINS / BIEN-ETRE
     if (options.includeSessions) {
+      const hasPriorSections = options.includeIdentity || options.includeMedical;
+      const pageBreakStyle = hasPriorSections 
+        ? "page-break-before: always !important; break-before: page !important; padding-top: 15mm !important;" 
+        : "";
       html += `
-        <div style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
+        <div class="dossier-section-sessions" style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid; ${pageBreakStyle}">
           <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1.5px solid #e2e8f0;">
             <span style="color: #D96B27;">3.</span> Historique & Synthèse des Séances (${periodLabel})
           </div>
@@ -11074,9 +11097,9 @@ async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
     sheetContainer.innerHTML = html;
 
     const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
-    const filename = `Fiche_Liaison_${cleanAnimalName}.pdf`;
+    const filename = `Dossier_suivi_${cleanAnimalName}.pdf`;
     const subtitle = `${animal.nom} (${animal.espece}) • Dossier édité le ${new Date().toLocaleDateString('fr-FR')}`;
-    const title = `Fiche de Liaison & Dossier de Santé — ${animal.nom}`;
+    const title = `Dossier de suivi — ${animal.nom}`;
 
     // Pipeline unifié : Compilation en Blob PDF via écran de chargement modal immédiat
     const sheetElement = document.getElementById('animal-dossier-preview-sheet');
