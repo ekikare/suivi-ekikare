@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.7.1';
+} from './db.js?v=1.7.2';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.1';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.2';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -43,7 +43,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.7.1';
+export const APP_VERSION = 'v1.7.2';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -574,6 +574,8 @@ let pinchContentFocalX = 0;
 let pinchContentFocalY = 0;
 const activeCanvasPointers = new Map();
 let prePinchDrawingSnapshot = null;
+let isCanvasModifiedInEditor = false;
+let userExplicitlyClearedCanvas = false;
 
 // --- INITIALISATION AU CHARGEMENT ---
 document.addEventListener('DOMContentLoaded', async () => {
@@ -4791,9 +4793,12 @@ async function prepareSessionEditor(param) {
   }
 
   // Réinitialiser le calque transparent du Canvas et la vue zoom/pan
+  resetCanvasDrawingTools();
   clearTransparentCanvas();
   canvasUndoHistory = [];
   resetCanvasView(false);
+  isCanvasModifiedInEditor = false;
+  userExplicitlyClearedCanvas = false;
 
   currentSessionId = null;
 
@@ -5179,16 +5184,10 @@ async function prepareSessionEditor(param) {
       sessionReminders.forEach(r => addReminderRow(r));
     }
 
-    // Charger le dessin du Canvas
-    if (targetSession.canvas_drawing_data_url) {
-      const img = new Image();
-      img.onload = () => {
-        canvasCtx.drawImage(img, 0, 0);
-        saveCanvasState(); // init undo state
-      };
-      img.src = targetSession.canvas_drawing_data_url;
-    }
+    // Charger et restaurer le schéma d'annotations du Canvas (v1.7.2)
+    await restoreSessionCanvas(targetSession);
   } else {
+    await restoreSessionCanvas(null);
     document.getElementById('session-editor-title').textContent = `Nouvelle Séance`;
     document.getElementById('session-form-id').value = '';
     document.getElementById('session-form-notes-obs').value = '';
@@ -5753,6 +5752,8 @@ function setupCanvasListeners() {
         clearTransparentCanvas();
         canvasUndoHistory = []; // Reset history
         saveCanvasState(); // Save first blank state
+        isCanvasModifiedInEditor = true;
+        userExplicitlyClearedCanvas = true;
       }
     });
   }
@@ -5761,6 +5762,7 @@ function setupCanvasListeners() {
   const undoBtn = document.getElementById('btn-canvas-undo');
   if (undoBtn) {
     undoBtn.addEventListener('click', () => {
+      isCanvasModifiedInEditor = true;
       restoreCanvasState();
     });
   }
@@ -5804,6 +5806,7 @@ function getCanvasCoordinates(e) {
 
 function startDrawingEvent(e) {
   isDrawing = true;
+  isCanvasModifiedInEditor = true;
   const coords = getCanvasCoordinates(e);
   lastX = coords.x;
   lastY = coords.y;
@@ -5811,6 +5814,7 @@ function startDrawingEvent(e) {
 
 function drawEvent(e) {
   if (!isDrawing) return;
+  isCanvasModifiedInEditor = true;
   const coords = getCanvasCoordinates(e);
   const x = coords.x;
   const y = coords.y;
@@ -5849,17 +5853,257 @@ function drawEvent(e) {
 function stopDrawingEvent() {
   if (isDrawing) {
     isDrawing = false;
+    isCanvasModifiedInEditor = true;
     saveCanvasState();
   }
 }
 
+function ensureCanvasContext() {
+  if (!canvasElement) {
+    canvasElement = document.getElementById('annotation-canvas');
+  }
+  if (canvasElement && !canvasCtx) {
+    canvasCtx = canvasElement.getContext('2d', { willReadFrequently: true });
+  }
+  return !!(canvasElement && canvasCtx);
+}
+
+function resetCanvasDrawingTools() {
+  ensureCanvasContext();
+  if (canvasCtx) {
+    canvasCtx.globalCompositeOperation = 'source-over';
+  }
+  currentDrawingColor = '#dc2626';
+  currentBrushSize = 2;
+  const colorBtns = document.querySelectorAll('.color-btn');
+  colorBtns.forEach(b => {
+    if (b.getAttribute('data-color') === '#dc2626') {
+      b.classList.add('active');
+    } else {
+      b.classList.remove('active');
+    }
+  });
+  const eraserBtn = document.getElementById('btn-canvas-eraser');
+  if (eraserBtn) eraserBtn.classList.remove('active');
+  const bSlider = document.getElementById('canvas-brush-size');
+  const bDisplay = document.getElementById('brush-size-display');
+  if (bSlider) bSlider.value = 2;
+  if (bDisplay) bDisplay.textContent = '2px';
+}
+
+function isCanvasBlank(canvas) {
+  if (!canvas || !canvas.width || !canvas.height) return true;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return true;
+  try {
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imgData.data;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] !== 0) return false;
+    }
+  } catch (err) {
+    console.warn("[Canvas] Erreur vérification isCanvasBlank:", err);
+    return false;
+  }
+  return true;
+}
+
+function renderDrawingDataToCanvas(ctx, data, width, height) {
+  if (!ctx || !data) return false;
+  
+  let parsed = null;
+  if (typeof data === 'object' && !(data instanceof Blob)) {
+    parsed = data;
+  } else if (typeof data === 'string' && (data.trim().startsWith('{') || data.trim().startsWith('['))) {
+    try {
+      parsed = JSON.parse(data.trim());
+    } catch (_) {
+      parsed = null;
+    }
+  }
+
+  if (parsed) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    
+    // Format tableau de points ou de traits
+    const strokes = Array.isArray(parsed) ? parsed : (parsed.strokes || parsed.lines || parsed.paths || null);
+    if (Array.isArray(strokes)) {
+      strokes.forEach(stroke => {
+        if (!stroke) return;
+        ctx.strokeStyle = stroke.color || stroke.strokeStyle || '#dc2626';
+        ctx.lineWidth = stroke.size || stroke.lineWidth || stroke.width || 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        if (Array.isArray(stroke.points) && stroke.points.length > 0) {
+          ctx.beginPath();
+          ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+          for (let i = 1; i < stroke.points.length; i++) {
+            ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+          }
+          ctx.stroke();
+        } else if (typeof stroke.x0 === 'number' && typeof stroke.y0 === 'number') {
+          ctx.beginPath();
+          ctx.moveTo(stroke.x0, stroke.y0);
+          ctx.lineTo(stroke.x1, stroke.y1);
+          ctx.stroke();
+        }
+      });
+      ctx.restore();
+      return true;
+    }
+    
+    // Format Fabric.js : { objects: [ ... ] }
+    if (parsed.objects && Array.isArray(parsed.objects)) {
+      parsed.objects.forEach(obj => {
+        if (!obj) return;
+        ctx.strokeStyle = obj.stroke || '#dc2626';
+        ctx.lineWidth = obj.strokeWidth || 2;
+        ctx.lineCap = obj.strokeLineCap || 'round';
+        ctx.lineJoin = obj.strokeLineJoin || 'round';
+        
+        if (obj.type === 'path' && Array.isArray(obj.path)) {
+          ctx.beginPath();
+          obj.path.forEach(seg => {
+            const cmd = seg[0];
+            if (cmd === 'M') ctx.moveTo(seg[1], seg[2]);
+            else if (cmd === 'L') ctx.lineTo(seg[1], seg[2]);
+            else if (cmd === 'Q') ctx.quadraticCurveTo(seg[1], seg[2], seg[3], seg[4]);
+            else if (cmd === 'C') ctx.bezierCurveTo(seg[1], seg[2], seg[3], seg[4], seg[5], seg[6]);
+            else if (cmd === 'Z') ctx.closePath();
+          });
+          ctx.stroke();
+        } else if (obj.type === 'line') {
+          ctx.beginPath();
+          ctx.moveTo(obj.x1 || 0, obj.y1 || 0);
+          ctx.lineTo(obj.x2 || 0, obj.y2 || 0);
+          ctx.stroke();
+        }
+      });
+      ctx.restore();
+      return true;
+    }
+    ctx.restore();
+  }
+  
+  return false;
+}
+
+function loadImageToCanvas(ctx, srcOrBlob, width, height) {
+  return new Promise((resolve) => {
+    if (!srcOrBlob) return resolve(false);
+    
+    let url = srcOrBlob;
+    let isCreatedBlobUrl = false;
+    
+    if (srcOrBlob instanceof Blob) {
+      url = URL.createObjectURL(srcOrBlob);
+      isCreatedBlobUrl = true;
+    }
+    
+    if (typeof url !== 'string' || !url.trim()) {
+      return resolve(false);
+    }
+    
+    const img = new Image();
+    if (!url.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
+    img.onload = () => {
+      try {
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(img, 0, 0, width, height);
+        ctx.restore();
+        if (isCreatedBlobUrl) URL.revokeObjectURL(url);
+        resolve(true);
+      } catch (err) {
+        console.warn("[Canvas] Erreur drawImage:", err);
+        if (isCreatedBlobUrl) URL.revokeObjectURL(url);
+        resolve(false);
+      }
+    };
+    img.onerror = (err) => {
+      console.warn("[Canvas] Erreur chargement image canvas:", err);
+      if (isCreatedBlobUrl) URL.revokeObjectURL(url);
+      resolve(false);
+    };
+    img.src = url;
+  });
+}
+
+async function restoreSessionCanvas(targetSession) {
+  if (!ensureCanvasContext()) return false;
+  
+  resetCanvasDrawingTools();
+  clearTransparentCanvas();
+  canvasUndoHistory = [];
+  isCanvasModifiedInEditor = false;
+  userExplicitlyClearedCanvas = false;
+  
+  if (!targetSession) {
+    saveCanvasState();
+    return false;
+  }
+  
+  const w = canvasElement.width || 600;
+  const h = canvasElement.height || 400;
+  
+  // 1. Tentative avec canvas_drawing_data_url (tracé transparent prioritaire)
+  const transparentDrawing = targetSession.canvas_drawing_data_url;
+  if (transparentDrawing) {
+    const renderedJson = renderDrawingDataToCanvas(canvasCtx, transparentDrawing, w, h);
+    if (renderedJson && !isCanvasBlank(canvasElement)) {
+      saveCanvasState();
+      return true;
+    }
+    
+    const loadedImg = await loadImageToCanvas(canvasCtx, transparentDrawing, w, h);
+    if (loadedImg && !isCanvasBlank(canvasElement)) {
+      saveCanvasState();
+      return true;
+    }
+  }
+  
+  // 2. Si le tracé transparent n'existe pas ou est vide, tenter avec le schéma fusionné / dessin anatomique
+  const mergedDrawing = targetSession.canvas_annotation_image_blob ||
+                        targetSession.anatomical_drawing ||
+                        targetSession.anatomicalDrawing ||
+                        targetSession.drawing ||
+                        targetSession.schema ||
+                        targetSession.annotations;
+                        
+  if (mergedDrawing) {
+    const renderedJson = renderDrawingDataToCanvas(canvasCtx, mergedDrawing, w, h);
+    if (renderedJson && !isCanvasBlank(canvasElement)) {
+      saveCanvasState();
+      return true;
+    }
+    
+    const loadedImg = await loadImageToCanvas(canvasCtx, mergedDrawing, w, h);
+    if (loadedImg && !isCanvasBlank(canvasElement)) {
+      saveCanvasState();
+      return true;
+    }
+  }
+  
+  // Si rien n'a pu être chargé ou canevas vide
+  saveCanvasState();
+  return false;
+}
+
 function clearTransparentCanvas() {
-  if (canvasCtx && canvasElement) {
+  if (ensureCanvasContext()) {
+    canvasCtx.save();
+    canvasCtx.globalCompositeOperation = 'source-over';
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    canvasCtx.restore();
   }
 }
 
 function saveCanvasState() {
+  if (!ensureCanvasContext()) return;
   if (canvasUndoHistory.length >= MAX_UNDO_STATES) {
     canvasUndoHistory.shift();
   }
@@ -5874,7 +6118,12 @@ function restoreCanvasState() {
     const img = new Image();
     img.onload = () => {
       clearTransparentCanvas();
-      canvasCtx.drawImage(img, 0, 0);
+      if (ensureCanvasContext()) {
+        canvasCtx.save();
+        canvasCtx.globalCompositeOperation = 'source-over';
+        canvasCtx.drawImage(img, 0, 0);
+        canvasCtx.restore();
+      }
     };
     img.src = prevStateDataUrl;
   } else if (canvasUndoHistory.length === 1) {
@@ -6661,8 +6910,44 @@ async function saveSessionForm() {
   };
 
   // Canvas dessin : exporter le tracé transparent & le tracé fusionné
-  const drawingDataUrl = canvasElement.toDataURL('image/png');
-  const mergedDataUrl = await generateMergedCanvasDataUrl();
+  let drawingDataUrl = canvasElement ? canvasElement.toDataURL('image/png') : '';
+  let mergedDataUrl = await generateMergedCanvasDataUrl();
+
+  // Sécurité anti-écrasement lors de l'édition d'une séance existante (v1.7.2) :
+  // Si le canvas n'a pas été retouché ou s'il est vide sans intention explicite d'effacement,
+  // préserver les schémas existants pour éviter tout remplacement par une image vide.
+  if (sId) {
+    try {
+      const existingSession = await getById('sessions', Number(sId));
+      if (existingSession) {
+        const isCurrentBlank = isCanvasBlank(canvasElement);
+        const hasExistingDrawing = !!(existingSession.canvas_drawing_data_url ||
+                                      existingSession.canvas_annotation_image_blob ||
+                                      existingSession.anatomical_drawing ||
+                                      existingSession.anatomicalDrawing);
+
+        if (!isCanvasModifiedInEditor && hasExistingDrawing) {
+          // Cas 1 : Le canvas n'a pas été retouché lors de cette édition
+          if (existingSession.canvas_drawing_data_url) {
+            drawingDataUrl = existingSession.canvas_drawing_data_url;
+          }
+          if (existingSession.canvas_annotation_image_blob || existingSession.anatomical_drawing || existingSession.anatomicalDrawing) {
+            mergedDataUrl = existingSession.canvas_annotation_image_blob || existingSession.anatomical_drawing || existingSession.anatomicalDrawing;
+          }
+        } else if (isCurrentBlank && !userExplicitlyClearedCanvas && hasExistingDrawing) {
+          // Cas 2 : Le canvas est vide sans intention explicite d'effacement (protection anti-perte)
+          if (existingSession.canvas_drawing_data_url) {
+            drawingDataUrl = existingSession.canvas_drawing_data_url;
+          }
+          if (existingSession.canvas_annotation_image_blob || existingSession.anatomical_drawing || existingSession.anatomicalDrawing) {
+            mergedDataUrl = existingSession.canvas_annotation_image_blob || existingSession.anatomical_drawing || existingSession.anatomicalDrawing;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[SessionSave] Erreur vérification sécurité canvas:", err);
+    }
+  }
 
   const sessionData = {
     animal_id: animalId,
