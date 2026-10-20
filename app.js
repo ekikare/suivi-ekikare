@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.96';
+export const APP_VERSION = 'v1.6.97';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -4319,26 +4319,41 @@ async function renderSessionDetails(sessionId) {
     subtitleEl.textContent = `Séance du ${dateStr}${ownerStr}`;
   }
 
-  document.getElementById('print-session-date').textContent = `Séance du : ${formatDate(session.date_seance)}`;
+  const sessionDateEl = document.getElementById('print-session-date');
+  if (sessionDateEl) {
+    sessionDateEl.textContent = `Séance du : ${formatDate(session.date_seance)}`;
+  }
   
   if (client) {
-    document.getElementById('print-client-name').textContent = `${client.prenom} ${client.nom.toUpperCase()}`;
-    document.getElementById('print-client-contact').innerHTML = `Tél : ${client.telephone} &bull; E-mail : ${client.email || '-'}`;
+    const clientNameEl = document.getElementById('print-client-name');
+    if (clientNameEl) clientNameEl.textContent = `${client.prenom} ${client.nom.toUpperCase()}`;
+    const clientContactEl = document.getElementById('print-client-contact');
+    if (clientContactEl) clientContactEl.innerHTML = `Tél : ${client.telephone} &bull; E-mail : ${client.email || '-'}`;
   }
   
   if (animal) {
-    document.getElementById('print-animal-name').textContent = animal.nom;
-    document.getElementById('print-animal-identity').innerHTML = `${animal.espece} &bull; ${animal.race || '-'} ${animal.robe ? '('+animal.robe+')' : ''}`;
-    document.getElementById('print-animal-details').innerHTML = `Sexe : ${animal.sexe || '-'} &bull; Âge : ${calculateAge(animal.date_naissance_ou_age)}`;
-    document.getElementById('print-animal-living').textContent = `Lieu de vie : ${animal.stable_name || animal.lieu_de_vie || '-'}`;
+    const animalNameEl = document.getElementById('print-animal-name');
+    if (animalNameEl) animalNameEl.textContent = animal.nom;
+    const animalIdentEl = document.getElementById('print-animal-identity');
+    if (animalIdentEl) animalIdentEl.innerHTML = `${animal.espece} &bull; ${animal.race || '-'} ${animal.robe ? '('+animal.robe+')' : ''}`;
+    const animalDetailsEl = document.getElementById('print-animal-details');
+    if (animalDetailsEl) animalDetailsEl.innerHTML = `Sexe : ${animal.sexe || '-'} &bull; Âge : ${calculateAge(animal.date_naissance_ou_age)}`;
+    const animalLivingEl = document.getElementById('print-animal-living');
+    if (animalLivingEl) animalLivingEl.textContent = `Lieu de vie : ${animal.stable_name || animal.lieu_de_vie || '-'}`;
   }
 
   const printObjEl = document.getElementById('print-session-objective');
   if (printObjEl) {
     printObjEl.innerHTML = formatMultilineText(session.motif || '-');
   }
-  document.getElementById('print-session-resume-content').innerHTML = interpretMarkdownToHtml(adaptResumeForClient(session.resume_client_genere || 'Aucun résumé rédigé.'));
-  document.getElementById('print-generation-date').textContent = new Date().toLocaleDateString('fr-FR');
+  const printResumeEl = document.getElementById('print-session-resume-content');
+  if (printResumeEl) {
+    printResumeEl.innerHTML = interpretMarkdownToHtml(adaptResumeForClient(session.resume_client_genere || 'Aucun résumé rédigé.'));
+  }
+  const printGenDateEl = document.getElementById('print-generation-date');
+  if (printGenDateEl) {
+    printGenDateEl.textContent = new Date().toLocaleDateString('fr-FR');
+  }
 
   // Précisions générales de la séance (si renseignées)
   const precisionsSection = document.getElementById('print-section-precisions');
@@ -4356,11 +4371,13 @@ async function renderSessionDetails(sessionId) {
   // Canvas d'annotation image
   const imgSection = document.getElementById('print-section-canvas');
   const imgElement = document.getElementById('print-session-canvas-img');
-  if (session.canvas_annotation_image_blob) {
-    imgElement.src = session.canvas_annotation_image_blob;
-    imgSection.style.display = 'block';
-  } else {
-    imgSection.style.display = 'none';
+  if (imgElement && imgSection) {
+    if (session.canvas_annotation_image_blob) {
+      imgElement.src = session.canvas_annotation_image_blob;
+      imgSection.style.display = 'block';
+    } else {
+      imgSection.style.display = 'none';
+    }
   }
 
   // --- RENDU DE L'HISTORIQUE DE L'ANIMAL ---
@@ -4370,38 +4387,55 @@ async function renderSessionDetails(sessionId) {
     historySection.style.display = fromAnimal ? 'none' : 'block';
   }
 
-  const animalSessions = await getByIndex('sessions', 'animal_id', session.animal_id);
-  animalSessions.sort((a, b) => new Date(b.date_seance) - new Date(a.date_seance));
-  
-  let historyHtml = '<table class="print-history-table" style="width:100%; border-collapse:collapse; margin-top:10px;"><thead><tr style="border-bottom:1px solid #cbd5e1; text-align:left; font-size:0.85rem;"><th style="padding:6px 0;">Date</th><th style="padding:6px 0;">Motif</th><th style="padding:6px 0;">Résumé / Protocoles</th></tr></thead><tbody>';
-  animalSessions.forEach(s => {
-    const protos = getActiveProtocolsList(s);
-    const resumePreview = protos.length > 0 
-      ? escapeHtml(protos.join(', ')) 
-      : (s.resume_client_genere ? 'Séance réalisée' : 'Aucun protocole');
-    const isCurrent = s.id === session.id;
-    historyHtml += `<tr style="border-bottom:1px solid #e2e8f0; font-size:0.8rem; ${isCurrent ? 'font-weight:bold; background-color:rgba(255,255,255,0.05);' : ''}">
-      <td style="padding:6px 0;">${formatDate(s.date_seance)} ${isCurrent ? '(Séance actuelle)' : ''}</td>
-      <td style="padding:6px 0; white-space:pre-line;">${escapeHtml(s.motif || '-')}</td>
-      <td style="padding:6px 0; color:var(--text-sub);">${resumePreview}</td>
-    </tr>`;
-  });
-  historyHtml += '</tbody></table>';
-  document.getElementById('print-session-history-list').innerHTML = historyHtml;
+  try {
+    const animalSessions = await getByIndex('sessions', 'animal_id', session.animal_id);
+    animalSessions.sort((a, b) => new Date(b.date_seance) - new Date(a.date_seance));
+    
+    let historyHtml = '<table class="print-history-table" style="width:100%; border-collapse:collapse; margin-top:10px;"><thead><tr style="border-bottom:1px solid #cbd5e1; text-align:left; font-size:0.85rem;"><th style="padding:6px 0;">Date</th><th style="padding:6px 0;">Motif</th><th style="padding:6px 0;">Résumé / Protocoles</th></tr></thead><tbody>';
+    animalSessions.forEach(s => {
+      const protos = getActiveProtocolsList(s);
+      const resumePreview = protos.length > 0 
+        ? escapeHtml(protos.join(', ')) 
+        : (s.resume_client_genere ? 'Séance réalisée' : 'Aucun protocole');
+      const isCurrent = s.id === session.id;
+      historyHtml += `<tr style="border-bottom:1px solid #e2e8f0; font-size:0.8rem; ${isCurrent ? 'font-weight:bold; background-color:rgba(255,255,255,0.05);' : ''}">
+        <td style="padding:6px 0;">${formatDate(s.date_seance)} ${isCurrent ? '(Séance actuelle)' : ''}</td>
+        <td style="padding:6px 0; white-space:pre-line;">${escapeHtml(s.motif || '-')}</td>
+        <td style="padding:6px 0; color:var(--text-sub);">${resumePreview}</td>
+      </tr>`;
+    });
+    historyHtml += '</tbody></table>';
+    const historyListEl = document.getElementById('print-session-history-list');
+    if (historyListEl) {
+      historyListEl.innerHTML = historyHtml;
+    }
+  } catch (errHist) {
+    console.error('Erreur chargement historique séance:', errHist);
+  }
 
   // --- BOUTONS PRATICIEN ---
   // Toggling CR détaillé
   const toggleCrBtn = document.getElementById('btn-toggle-cr-detaille');
   const crDetailleContent = document.getElementById('practitioner-cr-detaille-content');
   if (toggleCrBtn && crDetailleContent) {
-    // Show detailed CR by default
-    crDetailleContent.innerHTML = renderDetailedCR(session);
-    crDetailleContent.style.display = 'block';
-    toggleCrBtn.textContent = 'Masquer le CR métier (détaillé)';
+    try {
+      // Show detailed CR by default
+      crDetailleContent.innerHTML = renderDetailedCR(session);
+      crDetailleContent.style.display = 'block';
+      toggleCrBtn.textContent = 'Masquer le CR métier (détaillé)';
+    } catch (errCr) {
+      console.error('Erreur affichage CR détaillé:', errCr);
+      crDetailleContent.innerHTML = '<p class="text-danger">Erreur lors de l\'affichage du CR détaillé.</p>';
+      crDetailleContent.style.display = 'block';
+    }
     
     toggleCrBtn.onclick = () => {
       if (crDetailleContent.style.display === 'none') {
-        crDetailleContent.innerHTML = renderDetailedCR(session);
+        try {
+          crDetailleContent.innerHTML = renderDetailedCR(session);
+        } catch (errCr) {
+          console.error('Erreur affichage CR détaillé:', errCr);
+        }
         crDetailleContent.style.display = 'block';
         toggleCrBtn.textContent = 'Masquer le CR métier (détaillé)';
       } else {
@@ -4420,9 +4454,12 @@ async function renderSessionDetails(sessionId) {
   }
 
   // Redirection back button
-  document.getElementById('btn-back-to-animal-from-session').onclick = () => {
-    window.location.hash = `animals/${session.animal_id}`;
-  };
+  const backToAnimalBtn = document.getElementById('btn-back-to-animal-from-session');
+  if (backToAnimalBtn) {
+    backToAnimalBtn.onclick = () => {
+      window.location.hash = `animals/${session.animal_id}`;
+    };
+  }
 
   const backToSessionsListBtn = document.getElementById('btn-back-to-sessions-list');
   if (backToSessionsListBtn) {
@@ -4432,9 +4469,12 @@ async function renderSessionDetails(sessionId) {
   }
 
   // Modifier la séance
-  document.getElementById('btn-edit-session-detail').onclick = () => {
-    window.location.hash = `session-editor/${session.id}`;
-  };
+  const editSessionBtn = document.getElementById('btn-edit-session-detail');
+  if (editSessionBtn) {
+    editSessionBtn.onclick = () => {
+      window.location.hash = `session-editor/${session.id}`;
+    };
+  }
 
   // Voir le PDF via la modale A4 officielle
   const printBtn = document.getElementById('btn-print-session');
