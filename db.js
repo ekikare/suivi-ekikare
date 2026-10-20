@@ -3,7 +3,7 @@
  */
 
 const DB_NAME = 'eKiKareDB';
-const DB_VERSION = 3; // Version incremented to support settings store
+const DB_VERSION = 4; // Version incrémentée pour supporter le store pdf_cache
 let dbInstance = null;
 
 // CONFIGURATION SYNCHRONISATION
@@ -485,6 +485,11 @@ export function getDB() {
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings', { keyPath: 'key' });
       }
+
+      // Table pdf_cache pour la mise en cache locale des PDF générés (v1.7.1)
+      if (!db.objectStoreNames.contains('pdf_cache')) {
+        db.createObjectStore('pdf_cache', { keyPath: 'key' });
+      }
     };
 
     request.onsuccess = (event) => {
@@ -630,6 +635,11 @@ export async function add(storeName, item) {
  * Met à jour un élément en local dans IndexedDB.
  */
 export async function updateLocal(storeName, item) {
+  if (storeName === 'sessions' && item && item.id) {
+    try {
+      await deletePdfCache(`cr_pdf_${item.id}`);
+    } catch (_) {}
+  }
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(storeName, 'readwrite');
@@ -791,6 +801,11 @@ export async function update(storeName, item) {
  * Supprime un élément localement dans IndexedDB.
  */
 export async function removeLocal(storeName, id) {
+  if (storeName === 'sessions' && id) {
+    try {
+      await deletePdfCache(`cr_pdf_${id}`);
+    } catch (_) {}
+  }
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(storeName, 'readwrite');
@@ -825,6 +840,137 @@ export async function remove(storeName, id) {
         }
       })();
     }
+  }
+}
+
+// ============================================================================
+// MODULE CACHE LOCAL PDF (v1.7.1)
+// ============================================================================
+
+/**
+ * Récupère un PDF mis en cache dans le store 'pdf_cache'.
+ * @param {string} key - Ex: 'cr_pdf_123'
+ * @returns {Promise<{ key: string, blob: Blob, updatedAt: number, savedAt: number } | null>}
+ */
+export async function getPdfCache(key) {
+  if (!key) return null;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('pdf_cache')) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('pdf_cache', 'readonly');
+        const store = tx.objectStore('pdf_cache');
+        const req = store.get(String(key));
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = (e) => {
+          console.warn("[pdf_cache] Erreur lecture cache:", e);
+          resolve(null);
+        };
+      } catch (errTx) {
+        console.warn("[pdf_cache] Erreur transaction lecture:", errTx);
+        resolve(null);
+      }
+    });
+  } catch (err) {
+    console.warn("[pdf_cache] getPdfCache:", err);
+    return null;
+  }
+}
+
+/**
+ * Enregistre un Blob PDF dans le store 'pdf_cache'.
+ * @param {string} key - Ex: 'cr_pdf_123'
+ * @param {Blob} blob - Le Blob PDF généré
+ * @param {number|string} updatedAt - Timestamp ou date de modification de la séance
+ * @returns {Promise<void>}
+ */
+export async function setPdfCache(key, blob, updatedAt) {
+  if (!key || !(blob instanceof Blob)) return;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('pdf_cache')) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('pdf_cache', 'readwrite');
+        const store = tx.objectStore('pdf_cache');
+        let finalUpdated = Date.now();
+        if (typeof updatedAt === 'number' && !isNaN(updatedAt)) {
+          finalUpdated = updatedAt;
+        } else if (updatedAt) {
+          const parsed = new Date(updatedAt).getTime();
+          if (!isNaN(parsed)) finalUpdated = parsed;
+        }
+
+        const record = {
+          key: String(key),
+          blob: blob,
+          updatedAt: finalUpdated,
+          savedAt: Date.now()
+        };
+        const req = store.put(record);
+        req.onsuccess = () => resolve();
+        req.onerror = (e) => {
+          console.warn("[pdf_cache] Erreur écriture cache:", e);
+          resolve();
+        };
+      } catch (errTx) {
+        console.warn("[pdf_cache] Erreur transaction écriture:", errTx);
+        resolve();
+      }
+    });
+  } catch (err) {
+    console.warn("[pdf_cache] setPdfCache:", err);
+  }
+}
+
+/**
+ * Supprime une entrée du store 'pdf_cache'.
+ * @param {string} key - Ex: 'cr_pdf_123'
+ * @returns {Promise<void>}
+ */
+export async function deletePdfCache(key) {
+  if (!key) return;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('pdf_cache')) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('pdf_cache', 'readwrite');
+        const store = tx.objectStore('pdf_cache');
+        const req = store.delete(String(key));
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+      } catch (errTx) {
+        resolve();
+      }
+    });
+  } catch (err) {
+    console.warn("[pdf_cache] deletePdfCache:", err);
+  }
+}
+
+/**
+ * Purge la totalité du store 'pdf_cache'.
+ * @returns {Promise<void>}
+ */
+export async function clearAllPdfCache() {
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('pdf_cache')) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('pdf_cache', 'readwrite');
+        const store = tx.objectStore('pdf_cache');
+        const req = store.clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+      } catch (errTx) {
+        resolve();
+      }
+    });
+  } catch (err) {
+    console.warn("[pdf_cache] clearAllPdfCache:", err);
   }
 }
 
@@ -897,7 +1043,12 @@ export async function importAllData(importData) {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(stores, 'readwrite');
     
-    transaction.oncomplete = () => resolve();
+    transaction.oncomplete = async () => {
+      try {
+        await clearAllPdfCache();
+      } catch (_) {}
+      resolve();
+    };
     transaction.onerror = (event) => reject(event.target.error);
     
     for (const storeName of stores) {
@@ -1477,6 +1628,13 @@ export async function deleteClientCascade(clientId) {
 }
 
 // Initialiser et exposer immédiatement l'instance Supabase connectée si disponible
-if (typeof window !== 'undefined' && window.supabase && typeof window.supabase.createClient === 'function') {
-  getSupabaseClient();
+if (typeof window !== 'undefined') {
+  if (window.supabase && typeof window.supabase.createClient === 'function') {
+    getSupabaseClient();
+  }
+  window.getPdfCache = getPdfCache;
+  window.setPdfCache = setPdfCache;
+  window.deletePdfCache = deletePdfCache;
+  window.clearAllPdfCache = clearAllPdfCache;
 }
+

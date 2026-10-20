@@ -27,10 +27,14 @@ import {
   fetchRemoteSetting,
   fetchRemoteSettings,
   getDB,
-  initDB
-} from './db.js?v=1.6.62';
+  initDB,
+  getPdfCache,
+  setPdfCache,
+  deletePdfCache,
+  clearAllPdfCache
+} from './db.js?v=1.7.1';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.6.62';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.1';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -39,7 +43,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.7.0';
+export const APP_VERSION = 'v1.7.1';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -2869,6 +2873,7 @@ async function renderAnimalDetails(animalId) {
           e.stopPropagation();
           if (confirm("Êtes-vous sûr de vouloir supprimer cette séance ?")) {
             await remove('sessions', s.id);
+            try { await deletePdfCache(`cr_pdf_${s.id}`); } catch (_) {}
             showToast("Séance supprimée.");
             await renderAnimalDetails(animalId);
           }
@@ -4173,6 +4178,7 @@ function openFollowupQDialog(session) {
     session.q_3_semaines = q3Data;
     
     await update('sessions', session);
+    try { await deletePdfCache(`cr_pdf_${session.id}`); } catch (_) {}
     showToast('Questionnaire de suivi enregistré avec succès.');
     dialog.close();
     await renderSessionDetails(session.id);
@@ -6681,6 +6687,7 @@ async function saveSessionForm() {
   if (sId) {
     sessionData.id = Number(sId);
     await update('sessions', sessionData);
+    try { await deletePdfCache(`cr_pdf_${sessionData.id}`); } catch (_) {}
     savedId = sessionData.id;
     showToast('Séance modifiée avec succès.');
   } else {
@@ -7863,6 +7870,8 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
       // Supprimer tout éventuel bouton flottant précédent
       const oldCloseBtn = document.getElementById('floating-doc-close-btn');
       if (oldCloseBtn) oldCloseBtn.remove();
+      const oldRegenBtn = document.getElementById('floating-doc-regen-btn');
+      if (oldRegenBtn) oldRegenBtn.remove();
 
       // Bouton flottant universel de fermeture en haut à droite
       const closeBtn = document.createElement('button');
@@ -7871,6 +7880,31 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
       closeBtn.setAttribute('aria-label', 'Fermer le document');
       closeBtn.style.cssText = 'position: fixed; top: 14px; right: 14px; z-index: 100001; background: rgba(0,0,0,0.75); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 42px; height: 42px; font-size: 26px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); -webkit-tap-highlight-color: transparent;';
 
+      // Bouton flottant de régénération (si fourni via onRegenerate)
+      if (typeof extraInfo.onRegenerate === 'function') {
+        const regenBtn = document.createElement('button');
+        regenBtn.id = 'floating-doc-regen-btn';
+        regenBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        `;
+        regenBtn.setAttribute('aria-label', 'Régénérer le document');
+        regenBtn.title = 'Régénérer le document';
+        regenBtn.style.cssText = 'position: fixed; top: 14px; right: 64px; z-index: 100001; background: rgba(0,0,0,0.75); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 42px; height: 42px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); -webkit-tap-highlight-color: transparent;';
+        regenBtn.onclick = async () => {
+          regenBtn.disabled = true;
+          try {
+            await extraInfo.onRegenerate();
+          } finally {
+            regenBtn.disabled = false;
+          }
+        };
+        document.body.appendChild(regenBtn);
+      }
+
       const closeViewer = () => {
         if (standaloneViewer) {
           standaloneViewer.innerHTML = '';
@@ -7878,6 +7912,10 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
         }
         if (closeBtn && closeBtn.parentNode) {
           closeBtn.remove();
+        }
+        const floatingRegen = document.getElementById('floating-doc-regen-btn');
+        if (floatingRegen && floatingRegen.parentNode) {
+          floatingRegen.remove();
         }
         if (isTempUrl) {
           try { URL.revokeObjectURL(blobUrl); } catch (_) {}
@@ -8141,6 +8179,25 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
         };
       }
 
+      // Bouton Régénérer le PDF (si fourni via extraInfo.onRegenerate)
+      const regenerateBtn = document.getElementById('btn-regenerate-doc-viewer');
+      if (regenerateBtn) {
+        if (typeof extraInfo.onRegenerate === 'function') {
+          regenerateBtn.style.display = 'inline-flex';
+          regenerateBtn.onclick = async () => {
+            regenerateBtn.disabled = true;
+            try {
+              await extraInfo.onRegenerate();
+            } finally {
+              regenerateBtn.disabled = false;
+            }
+          };
+        } else {
+          regenerateBtn.style.display = 'none';
+          regenerateBtn.onclick = null;
+        }
+      }
+
       // Partage
       if (shareBtn) {
         shareBtn.onclick = async () => {
@@ -8196,6 +8253,10 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
         const iframe = document.querySelector('#modalPdfViewer iframe');
         if (iframe) {
           iframe.src = 'about:blank';
+        }
+        if (regenerateBtn) {
+          regenerateBtn.style.display = 'none';
+          regenerateBtn.onclick = null;
         }
         if (isTempUrl) {
           try { URL.revokeObjectURL(blobUrl); } catch (_) {}
@@ -8397,6 +8458,7 @@ function openExternalSessionDialog(session = null, animalId = null) {
     if (id) {
       sessionObj.id = Number(id);
       await update('sessions', sessionObj);
+      try { await deletePdfCache(`cr_pdf_${sessionObj.id}`); } catch (_) {}
       showToast("Séance modifiée avec succès.");
     } else {
       await add('sessions', sessionObj);
@@ -10494,12 +10556,29 @@ async function checkAndInjectMockData({ force = false } = {}) {
 }
 window.injectMockData = (force = true) => checkAndInjectMockData({ force });
 
+// Helper : Obtient l'horodatage le plus précis de dernière modification d'une séance
+export function getSessionLastUpdateTime(session) {
+  if (!session) return 0;
+  if (session.last_modified && !isNaN(Number(session.last_modified))) {
+    return Number(session.last_modified);
+  }
+  if (session.updated_at) {
+    const t = new Date(session.updated_at).getTime();
+    if (!isNaN(t)) return t;
+  }
+  if (session.date_seance) {
+    const t = new Date(session.date_seance).getTime();
+    if (!isNaN(t)) return t;
+  }
+  return 0;
+}
+
 // --- MODALE COMPTE-RENDU DE SÉANCE PORTAIL ---
 let isPortalSessionModalOpening = false;
 let lastPortalSessionModalTime = 0;
 async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}) {
   const now = Date.now();
-  if (isPortalSessionModalOpening || (now - lastPortalSessionModalTime < 1500)) {
+  if (!extraInfo.forceRegenerate && (isPortalSessionModalOpening || (now - lastPortalSessionModalTime < 1500))) {
     console.warn("openPortalSessionModal déjà en cours ou trop rapprochée, appel ignoré.");
     return;
   }
@@ -10550,13 +10629,52 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
     });
   }
 
+  const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
+  let cleanDate = '';
+  if (session.date_seance) {
+    cleanDate = String(session.date_seance).split('T')[0].replace(/[\s/\\?%*:|"<>]+/g, '-');
+  } else {
+    cleanDate = new Date().toISOString().split('T')[0];
+  }
+  const filename = `CR_eKiKare_${cleanAnimalName}_${cleanDate}.pdf`;
+  const ownerStr = client ? ` • Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
+  const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
+  const title = `Compte-Rendu — ${animal?.nom || 'Animal'}`;
+
+  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.1) ---
+  const cacheKey = `cr_pdf_${session.id}`;
+  const sessionUpdateTime = getSessionLastUpdateTime(session);
+
+  if (!extraInfo.forceRegenerate) {
+    try {
+      const cached = await getPdfCache(cacheKey);
+      const isCacheValid = cached && (cached.blob instanceof Blob) && (!sessionUpdateTime || (cached.updatedAt && cached.updatedAt >= sessionUpdateTime));
+      if (isCacheValid) {
+        console.log(`[pdf_cache] Cache HIT pour la séance #${session.id}`);
+        return await openUniversalDocument(
+          cached.blob,
+          filename,
+          title,
+          {
+            ...extraInfo,
+            subtitle: subtitle,
+            onRegenerate: () => openPortalSessionModal(session, animal, { ...extraInfo, forceRegenerate: true })
+          }
+        );
+      }
+    } catch (errCache) {
+      console.warn("[pdf_cache] Erreur lecture cache:", errCache);
+    }
+  }
+
+  console.log(`[pdf_cache] Cache MISS ou forçage pour la séance #${session.id} : compilation html2pdf`);
+
   const dialog = document.getElementById('dialog-portal-session-cr');
   if (!dialog) return;
 
   const subtitleEl = document.getElementById('portal-cr-dialog-subtitle');
   if (subtitleEl) {
-    const ownerStr = client ? ` • Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
-    subtitleEl.textContent = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
+    subtitleEl.textContent = subtitle;
   }
   const portalMotifEl = document.getElementById('portal-cr-dialog-motif');
   if (portalMotifEl) {
@@ -10692,18 +10810,6 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
     genDateEl.textContent = new Date().toLocaleDateString('fr-FR');
   }
 
-  const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
-  let cleanDate = '';
-  if (session.date_seance) {
-    cleanDate = String(session.date_seance).split('T')[0].replace(/[\s/\\?%*:|"<>]+/g, '-');
-  } else {
-    cleanDate = new Date().toISOString().split('T')[0];
-  }
-  const filename = `CR_eKiKare_${cleanAnimalName}_${cleanDate}.pdf`;
-  const ownerStr = client ? ` • Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
-  const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
-  const title = `Compte-Rendu — ${animal?.nom || 'Animal'}`;
-
   // Pipeline unifié : Compilation en Blob PDF via écran de chargement modal immédiat
   const sheetElement = document.getElementById('portal-cr-sheet');
 
@@ -10716,12 +10822,25 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   `);
 
   await openUniversalDocument(
-    () => generatePdfBlobFromHtml(sheetElement.innerHTML, filename),
+    async () => {
+      const generatedBlob = await generatePdfBlobFromHtml(sheetElement.innerHTML, filename);
+      try {
+        await setPdfCache(cacheKey, generatedBlob, sessionUpdateTime || Date.now());
+        console.log(`[pdf_cache] Séance #${session.id} mise en cache (${(generatedBlob.size / 1024).toFixed(1)} Ko)`);
+      } catch (errSet) {
+        console.warn("[pdf_cache] Erreur sauvegarde cache:", errSet);
+      }
+      if (extraInfo.forceRegenerate) {
+        showToast("Compte-rendu PDF régénéré avec succès.");
+      }
+      return generatedBlob;
+    },
     filename,
     title,
     {
       ...extraInfo,
-      subtitle: subtitle
+      subtitle: subtitle,
+      onRegenerate: () => openPortalSessionModal(session, animal, { ...extraInfo, forceRegenerate: true })
     }
   );
   } catch (err) {
