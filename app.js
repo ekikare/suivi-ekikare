@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.99';
+export const APP_VERSION = 'v1.7.0';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7514,7 +7514,10 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     const canvasSectionInSandbox = sandbox.querySelector('#portal-cr-section-canvas, .schema-bloc');
     const precisionsSectionInSandbox = sandbox.querySelector('#portal-cr-section-precisions, #print-section-precisions');
     const attachmentSectionInSandbox = sandbox.querySelector('#portal-cr-section-attachment');
-    const isAnimalDossier = !!sandbox.querySelector('#animal-dossier-preview-sheet');
+    const isAnimalDossier = !!(
+      sandbox.querySelector('.dossier-section-sessions, .dossier-section-identity, .dossier-section-medical, #animal-dossier-preview-sheet') ||
+      (typeof filename === 'string' && (filename.startsWith('Dossier_') || filename.startsWith('Fiche_Liaison_')))
+    );
 
     // Ne pas injecter de mentions légales supplémentaires sur le dossier de suivi (il possède déjà son propre pied de page officiel complet)
     if (!isAnimalDossier) {
@@ -7533,6 +7536,9 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       } else {
         sandbox.insertAdjacentHTML('beforeend', legalNoticeHtml);
       }
+    } else {
+      // Pour le dossier de suivi : élimination garantie de tout bloc de mentions légales dupliqué (.cr-legal-notice)
+      sandbox.querySelectorAll('.cr-legal-notice').forEach(el => el.remove());
     }
 
     // Espacement pour le dossier de suivi en page 2 (padding-top: 15mm pour respirer sous le bord supérieur)
