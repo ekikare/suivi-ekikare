@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.6.95';
+export const APP_VERSION = 'v1.6.96';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7470,15 +7470,21 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       el.style.setProperty('break-inside', 'avoid', 'important');
     });
 
-    // Bas de page : Mentions légales insérées juste après la section du schéma si active, ou tout en bas du template
+    // Bas de page : Mentions légales insérées en dernier, sous les précisions / documents joints ou le schéma
     const canvasSectionInSandbox = sandbox.querySelector('#portal-cr-section-canvas, .schema-bloc');
+    const precisionsSectionInSandbox = sandbox.querySelector('#portal-cr-section-precisions, #print-section-precisions');
+    const attachmentSectionInSandbox = sandbox.querySelector('#portal-cr-section-attachment');
     const legalNoticeHtml = `
       <div class="cr-legal-notice" style="margin-top: 30px; padding-top: 10px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
         Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.
       </div>
     `;
     sandbox.querySelectorAll('.cr-legal-notice, .legal-notice, .print-footer').forEach(el => el.remove());
-    if (canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none') {
+    if (attachmentSectionInSandbox && attachmentSectionInSandbox.style.display !== 'none') {
+      attachmentSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
+    } else if (precisionsSectionInSandbox && precisionsSectionInSandbox.style.display !== 'none') {
+      precisionsSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
+    } else if (canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none') {
       canvasSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
     } else {
       sandbox.insertAdjacentHTML('beforeend', legalNoticeHtml);
