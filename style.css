@@ -2698,18 +2698,13 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   height: auto !important;
   min-height: 1123px !important;
   display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
   overflow: visible !important;
   background: #ffffff !important;
-  background-color: #ffffff !important;
   color: #1f2937 !important;
   box-sizing: border-box !important;
   margin: 0 !important;
-  padding: 0 !important;
-  z-index: -9999 !important;
+  padding: 15mm !important;
   transform: none !important;
-  -webkit-transform: none !important;
 }
 
 #pdf-isolation-sandbox *,
@@ -2802,83 +2797,32 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   color: #1f2937 !important;
 }
 
-/* Grands conteneurs de section : autoriser le saut de page interne */
 .print-section,
-.print-text-block,
-#portal-cr-section-resume,
-#portal-cr-section-precisions,
-#portal-cr-section-attachment,
-#print-section-resume,
-#print-section-precisions,
-.dossier-section-sessions,
-.dossier-section-medical,
-.dossier-section-identity {
-  break-inside: auto !important;
-  page-break-inside: auto !important;
+.print-canvas-preview,
+.session-canvas-preview,
+.print-footer,
+.legal-notice {
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
   display: block !important;
 }
 
-/* Éléments textuels individuels : interdire la coupure de ligne en deux et régler orphelines/veuves */
-p,
-li,
-h3,
-h4,
-.cr-item,
-.cr-document p,
-.cr-document li,
-.cr-document h3,
-.cr-document h4,
-.cr-document .cr-item,
-#portal-cr-sheet p,
-#portal-cr-sheet li,
-#portal-cr-sheet h3,
-#portal-cr-sheet h4,
-#portal-cr-sheet .cr-item,
-#pdf-isolation-sandbox p,
-#pdf-isolation-sandbox li,
-#pdf-isolation-sandbox h3,
-#pdf-isolation-sandbox h4,
-#pdf-isolation-sandbox .cr-item,
-.official-a4-sheet p,
-.official-a4-sheet li,
-.official-a4-sheet h3,
-.official-a4-sheet h4,
-.official-a4-sheet .cr-item {
-  break-inside: avoid !important;
-  page-break-inside: avoid !important;
-  orphans: 2 !important;
-  widows: 2 !important;
-}
-
-.cr-item {
-  margin: 0 0 6px 0 !important;
-  line-height: 1.5 !important;
-}
-
-.cr-item:last-child {
-  margin-bottom: 0 !important;
-}
-
-/* Bloc schéma d'annotations & aperçu : maintien strict d'un seul tenant */
-.print-canvas-preview,
-.session-canvas-preview,
 .schema-bloc,
 .schema-section,
 .planche-anatomique,
 #portal-cr-section-canvas,
 #print-section-canvas {
-  break-inside: avoid !important;
-  page-break-inside: avoid !important;
   page-break-before: auto !important;
   break-before: auto !important;
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
+  padding-top: 5mm !important;
   display: block !important;
-  margin-top: 15px !important;
-  padding-top: 5px !important;
 }
 
 .legal-notice,
 .cr-legal-notice {
-  margin-top: 20px !important;
+  margin-top: 30px !important;
   font-size: 7.5pt !important;
   line-height: 1.35 !important;
   color: #4b5563 !important;

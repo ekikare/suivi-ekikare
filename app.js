@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.7.7';
+} from './db.js?v=1.7.8';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.7';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.8';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -43,12 +43,12 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.7.7';
+export const APP_VERSION = 'v1.7.8';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
 
-// Purge automatique des caches PDF lors d'un changement de version
+// Purge automatique des caches PDF lors d'un changement de version (ex: v1.7.8)
 try {
   const storedVersion = localStorage.getItem('ekikare_version');
   if (storedVersion !== APP_VERSION) {
@@ -3702,9 +3702,7 @@ function escapeHtml(text) {
 
 function formatMultilineText(text) {
   if (!text) return '';
-  const lines = escapeHtml(text).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  if (lines.length <= 1) return escapeHtml(text).replace(/\r?\n/g, '<br>');
-  return lines.map(line => `<p class="cr-item">${line}</p>`).join('');
+  return escapeHtml(text).replace(/\r?\n/g, '<br>');
 }
 
 function getActiveProtocolsList(session) {
@@ -4203,33 +4201,14 @@ function openFollowupQDialog(session) {
 
 function interpretMarkdownToHtml(text) {
   if (!text) return '';
-  const cleaned = text
+  return text
     .replace(/(?:\r?\n)+\s*Précisions\s*:[\s\S]*$/i, '') // Supprimer bloc Précisions dupliqué
-    .replace(/\s*-{3,}\s*/g, '\n\n') // Supprimer tous les séparateurs ---
+    .replace(/\s*-{3,}\s*/g, '<br><br>') // Supprimer tous les séparateurs ---
     .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>') // Convertir **texte** en <strong>texte</strong>
     .replace(/\*([^*]+?)\*/g, '<em>$1</em>') // Convertir *texte* en <em>texte</em>
+    .replace(/\r?\n/g, '<br>')
+    .replace(/(?:<br\s*\/?>\s*){3,}/g, '<br><br>') // Normaliser les sauts de lignes multiples
     .trim();
-
-  // Découpage en blocs de paragraphes / items protégés contre les coupures de ligne
-  const blocks = cleaned.split(/(?:\r?\n){2,}/);
-  const htmlParts = [];
-
-  blocks.forEach(block => {
-    const trimmed = block.trim();
-    if (!trimmed) return;
-    const lines = trimmed.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    if (!lines.length) return;
-
-    if (lines.length > 1) {
-      lines.forEach(line => {
-        htmlParts.push(`<p class="cr-item">${line}</p>`);
-      });
-    } else {
-      htmlParts.push(`<p class="cr-item">${lines[0]}</p>`);
-    }
-  });
-
-  return htmlParts.join('');
 }
 
 /**
@@ -5154,11 +5133,7 @@ async function prepareSessionEditor(param) {
     // 5. Kinésiologie
     if (protos.kinesiologie && protos.kinesiologie.checked) {
       document.getElementById('proto-kinesiologie-enable').checked = true;
-      const kinesioAcc = document.getElementById('protocol-kinesio-acc') || document.getElementById('protocol-kinesiologie-acc');
-      if (kinesioAcc) {
-        const body = kinesioAcc.querySelector('.protocol-body');
-        if (body) body.style.display = 'block';
-      }
+      document.getElementById('protocol-kinesiologie-acc').querySelector('.protocol-body').style.display = 'block';
       
       const type = protos.kinesiologie.type || 'Classique';
       document.getElementById('proto-kinesiologie-type').value = type;
@@ -5178,11 +5153,7 @@ async function prepareSessionEditor(param) {
     // 6. Aura
     if (protos.aura && protos.aura.checked) {
       document.getElementById('proto-aura-enable').checked = true;
-      const auraAcc = document.getElementById('protocol-aura-acc');
-      if (auraAcc) {
-        const body = auraAcc.querySelector('.protocol-body');
-        if (body) body.style.display = 'block';
-      }
+      document.getElementById('protocol-aura-acc').querySelector('.protocol-body').style.display = 'block';
       
       document.getElementById('aura-recentrage').checked = !!protos.aura.recentrage;
       document.getElementById('aura-liens').checked = !!protos.aura.liens;
@@ -5946,104 +5917,6 @@ function isCanvasBlank(canvas) {
     return false;
   }
   return true;
-}
-
-// Détecte si un tracé (Data URL ou objet vectoriel) est vide / vierge
-async function isDrawingDataBlank(dataUrl) {
-  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.trim()) return true;
-
-  const trimmed = dataUrl.trim();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      const strokes = Array.isArray(parsed) ? parsed : (parsed.strokes || parsed.lines || parsed.objects || parsed.paths || []);
-      if (!Array.isArray(strokes) || strokes.length === 0) return true;
-      return false;
-    } catch (_) {}
-  }
-
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth || 600;
-        c.height = img.naturalHeight || 400;
-        const ctx = c.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(img, 0, 0);
-        resolve(isCanvasBlank(c));
-      } catch (e) {
-        resolve(false);
-      }
-    };
-    img.onerror = () => resolve(true);
-    img.src = dataUrl;
-  });
-}
-
-// Vérifie si une séance contient réellement des annotations / tracés dessinés
-async function sessionHasActualAnnotations(session) {
-  if (!session) return false;
-
-  // 1. Source de vérité directe : le tracé transparent de la séance
-  if (session.canvas_drawing_data_url) {
-    const isBlank = await isDrawingDataBlank(session.canvas_drawing_data_url);
-    if (!isBlank) return true;
-    return false;
-  }
-
-  // 2. Si pas de canvas_drawing_data_url, examiner l'image fusionnée ou dessin historique
-  const merged = session.canvas_annotation_image_blob ||
-                 session.anatomical_drawing ||
-                 session.anatomicalDrawing ||
-                 session.drawing ||
-                 session.schema ||
-                 session.annotations;
-
-  if (!merged || typeof merged !== 'string' || !merged.trim()) {
-    return false;
-  }
-
-  const trimmed = merged.trim();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      const strokes = Array.isArray(parsed) ? parsed : (parsed.strokes || parsed.lines || parsed.objects || []);
-      return Array.isArray(strokes) && strokes.length > 0;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth || 600;
-        c.height = img.naturalHeight || 400;
-        const ctx = c.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(img, 0, 0);
-        const imgData = ctx.getImageData(0, 0, c.width, c.height);
-        const data = imgData.data;
-        // Recherche de pixels colorés (tracés de la praticienne : rouge, vert, bleu, jaune, etc.)
-        for (let i = 0; i < data.length; i += 16) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-          const a = data[i + 3];
-          if (a > 50 && (Math.abs(r - g) > 20 || Math.abs(r - b) > 20 || Math.abs(g - b) > 20)) {
-            return resolve(true);
-          }
-        }
-        resolve(false);
-      } catch (err) {
-        resolve(false);
-      }
-    };
-    img.onerror = () => resolve(false);
-    img.src = merged;
-  });
 }
 
 function renderDrawingDataToCanvas(ctx, data, width, height) {
@@ -7063,9 +6936,8 @@ async function saveSessionForm() {
   };
 
   // Canvas dessin : exporter le tracé transparent & le tracé fusionné
-  const isCurrentBlank = isCanvasBlank(canvasElement);
-  let drawingDataUrl = (!isCurrentBlank && canvasElement) ? canvasElement.toDataURL('image/png') : '';
-  let mergedDataUrl = !isCurrentBlank ? await generateMergedCanvasDataUrl() : '';
+  let drawingDataUrl = canvasElement ? canvasElement.toDataURL('image/png') : '';
+  let mergedDataUrl = await generateMergedCanvasDataUrl();
 
   // Sécurité anti-écrasement lors de l'édition d'une séance existante (v1.7.2) :
   // Si le canvas n'a pas été retouché ou s'il est vide sans intention explicite d'effacement,
@@ -7882,64 +7754,29 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     const oldSandbox = document.getElementById('pdf-isolation-sandbox');
     if (oldSandbox) oldSandbox.remove();
 
-    // 2. Création et insertion dans le DOM réel avec styles explicites (v1.7.7)
+    // 2. Création et insertion dans le DOM réel
     const sandbox = document.createElement('div');
     sandbox.id = 'pdf-isolation-sandbox';
     sandbox.className = 'print-container official-a4-sheet cr-document';
     sandbox.style.cssText = [
       'position: fixed !important',
-      'top: 0 !important',
       'left: 0 !important',
-      'z-index: -9999 !important',
-      'background: #ffffff !important',
-      'background-color: #ffffff !important',
+      'top: 0 !important',
       'width: 794px !important',
       'max-width: 794px !important',
       'min-width: 794px !important',
+      'margin: 0 !important',
+      'padding: 15mm !important',
+      'box-sizing: border-box !important',
       'height: auto !important',
       'min-height: 1123px !important',
       'display: block !important',
-      'visibility: visible !important',
-      'opacity: 1 !important',
-      'transform: none !important',
-      '-webkit-transform: none !important',
       'overflow: visible !important',
+      'background: #ffffff !important',
       'color: #1f2937 !important',
-      'box-sizing: border-box !important',
-      'margin: 0 !important',
-      'padding: 0 !important'
+      'transform: none !important'
     ].join('; ') + ';';
-
-    // 2b. Nettoyage du clone avant capture :
-    // Ne passer à html2pdf QUE le contenu statique du compte-rendu (#portal-cr-sheet ou son clone épuré)
-    let cleanContent = '';
-    if (typeof htmlContent === 'string') {
-      cleanContent = htmlContent;
-    } else if (htmlContent instanceof HTMLElement) {
-      const crSheet = htmlContent.id === 'portal-cr-sheet' ? htmlContent : htmlContent.querySelector('#portal-cr-sheet');
-      cleanContent = crSheet ? crSheet.innerHTML : htmlContent.innerHTML;
-    } else {
-      cleanContent = String(htmlContent || '');
-    }
-    sandbox.innerHTML = cleanContent;
-
-    // Si le clone contient un conteneur #portal-cr-sheet imbriqué, extraire son contenu direct
-    const nestedSheet = sandbox.querySelector('#portal-cr-sheet');
-    if (nestedSheet) {
-      sandbox.innerHTML = nestedSheet.innerHTML;
-    }
-
-    // Supprimer ou ignorer tout wrapper interactif (comme les conteneurs liés à pinch-zoom, boutons d'action, ou barres d'outils)
-    sandbox.querySelectorAll('.pinch-zoom-container').forEach(pz => {
-      while (pz.firstChild) {
-        pz.parentNode.insertBefore(pz.firstChild, pz);
-      }
-      pz.remove();
-    });
-
-    sandbox.querySelectorAll('button, .btn, .modal-actions, .action-bar, .doc-viewer-toolbar, .no-print, [data-no-print], input, select, textarea').forEach(el => el.remove());
-    sandbox.querySelectorAll('iframe, object, embed').forEach(el => el.remove());
-
+    sandbox.innerHTML = (typeof htmlContent === 'string') ? htmlContent : (htmlContent?.innerHTML || '');
     document.body.appendChild(sandbox);
 
     // En-tête : Forcer la structure 2 colonnes (Client à gauche, Animal à droite)
@@ -7970,15 +7807,14 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       h.style.setProperty('width', '100%', 'important');
     });
 
-    // Espacement du Schéma d'annotations (sauts de page souples évitant les pages blanches inutiles)
+    // Espacement du Schéma d'annotations (saut de page naturel sans forçage rigide)
     const schemaBlocs = sandbox.querySelectorAll('.schema-bloc, #portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique');
     schemaBlocs.forEach(bloc => {
+      bloc.style.setProperty('padding-top', '5mm', 'important');
       bloc.style.setProperty('page-break-before', 'auto', 'important');
       bloc.style.setProperty('break-before', 'auto', 'important');
       bloc.style.setProperty('page-break-inside', 'avoid', 'important');
       bloc.style.setProperty('break-inside', 'avoid', 'important');
-      bloc.style.setProperty('margin-top', '15px', 'important');
-      bloc.style.setProperty('padding-top', '5px', 'important');
       bloc.style.setProperty('height', 'auto', 'important');
       bloc.style.setProperty('max-height', 'none', 'important');
       bloc.style.setProperty('overflow', 'visible', 'important');
@@ -8004,7 +7840,7 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     // Ne pas injecter de mentions légales supplémentaires sur le dossier de suivi (il possède déjà son propre pied de page officiel complet)
     if (!isAnimalDossier) {
       const legalNoticeHtml = `
-        <div class="cr-legal-notice" style="margin-top: 25px; padding-top: 8px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
+        <div class="cr-legal-notice" style="margin-top: 30px; padding-top: 10px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
           Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.
         </div>
       `;
@@ -8023,9 +7859,10 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       sandbox.querySelectorAll('.cr-legal-notice').forEach(el => el.remove());
     }
 
-    // Espacement pour le dossier de suivi en page 2
+    // Espacement pour le dossier de suivi en page 2 (padding-top: 15mm pour respirer sous le bord supérieur)
     const dossierSessionsSections = sandbox.querySelectorAll('.dossier-section-sessions');
     dossierSessionsSections.forEach(sec => {
+      sec.style.setProperty('padding-top', '15mm', 'important');
       sec.style.setProperty('page-break-before', 'always', 'important');
       sec.style.setProperty('break-before', 'page', 'important');
     });
@@ -8053,61 +7890,60 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
 
     const sandboxToPrint = document.getElementById('pdf-isolation-sandbox') || sandbox;
 
-    const hasSchema = canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none';
-    if (!hasSchema && canvasSectionInSandbox) {
-      canvasSectionInSandbox.remove();
-    }
+    // Sonde de présence dans le DOM (diagnostic obligatoire demandé)
+    console.warn("Vérification mentions dans le DOM :", sandbox.querySelector('.cr-legal-notice'));
 
-    // 4. Configuration html2canvas et marges uniformes 15mm haut/bas, 12mm gauche/droite
+    const hasSchema = canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none';
+    const pageUnitHeight = Math.floor(794 * (297 / 210)); // 1122px (hauteur exacte d'une page A4 pour html2pdf à 794px de large)
+    const naturalHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || pageUnitHeight);
+    const neededPages = Math.max(hasSchema ? 2 : (isAnimalDossier ? 2 : 1), Math.ceil(naturalHeight / pageUnitHeight));
+    const contentHeight = neededPages * pageUnitHeight;
+
+    // 4. Configuration html2canvas avec options complètes et logging désactivé
     const opt = {
-      margin: [15, 12, 15, 12], // [top, left, bottom, right] en mm
+      margin: 0,
       filename: filename || 'document.pdf',
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: {
         scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#ffffff',
+        x: 0,
+        y: 0,
         scrollX: 0,
-        scrollY: 0
+        scrollY: 0,
+        width: 794,
+        windowWidth: 794,
+        height: contentHeight,
+        windowHeight: contentHeight
       },
-      jsPDF: {
-        unit: 'mm',
-        format: 'a4',
-        orientation: 'portrait'
-      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak: { 
-        mode: ['css', 'legacy'],
-        avoid: ['p', 'li', 'h3', 'h4', '.cr-item', 'tr', '.print-canvas-preview', '#portal-cr-section-canvas', '.schema-bloc', '.cr-legal-notice']
+        mode: ['css', 'legacy']
       }
     };
 
-    // 5. Génération naturelle multi-pages via le worker complet html2pdf
+    // 5. Génération et extraction du Blob avec suppression garantie de page blanche terminale
     let pdfBlob = null;
-    const prevScrollX = window.scrollX || 0;
-    const prevScrollY = window.scrollY || 0;
-
     try {
-      if (prevScrollY !== 0 || prevScrollX !== 0) {
-        window.scrollTo(0, 0);
-      }
-      console.log(`[generatePdfBlobFromHtml] Compilation html2pdf... (dimensions DOM: ${sandboxToPrint.offsetWidth}x${sandboxToPrint.offsetHeight}px)`);
-      pdfBlob = await html2pdf().set(opt).from(sandboxToPrint).output('blob');
-      console.log(`[generatePdfBlobFromHtml] Compilation terminée. Taille Blob: ${(pdfBlob?.size / 1024).toFixed(1)} Ko`);
-
-      if (!pdfBlob || pdfBlob.size <= 5000) {
-        console.warn(`[generatePdfBlobFromHtml] Taille suspecte (${pdfBlob?.size} octets), repli sur outputPdf('blob')...`);
-        pdfBlob = await html2pdf().set(opt).from(sandboxToPrint).outputPdf('blob');
-        console.log(`[generatePdfBlobFromHtml] Résultat repli: ${(pdfBlob?.size / 1024).toFixed(1)} Ko`);
-      }
+      const maxAllowedPages = neededPages;
+      const worker = html2pdf()
+        .set(opt)
+        .from(sandboxToPrint)
+        .toPdf()
+        .get('pdf')
+        .then((pdf) => {
+          if (pdf && pdf.internal && typeof pdf.internal.getNumberOfPages === 'function') {
+            while (pdf.internal.getNumberOfPages() > maxAllowedPages && typeof pdf.deletePage === 'function') {
+              pdf.deletePage(pdf.internal.getNumberOfPages());
+            }
+          }
+        });
+      pdfBlob = await worker.output('blob');
     } catch (error) {
       console.error("ERREUR DÉTECTÉE DANS HTML2PDF :", error);
       throw error;
     } finally {
-      if (prevScrollY !== 0 || prevScrollX !== 0) {
-        window.scrollTo(prevScrollX, prevScrollY);
-      }
-      // 6. Nettoyage sécurisé APRÈS résolution de la promesse
       if (sandboxToPrint && sandboxToPrint.parentNode) {
         sandboxToPrint.remove();
       }
@@ -8518,14 +8354,11 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
         `;
       }
 
-      // Important : s'assurer que le dialog n'est pas en showModal() pendant la compilation
-      // pour que html2canvas puisse peindre les éléments attachés au DOM sans inertie modale
-      const wasModalOpen = dialog.open;
-      if (wasModalOpen) {
-        try { dialog.close(); } catch (_) {}
+      if (!dialog.open) {
+        dialog.showModal();
       }
 
-      // Résolution du Blob et de l'URL
+      // Résolution du Blob et de l'URL pendant que la modale de chargement recouvre l'écran
       let docInfo = null;
       try {
         docInfo = await resolveToBlobAndUrl(rawResource);
@@ -8534,10 +8367,6 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
         if (dialog.open) dialog.close();
         showToast("Impossible de charger le document.", "error");
         return;
-      } finally {
-        if (!dialog.open) {
-          try { dialog.showModal(); } catch (_) { dialog.show(); }
-        }
       }
 
       // Dès que html2pdf().output('blob') a terminé : supprimer le sandbox si encore présent
@@ -11114,7 +10943,7 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
   const title = `Compte-Rendu — ${animal?.nom || 'Animal'}`;
 
-  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.7) ---
+  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.8) ---
   const cacheKey = `cr_pdf_${APP_VERSION}_${session.id}`;
   const sessionUpdateTime = getSessionLastUpdateTime(session);
 
@@ -11126,7 +10955,8 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
         `cr_pdf_v1.7.4_${session.id}`,
         `cr_pdf_v1.7.4_r2_${session.id}`,
         `cr_pdf_v1.7.5_${session.id}`,
-        `cr_pdf_v1.7.6_${session.id}`
+        `cr_pdf_v1.7.6_${session.id}`,
+        `cr_pdf_v1.7.7_${session.id}`
       ];
       for (const lk of legacyKeys) {
         try { await deletePdfCache(lk); } catch (_) {}
@@ -11135,7 +10965,7 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
       const cached = await getPdfCache(cacheKey);
       const isCacheValid = cached && 
         (cached.blob instanceof Blob) && 
-        (cached.blob.size > 5000) && // Sécurité absolue : ignorer les PDF vides de moins de 5 Ko
+        (cached.blob.size > 5000) && 
         (!sessionUpdateTime || (cached.updatedAt && cached.updatedAt >= sessionUpdateTime));
 
       if (isCacheValid) {
@@ -11151,7 +10981,6 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
           }
         );
       } else if (cached && cached.blob && cached.blob.size <= 5000) {
-        console.warn(`[pdf_cache] Cache corrompu supprimé (${cached.blob.size} octets) pour ${cacheKey}`);
         await deletePdfCache(cacheKey);
       }
     } catch (errCache) {
@@ -11246,15 +11075,12 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   // 6. Schéma d'annotations
   const canvasSection = document.getElementById('portal-cr-section-canvas');
   const canvasImg = document.getElementById('portal-cr-session-canvas-img');
-  const hasDrawing = await sessionHasActualAnnotations(session);
   if (canvasSection && canvasImg) {
-    if (hasDrawing && session.canvas_annotation_image_blob) {
+    if (session.canvas_annotation_image_blob) {
       canvasImg.src = session.canvas_annotation_image_blob;
       canvasImg.setAttribute('src', session.canvas_annotation_image_blob);
       canvasSection.style.setProperty('display', 'block', 'important');
     } else {
-      canvasImg.src = '';
-      canvasImg.removeAttribute('src');
       canvasSection.style.setProperty('display', 'none', 'important');
     }
   }
