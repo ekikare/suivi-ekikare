@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.7.6';
+} from './db.js?v=1.7.7';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.6';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.7';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -43,7 +43,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.7.6';
+export const APP_VERSION = 'v1.7.7';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -7882,32 +7882,64 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     const oldSandbox = document.getElementById('pdf-isolation-sandbox');
     if (oldSandbox) oldSandbox.remove();
 
-    // 2. Création et insertion dans le DOM réel avec styles explicites
+    // 2. Création et insertion dans le DOM réel avec styles explicites (v1.7.7)
     const sandbox = document.createElement('div');
     sandbox.id = 'pdf-isolation-sandbox';
     sandbox.className = 'print-container official-a4-sheet cr-document';
     sandbox.style.cssText = [
-      'position: absolute !important',
-      'left: 0 !important',
+      'position: fixed !important',
       'top: 0 !important',
+      'left: 0 !important',
+      'z-index: -9999 !important',
+      'background: #ffffff !important',
+      'background-color: #ffffff !important',
       'width: 794px !important',
       'max-width: 794px !important',
       'min-width: 794px !important',
-      'margin: 0 !important',
-      'padding: 0 !important',
-      'box-sizing: border-box !important',
       'height: auto !important',
-      'min-height: 200px !important',
+      'min-height: 1123px !important',
       'display: block !important',
       'visibility: visible !important',
       'opacity: 1 !important',
+      'transform: none !important',
+      '-webkit-transform: none !important',
       'overflow: visible !important',
-      'background: #ffffff !important',
       'color: #1f2937 !important',
-      'z-index: 99999 !important',
-      'transform: none !important'
+      'box-sizing: border-box !important',
+      'margin: 0 !important',
+      'padding: 0 !important'
     ].join('; ') + ';';
-    sandbox.innerHTML = (typeof htmlContent === 'string') ? htmlContent : (htmlContent?.innerHTML || '');
+
+    // 2b. Nettoyage du clone avant capture :
+    // Ne passer à html2pdf QUE le contenu statique du compte-rendu (#portal-cr-sheet ou son clone épuré)
+    let cleanContent = '';
+    if (typeof htmlContent === 'string') {
+      cleanContent = htmlContent;
+    } else if (htmlContent instanceof HTMLElement) {
+      const crSheet = htmlContent.id === 'portal-cr-sheet' ? htmlContent : htmlContent.querySelector('#portal-cr-sheet');
+      cleanContent = crSheet ? crSheet.innerHTML : htmlContent.innerHTML;
+    } else {
+      cleanContent = String(htmlContent || '');
+    }
+    sandbox.innerHTML = cleanContent;
+
+    // Si le clone contient un conteneur #portal-cr-sheet imbriqué, extraire son contenu direct
+    const nestedSheet = sandbox.querySelector('#portal-cr-sheet');
+    if (nestedSheet) {
+      sandbox.innerHTML = nestedSheet.innerHTML;
+    }
+
+    // Supprimer ou ignorer tout wrapper interactif (comme les conteneurs liés à pinch-zoom, boutons d'action, ou barres d'outils)
+    sandbox.querySelectorAll('.pinch-zoom-container').forEach(pz => {
+      while (pz.firstChild) {
+        pz.parentNode.insertBefore(pz.firstChild, pz);
+      }
+      pz.remove();
+    });
+
+    sandbox.querySelectorAll('button, .btn, .modal-actions, .action-bar, .doc-viewer-toolbar, .no-print, [data-no-print], input, select, textarea').forEach(el => el.remove());
+    sandbox.querySelectorAll('iframe, object, embed').forEach(el => el.remove());
+
     document.body.appendChild(sandbox);
 
     // En-tête : Forcer la structure 2 colonnes (Client à gauche, Animal à droite)
@@ -8035,11 +8067,15 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
         scale: 2,
         useCORS: true,
         logging: false,
-        letterRendering: true,
-        width: 794,
-        windowWidth: 794
+        backgroundColor: '#ffffff',
+        scrollX: 0,
+        scrollY: 0
       },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      jsPDF: {
+        unit: 'mm',
+        format: 'a4',
+        orientation: 'portrait'
+      },
       pagebreak: { 
         mode: ['css', 'legacy'],
         avoid: ['p', 'li', 'h3', 'h4', '.cr-item', 'tr', '.print-canvas-preview', '#portal-cr-section-canvas', '.schema-bloc', '.cr-legal-notice']
@@ -8048,7 +8084,13 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
 
     // 5. Génération naturelle multi-pages via le worker complet html2pdf
     let pdfBlob = null;
+    const prevScrollX = window.scrollX || 0;
+    const prevScrollY = window.scrollY || 0;
+
     try {
+      if (prevScrollY !== 0 || prevScrollX !== 0) {
+        window.scrollTo(0, 0);
+      }
       console.log(`[generatePdfBlobFromHtml] Compilation html2pdf... (dimensions DOM: ${sandboxToPrint.offsetWidth}x${sandboxToPrint.offsetHeight}px)`);
       pdfBlob = await html2pdf().set(opt).from(sandboxToPrint).output('blob');
       console.log(`[generatePdfBlobFromHtml] Compilation terminée. Taille Blob: ${(pdfBlob?.size / 1024).toFixed(1)} Ko`);
@@ -8062,6 +8104,9 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       console.error("ERREUR DÉTECTÉE DANS HTML2PDF :", error);
       throw error;
     } finally {
+      if (prevScrollY !== 0 || prevScrollX !== 0) {
+        window.scrollTo(prevScrollX, prevScrollY);
+      }
       // 6. Nettoyage sécurisé APRÈS résolution de la promesse
       if (sandboxToPrint && sandboxToPrint.parentNode) {
         sandboxToPrint.remove();
@@ -8473,11 +8518,14 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
         `;
       }
 
-      if (!dialog.open) {
-        dialog.showModal();
+      // Important : s'assurer que le dialog n'est pas en showModal() pendant la compilation
+      // pour que html2canvas puisse peindre les éléments attachés au DOM sans inertie modale
+      const wasModalOpen = dialog.open;
+      if (wasModalOpen) {
+        try { dialog.close(); } catch (_) {}
       }
 
-      // Résolution du Blob et de l'URL pendant que la modale de chargement recouvre l'écran
+      // Résolution du Blob et de l'URL
       let docInfo = null;
       try {
         docInfo = await resolveToBlobAndUrl(rawResource);
@@ -8486,6 +8534,10 @@ export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
         if (dialog.open) dialog.close();
         showToast("Impossible de charger le document.", "error");
         return;
+      } finally {
+        if (!dialog.open) {
+          try { dialog.showModal(); } catch (_) { dialog.show(); }
+        }
       }
 
       // Dès que html2pdf().output('blob') a terminé : supprimer le sandbox si encore présent
@@ -11062,7 +11114,7 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
   const title = `Compte-Rendu — ${animal?.nom || 'Animal'}`;
 
-  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.6) ---
+  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.7) ---
   const cacheKey = `cr_pdf_${APP_VERSION}_${session.id}`;
   const sessionUpdateTime = getSessionLastUpdateTime(session);
 
@@ -11073,7 +11125,8 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
         `cr_pdf_${session.id}`,
         `cr_pdf_v1.7.4_${session.id}`,
         `cr_pdf_v1.7.4_r2_${session.id}`,
-        `cr_pdf_v1.7.5_${session.id}`
+        `cr_pdf_v1.7.5_${session.id}`,
+        `cr_pdf_v1.7.6_${session.id}`
       ];
       for (const lk of legacyKeys) {
         try { await deletePdfCache(lk); } catch (_) {}
