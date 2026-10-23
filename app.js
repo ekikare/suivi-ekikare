@@ -43,7 +43,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.7.4';
+export const APP_VERSION = 'v1.7.5';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -3692,7 +3692,9 @@ function escapeHtml(text) {
 
 function formatMultilineText(text) {
   if (!text) return '';
-  return escapeHtml(text).replace(/\r?\n/g, '<br>');
+  const lines = escapeHtml(text).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length <= 1) return escapeHtml(text).replace(/\r?\n/g, '<br>');
+  return lines.map(line => `<p class="cr-item">${line}</p>`).join('');
 }
 
 function getActiveProtocolsList(session) {
@@ -4191,14 +4193,33 @@ function openFollowupQDialog(session) {
 
 function interpretMarkdownToHtml(text) {
   if (!text) return '';
-  return text
+  const cleaned = text
     .replace(/(?:\r?\n)+\s*Précisions\s*:[\s\S]*$/i, '') // Supprimer bloc Précisions dupliqué
-    .replace(/\s*-{3,}\s*/g, '<br><br>') // Supprimer tous les séparateurs ---
+    .replace(/\s*-{3,}\s*/g, '\n\n') // Supprimer tous les séparateurs ---
     .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>') // Convertir **texte** en <strong>texte</strong>
     .replace(/\*([^*]+?)\*/g, '<em>$1</em>') // Convertir *texte* en <em>texte</em>
-    .replace(/\r?\n/g, '<br>')
-    .replace(/(?:<br\s*\/?>\s*){3,}/g, '<br><br>') // Normaliser les sauts de lignes multiples
     .trim();
+
+  // Découpage en blocs de paragraphes / items protégés contre les coupures de ligne
+  const blocks = cleaned.split(/(?:\r?\n){2,}/);
+  const htmlParts = [];
+
+  blocks.forEach(block => {
+    const trimmed = block.trim();
+    if (!trimmed) return;
+    const lines = trimmed.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return;
+
+    if (lines.length > 1) {
+      lines.forEach(line => {
+        htmlParts.push(`<p class="cr-item">${line}</p>`);
+      });
+    } else {
+      htmlParts.push(`<p class="cr-item">${lines[0]}</p>`);
+    }
+  });
+
+  return htmlParts.join('');
 }
 
 /**
@@ -7863,7 +7884,7 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       'max-width: 794px !important',
       'min-width: 794px !important',
       'margin: 0 !important',
-      'padding: 15mm !important',
+      'padding: 0 !important',
       'box-sizing: border-box !important',
       'height: auto !important',
       'min-height: 0 !important',
@@ -7926,36 +7947,6 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       el.style.setProperty('break-inside', 'avoid', 'important');
     });
 
-    // Gestion adaptative des textes longs pour un calage optimal de la page 1 (évite le débordement prématuré)
-    const resumeEl = sandbox.querySelector('#portal-cr-session-resume-content');
-    const resumeText = resumeEl ? resumeEl.textContent.trim() : '';
-    const isLongText = (resumeText.length > 350) || (resumeEl && resumeEl.scrollHeight > 280);
-
-    if (isLongText) {
-      sandbox.querySelectorAll('.print-section').forEach(sec => {
-        sec.style.setProperty('margin-bottom', '10px', 'important');
-      });
-      sandbox.querySelectorAll('.divider, hr').forEach(hr => {
-        hr.style.setProperty('margin', '6px 0', 'important');
-      });
-      sandbox.querySelectorAll('.print-section-title').forEach(t => {
-        t.style.setProperty('margin', '4px 0 3px 0', 'important');
-        t.style.setProperty('font-size', '0.80rem', 'important');
-      });
-      sandbox.querySelectorAll('.print-text-block').forEach(b => {
-        b.style.setProperty('font-size', '8pt', 'important');
-        b.style.setProperty('line-height', '1.30', 'important');
-        b.style.setProperty('padding', '6px 8px', 'important');
-      });
-      sandbox.querySelectorAll('.print-grid-2').forEach(g => {
-        g.style.setProperty('margin-bottom', '8px', 'important');
-        g.style.setProperty('gap', '14px', 'important');
-      });
-      sandbox.querySelectorAll('.print-header').forEach(h => {
-        h.style.setProperty('margin-bottom', '8px', 'important');
-      });
-    }
-
     // Bas de page : Mentions légales insérées en dernier, sous les précisions / documents joints ou le schéma
     const canvasSectionInSandbox = sandbox.querySelector('#portal-cr-section-canvas, .schema-bloc');
     const precisionsSectionInSandbox = sandbox.querySelector('#portal-cr-section-precisions, #print-section-precisions');
@@ -7968,7 +7959,7 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     // Ne pas injecter de mentions légales supplémentaires sur le dossier de suivi (il possède déjà son propre pied de page officiel complet)
     if (!isAnimalDossier) {
       const legalNoticeHtml = `
-        <div class="cr-legal-notice" style="margin-top: ${isLongText ? '15px' : '25px'}; padding-top: 8px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
+        <div class="cr-legal-notice" style="margin-top: 25px; padding-top: 8px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
           Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.
         </div>
       `;
@@ -7987,10 +7978,9 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       sandbox.querySelectorAll('.cr-legal-notice').forEach(el => el.remove());
     }
 
-    // Espacement pour le dossier de suivi en page 2 (padding-top: 15mm pour respirer sous le bord supérieur)
+    // Espacement pour le dossier de suivi en page 2
     const dossierSessionsSections = sandbox.querySelectorAll('.dossier-section-sessions');
     dossierSessionsSections.forEach(sec => {
-      sec.style.setProperty('padding-top', '15mm', 'important');
       sec.style.setProperty('page-break-before', 'always', 'important');
       sec.style.setProperty('break-before', 'page', 'important');
     });
@@ -8018,89 +8008,45 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
 
     const sandboxToPrint = document.getElementById('pdf-isolation-sandbox') || sandbox;
 
-    // Sonde de présence dans le DOM (diagnostic obligatoire demandé)
+    // Diagnostic console
     console.warn("Vérification mentions dans le DOM :", sandbox.querySelector('.cr-legal-notice'));
 
     const hasSchema = canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none';
     if (!hasSchema && canvasSectionInSandbox) {
       canvasSectionInSandbox.remove();
     }
-    const pageUnitHeight = Math.floor(794 * (297 / 210)); // 1122px (hauteur exacte d'une page A4 pour html2pdf à 794px de large)
-    let contentHeight;
-    let neededPages = 1;
 
-    // Mesure précise de l'encombrement vertical réel du contenu visible
-    const sandboxRect = sandboxToPrint.getBoundingClientRect();
-    let maxContentBottom = 0;
-    sandboxToPrint.querySelectorAll('*').forEach(el => {
-      if (el.offsetWidth > 0 || el.offsetHeight > 0 || (el.getClientRects && el.getClientRects().length > 0)) {
-        const st = window.getComputedStyle(el);
-        if (st.display !== 'none' && st.visibility !== 'hidden' && st.opacity !== '0') {
-          const r = el.getBoundingClientRect();
-          const b = r.bottom - sandboxRect.top;
-          if (b > maxContentBottom) {
-            maxContentBottom = b;
-          }
-        }
-      }
-    });
-
-    const naturalHeight = Math.ceil(Math.max(maxContentBottom, sandboxToPrint.scrollHeight || 0));
-
-    if (hasSchema) {
-      neededPages = Math.max(2, Math.ceil(naturalHeight / pageUnitHeight));
-      contentHeight = neededPages * pageUnitHeight;
-    } else if (isAnimalDossier) {
-      neededPages = Math.max(2, Math.ceil(naturalHeight / pageUnitHeight));
-      contentHeight = neededPages * pageUnitHeight;
-    } else {
-      // Compte-rendu sans schéma : si le contenu visible loge dans une page A4 (1122px)
-      if (maxContentBottom <= pageUnitHeight || naturalHeight <= (pageUnitHeight + 15)) {
-        neededPages = 1;
-      } else {
-        neededPages = Math.max(1, Math.ceil(maxContentBottom / pageUnitHeight));
-      }
-      contentHeight = neededPages * pageUnitHeight;
-    }
-
-    // 4. Configuration html2canvas avec options complètes et logging désactivé
+    // 4. Configuration html2canvas et marges uniformes 15mm haut/bas, 12mm gauche/droite
     const opt = {
-      margin: 0,
+      margin: [15, 12, 15, 12], // [top, left, bottom, right] en mm
       filename: filename || 'document.pdf',
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: {
         scale: 2,
         useCORS: true,
         logging: false,
+        letterRendering: true,
         x: 0,
         y: 0,
         scrollX: 0,
         scrollY: 0,
         width: 794,
-        windowWidth: 794,
-        height: contentHeight,
-        windowHeight: contentHeight
+        windowWidth: 794
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       pagebreak: { 
-        mode: ['css', 'legacy']
+        mode: ['css', 'legacy'],
+        avoid: ['p', 'li', 'h3', 'h4', '.cr-item', 'tr', '.print-canvas-preview', '#portal-cr-section-canvas', '.schema-bloc', '.cr-legal-notice']
       }
     };
 
-    // 5. Génération et extraction du Blob avec suppression garantie de page blanche terminale
+    // 5. Génération naturelle multi-pages sans bridage artificiel
     let pdfBlob = null;
     try {
-      const maxAllowedPages = neededPages;
       const worker = html2pdf().set(opt).from(sandboxToPrint);
       const pdf = await worker.toPdf().get('pdf');
       if (pdf && pdf.internal && typeof pdf.internal.getNumberOfPages === 'function') {
-        const totalP = pdf.internal.getNumberOfPages();
-        console.warn(`[html2pdf] Pages créées: ${totalP}, maxAllowed: ${maxAllowedPages}`);
-        while (pdf.internal.getNumberOfPages() > maxAllowedPages && typeof pdf.deletePage === 'function') {
-          console.warn(`[html2pdf] Suppression page excédentaire #${pdf.internal.getNumberOfPages()}`);
-          pdf.deletePage(pdf.internal.getNumberOfPages());
-        }
-        console.warn(`[html2pdf] Pages finales après trim: ${pdf.internal.getNumberOfPages()}`);
+        console.warn(`[html2pdf] Pages créées naturellement: ${pdf.internal.getNumberOfPages()}`);
       }
       pdfBlob = pdf.output('blob');
     } catch (error) {
@@ -11105,8 +11051,8 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
   const title = `Compte-Rendu — ${animal?.nom || 'Animal'}`;
 
-  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.4) ---
-  const cacheKey = `cr_pdf_${APP_VERSION}_r2_${session.id}`;
+  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.5) ---
+  const cacheKey = `cr_pdf_${APP_VERSION}_${session.id}`;
   const sessionUpdateTime = getSessionLastUpdateTime(session);
 
   if (!extraInfo.forceRegenerate) {
