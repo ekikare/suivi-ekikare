@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.7.2';
+} from './db.js?v=1.7.3';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.2';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.3';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -43,7 +43,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.7.2';
+export const APP_VERSION = 'v1.7.3';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -5130,7 +5130,8 @@ async function prepareSessionEditor(param) {
       handleKinesioTypeChange(type);
 
       document.getElementById('kinesio-reactives').value = protos.kinesiologie.emot_reactives || '';
-
+      document.getElementById('kinesio-reactrice').value = protos.kinesiologie.emot_reactrice || '';
+      document.getElementById('kinesio-liberee').value = protos.kinesiologie.emot_liberee || '';
       document.getElementById('kinesio-problematique').value = protos.kinesiologie.problematique || '';
       document.getElementById('kinesio-syntho').value = protos.kinesiologie.syntho || '';
       document.getElementById('kinesio-objectif').value = protos.kinesiologie.objectif || '';
@@ -6425,7 +6426,7 @@ function setupFormListeners() {
   }
 }
 
-function getCalculatedSummaryText() {
+function getCalculatedSummaryText(sessionData = null) {
   const parts = [];
   
   // 1. Shiatsu
@@ -6611,10 +6612,23 @@ function getCalculatedSummaryText() {
   }
 
   // 5. Kinésiologie
-  if (document.getElementById('proto-kinesiologie-enable').checked) {
-    const type = document.getElementById('proto-kinesiologie-type').value;
-    const prob = document.getElementById('kinesio-problematique').value.trim();
-    const goal = document.getElementById('kinesio-objectif').value.trim();
+  const isKinesioChecked = (typeof sessionData !== 'undefined' && sessionData?.protocols?.kinesiologie)
+    ? !!sessionData.protocols.kinesiologie.checked
+    : !!document.getElementById('proto-kinesiologie-enable')?.checked;
+
+  if (isKinesioChecked) {
+    const kData = (typeof sessionData !== 'undefined' && sessionData?.protocols?.kinesiologie) ? sessionData.protocols.kinesiologie : null;
+    const type = kData?.type || document.getElementById('proto-kinesiologie-type')?.value || 'Classique';
+    const prob = (kData?.problematique !== undefined ? kData.problematique : (document.getElementById('kinesio-problematique')?.value || '')).trim();
+    const goal = (kData?.objectif !== undefined ? kData.objectif : (document.getElementById('kinesio-objectif')?.value || '')).trim();
+    const ldt = (kData?.ldt !== undefined ? kData.ldt : (document.getElementById('kinesio-ldt')?.value || '')).trim();
+
+    const cenDEl = document.getElementById('kinesio-cen-debut');
+    const cenFEl = document.getElementById('kinesio-cen-fin');
+    const rawCenD = kData?.cen_debut !== undefined && kData?.cen_debut !== null ? kData.cen_debut : (cenDEl && cenDEl.value !== '' ? cenDEl.value : '100');
+    const rawCenF = kData?.cen_fin !== undefined && kData?.cen_fin !== null ? kData.cen_fin : (cenFEl && cenFEl.value !== '' ? cenFEl.value : '0');
+    const cenD = rawCenD !== '' ? rawCenD : '100';
+    const cenF = rawCenF !== '' ? rawCenF : '0';
 
     let text = `**Kinésiologie** (${type})`;
     const subParts = [];
@@ -6622,19 +6636,19 @@ function getCalculatedSummaryText() {
     if (prob) subParts.push(`<u>Problématique travaillée :</u>\n${prob}`);
 
     if (type === 'Émotions réactives') {
-      const reactives = document.getElementById('kinesio-reactives').value.trim();
-      const reactrice = document.getElementById('kinesio-reactrice').value.trim();
+      const reactives = (kData?.emot_reactives !== undefined ? kData.emot_reactives : (document.getElementById('kinesio-reactives')?.value || '')).trim();
+      const reactrice = (kData?.emot_reactrice !== undefined ? kData.emot_reactrice : (document.getElementById('kinesio-reactrice')?.value || '')).trim();
       if (reactives) subParts.push(`<u>Émotions réactives :</u>\n${reactives}`);
       if (reactrice) subParts.push(`<u>Émotions réactrices :</u>\n${reactrice}`);
     }
 
-    if (type === 'Émotion d’urgence' || type === 'Émotions d\'urgence') {
-      const liberee = document.getElementById('kinesio-liberee').value.trim();
+    if (type === 'Émotion d’urgence' || type === 'Émotions d\'urgence' || type === "Émotion d'urgence") {
+      const liberee = (kData?.emot_liberee !== undefined ? kData.emot_liberee : (document.getElementById('kinesio-liberee')?.value || '')).trim();
       if (liberee) subParts.push(`<u>Émotion d'urgence libérée :</u>\n${liberee}`);
     }
 
-    const syntho = document.getElementById('kinesio-syntho').value.trim();
-    if (type !== 'Émotions réactives' && type !== 'Émotion d’urgence' && type !== 'Émotions d\'urgence' && syntho) {
+    const syntho = (kData?.syntho !== undefined ? kData.syntho : (document.getElementById('kinesio-syntho')?.value || '')).trim();
+    if (type !== 'Émotions réactives' && type !== 'Émotion d’urgence' && type !== 'Émotions d\'urgence' && type !== "Émotion d'urgence" && syntho) {
       subParts.push(`<u>Syntonisation :</u>\n${syntho}`);
     }
 
@@ -6642,7 +6656,9 @@ function getCalculatedSummaryText() {
     if (ldt) subParts.push(`<u>Ligne de Temps (LDT) :</u>\n${ldt}`);
     subParts.push(`<u>CEN :</u>\nde ${cenD}% à ${cenF}%`);
 
-    text += `\n\n` + subParts.join(`\n\n`);
+    if (subParts.length > 0) {
+      text += `\n\n` + subParts.join(`\n\n`);
+    }
     parts.push(text);
   }
 
@@ -6863,17 +6879,17 @@ async function saveSessionForm() {
     },
     kinesiologie: {
       checked: kinesioChecked,
-      type: document.getElementById('proto-kinesiologie-type').value,
-      emot_reactives: document.getElementById('kinesio-reactives').value.trim(),
-      emot_reactrice: document.getElementById('kinesio-reactrice').value.trim(),
-      emot_liberee: document.getElementById('kinesio-liberee').value.trim(),
+      type: document.getElementById('proto-kinesiologie-type')?.value || 'Classique',
+      emot_reactives: document.getElementById('kinesio-reactives')?.value?.trim() || '',
+      emot_reactrice: document.getElementById('kinesio-reactrice')?.value?.trim() || '',
+      emot_liberee: document.getElementById('kinesio-liberee')?.value?.trim() || '',
       precisions: '',
-      problematique: document.getElementById('kinesio-problematique').value.trim(),
-      syntho: document.getElementById('kinesio-syntho').value.trim(),
-      objectif: document.getElementById('kinesio-objectif').value.trim(),
-      cen_debut: parseInt(document.getElementById('kinesio-cen-debut').value),
-      cen_fin: parseInt(document.getElementById('kinesio-cen-fin').value),
-      ldt: document.getElementById('kinesio-ldt').value.trim()
+      problematique: document.getElementById('kinesio-problematique')?.value?.trim() || '',
+      syntho: document.getElementById('kinesio-syntho')?.value?.trim() || '',
+      objectif: document.getElementById('kinesio-objectif')?.value?.trim() || '',
+      cen_debut: isNaN(parseInt(document.getElementById('kinesio-cen-debut')?.value)) ? 100 : parseInt(document.getElementById('kinesio-cen-debut').value),
+      cen_fin: isNaN(parseInt(document.getElementById('kinesio-cen-fin')?.value)) ? 0 : parseInt(document.getElementById('kinesio-cen-fin').value),
+      ldt: document.getElementById('kinesio-ldt')?.value?.trim() || ''
     },
     aura: {
       checked: auraChecked,
