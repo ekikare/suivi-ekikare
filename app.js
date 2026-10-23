@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.7.4';
+} from './db.js?v=1.7.6';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.4';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.6';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -43,10 +43,20 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.7.5';
+export const APP_VERSION = 'v1.7.6';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
+
+// Purge automatique des caches PDF lors d'un changement de version
+try {
+  const storedVersion = localStorage.getItem('ekikare_version');
+  if (storedVersion !== APP_VERSION) {
+    console.log(`[Version] Nouvelle version détectée (${APP_VERSION}), purge des caches obsolètes...`);
+    clearAllPdfCache().catch(e => console.warn('[Version] Erreur purge pdf cache:', e));
+    localStorage.setItem('ekikare_version', APP_VERSION);
+  }
+} catch (_) {}
 
 // Mise à jour dynamique de la version affichée dans le menu latéral / pied de page
 function syncAppVersionDisplay() {
@@ -7872,12 +7882,12 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     const oldSandbox = document.getElementById('pdf-isolation-sandbox');
     if (oldSandbox) oldSandbox.remove();
 
-    // 2. Création et insertion dans le DOM réel
+    // 2. Création et insertion dans le DOM réel avec styles explicites
     const sandbox = document.createElement('div');
     sandbox.id = 'pdf-isolation-sandbox';
     sandbox.className = 'print-container official-a4-sheet cr-document';
     sandbox.style.cssText = [
-      'position: fixed !important',
+      'position: absolute !important',
       'left: 0 !important',
       'top: 0 !important',
       'width: 794px !important',
@@ -7887,11 +7897,14 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       'padding: 0 !important',
       'box-sizing: border-box !important',
       'height: auto !important',
-      'min-height: 0 !important',
+      'min-height: 200px !important',
       'display: block !important',
+      'visibility: visible !important',
+      'opacity: 1 !important',
       'overflow: visible !important',
       'background: #ffffff !important',
       'color: #1f2937 !important',
+      'z-index: 99999 !important',
       'transform: none !important'
     ].join('; ') + ';';
     sandbox.innerHTML = (typeof htmlContent === 'string') ? htmlContent : (htmlContent?.innerHTML || '');
@@ -8008,9 +8021,6 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
 
     const sandboxToPrint = document.getElementById('pdf-isolation-sandbox') || sandbox;
 
-    // Diagnostic console
-    console.warn("Vérification mentions dans le DOM :", sandbox.querySelector('.cr-legal-notice'));
-
     const hasSchema = canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none';
     if (!hasSchema && canvasSectionInSandbox) {
       canvasSectionInSandbox.remove();
@@ -8026,10 +8036,6 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
         useCORS: true,
         logging: false,
         letterRendering: true,
-        x: 0,
-        y: 0,
-        scrollX: 0,
-        scrollY: 0,
         width: 794,
         windowWidth: 794
       },
@@ -8040,22 +8046,27 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       }
     };
 
-    // 5. Génération naturelle multi-pages sans bridage artificiel
+    // 5. Génération naturelle multi-pages via le worker complet html2pdf
     let pdfBlob = null;
     try {
-      const worker = html2pdf().set(opt).from(sandboxToPrint);
-      const pdf = await worker.toPdf().get('pdf');
-      if (pdf && pdf.internal && typeof pdf.internal.getNumberOfPages === 'function') {
-        console.warn(`[html2pdf] Pages créées naturellement: ${pdf.internal.getNumberOfPages()}`);
+      console.log(`[generatePdfBlobFromHtml] Compilation html2pdf... (dimensions DOM: ${sandboxToPrint.offsetWidth}x${sandboxToPrint.offsetHeight}px)`);
+      pdfBlob = await html2pdf().set(opt).from(sandboxToPrint).output('blob');
+      console.log(`[generatePdfBlobFromHtml] Compilation terminée. Taille Blob: ${(pdfBlob?.size / 1024).toFixed(1)} Ko`);
+
+      if (!pdfBlob || pdfBlob.size <= 5000) {
+        console.warn(`[generatePdfBlobFromHtml] Taille suspecte (${pdfBlob?.size} octets), repli sur outputPdf('blob')...`);
+        pdfBlob = await html2pdf().set(opt).from(sandboxToPrint).outputPdf('blob');
+        console.log(`[generatePdfBlobFromHtml] Résultat repli: ${(pdfBlob?.size / 1024).toFixed(1)} Ko`);
       }
-      pdfBlob = pdf.output('blob');
     } catch (error) {
       console.error("ERREUR DÉTECTÉE DANS HTML2PDF :", error);
       throw error;
+    } finally {
+      // 6. Nettoyage sécurisé APRÈS résolution de la promesse
+      if (sandboxToPrint && sandboxToPrint.parentNode) {
+        sandboxToPrint.remove();
+      }
     }
-
-    // 6. Nettoyage
-    sandboxToPrint.remove();
 
     return pdfBlob;
   } finally {
@@ -11051,16 +11062,31 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
   const title = `Compte-Rendu — ${animal?.nom || 'Animal'}`;
 
-  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.5) ---
+  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.6) ---
   const cacheKey = `cr_pdf_${APP_VERSION}_${session.id}`;
   const sessionUpdateTime = getSessionLastUpdateTime(session);
 
   if (!extraInfo.forceRegenerate) {
     try {
+      // Purge proactive des caches antérieurs ou corrompus pour cette séance
+      const legacyKeys = [
+        `cr_pdf_${session.id}`,
+        `cr_pdf_v1.7.4_${session.id}`,
+        `cr_pdf_v1.7.4_r2_${session.id}`,
+        `cr_pdf_v1.7.5_${session.id}`
+      ];
+      for (const lk of legacyKeys) {
+        try { await deletePdfCache(lk); } catch (_) {}
+      }
+
       const cached = await getPdfCache(cacheKey);
-      const isCacheValid = cached && (cached.blob instanceof Blob) && (!sessionUpdateTime || (cached.updatedAt && cached.updatedAt >= sessionUpdateTime));
+      const isCacheValid = cached && 
+        (cached.blob instanceof Blob) && 
+        (cached.blob.size > 5000) && // Sécurité absolue : ignorer les PDF vides de moins de 5 Ko
+        (!sessionUpdateTime || (cached.updatedAt && cached.updatedAt >= sessionUpdateTime));
+
       if (isCacheValid) {
-        console.log(`[pdf_cache] Cache HIT pour la séance #${session.id}`);
+        console.log(`[pdf_cache] Cache HIT valide pour la séance #${session.id} (${(cached.blob.size / 1024).toFixed(1)} Ko)`);
         return await openUniversalDocument(
           cached.blob,
           filename,
@@ -11071,6 +11097,9 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
             onRegenerate: () => openPortalSessionModal(session, animal, { ...extraInfo, forceRegenerate: true })
           }
         );
+      } else if (cached && cached.blob && cached.blob.size <= 5000) {
+        console.warn(`[pdf_cache] Cache corrompu supprimé (${cached.blob.size} octets) pour ${cacheKey}`);
+        await deletePdfCache(cacheKey);
       }
     } catch (errCache) {
       console.warn("[pdf_cache] Erreur lecture cache:", errCache);
@@ -11237,11 +11266,15 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   await openUniversalDocument(
     async () => {
       const generatedBlob = await generatePdfBlobFromHtml(sheetElement.innerHTML, filename);
-      try {
-        await setPdfCache(cacheKey, generatedBlob, sessionUpdateTime || Date.now());
-        console.log(`[pdf_cache] Séance #${session.id} mise en cache (${(generatedBlob.size / 1024).toFixed(1)} Ko)`);
-      } catch (errSet) {
-        console.warn("[pdf_cache] Erreur sauvegarde cache:", errSet);
+      if (generatedBlob && generatedBlob.size > 5000) {
+        try {
+          await setPdfCache(cacheKey, generatedBlob, sessionUpdateTime || Date.now());
+          console.log(`[pdf_cache] Séance #${session.id} mise en cache (${(generatedBlob.size / 1024).toFixed(1)} Ko)`);
+        } catch (errSet) {
+          console.warn("[pdf_cache] Erreur sauvegarde cache:", errSet);
+        }
+      } else {
+        console.warn(`[pdf_cache] Séance #${session.id} : Blob anormalement petit (${generatedBlob?.size} octets), non mis en cache.`);
       }
       if (extraInfo.forceRegenerate) {
         showToast("Compte-rendu PDF régénéré avec succès.");
