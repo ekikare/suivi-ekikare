@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.7.3';
+} from './db.js?v=1.7.4';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.3';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.4';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -43,7 +43,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.7.3';
+export const APP_VERSION = 'v1.7.4';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -5123,7 +5123,11 @@ async function prepareSessionEditor(param) {
     // 5. Kinésiologie
     if (protos.kinesiologie && protos.kinesiologie.checked) {
       document.getElementById('proto-kinesiologie-enable').checked = true;
-      document.getElementById('protocol-kinesiologie-acc').querySelector('.protocol-body').style.display = 'block';
+      const kinesioAcc = document.getElementById('protocol-kinesio-acc') || document.getElementById('protocol-kinesiologie-acc');
+      if (kinesioAcc) {
+        const body = kinesioAcc.querySelector('.protocol-body');
+        if (body) body.style.display = 'block';
+      }
       
       const type = protos.kinesiologie.type || 'Classique';
       document.getElementById('proto-kinesiologie-type').value = type;
@@ -5143,7 +5147,11 @@ async function prepareSessionEditor(param) {
     // 6. Aura
     if (protos.aura && protos.aura.checked) {
       document.getElementById('proto-aura-enable').checked = true;
-      document.getElementById('protocol-aura-acc').querySelector('.protocol-body').style.display = 'block';
+      const auraAcc = document.getElementById('protocol-aura-acc');
+      if (auraAcc) {
+        const body = auraAcc.querySelector('.protocol-body');
+        if (body) body.style.display = 'block';
+      }
       
       document.getElementById('aura-recentrage').checked = !!protos.aura.recentrage;
       document.getElementById('aura-liens').checked = !!protos.aura.liens;
@@ -5907,6 +5915,104 @@ function isCanvasBlank(canvas) {
     return false;
   }
   return true;
+}
+
+// Détecte si un tracé (Data URL ou objet vectoriel) est vide / vierge
+async function isDrawingDataBlank(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.trim()) return true;
+
+  const trimmed = dataUrl.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const strokes = Array.isArray(parsed) ? parsed : (parsed.strokes || parsed.lines || parsed.objects || parsed.paths || []);
+      if (!Array.isArray(strokes) || strokes.length === 0) return true;
+      return false;
+    } catch (_) {}
+  }
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth || 600;
+        c.height = img.naturalHeight || 400;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+        resolve(isCanvasBlank(c));
+      } catch (e) {
+        resolve(false);
+      }
+    };
+    img.onerror = () => resolve(true);
+    img.src = dataUrl;
+  });
+}
+
+// Vérifie si une séance contient réellement des annotations / tracés dessinés
+async function sessionHasActualAnnotations(session) {
+  if (!session) return false;
+
+  // 1. Source de vérité directe : le tracé transparent de la séance
+  if (session.canvas_drawing_data_url) {
+    const isBlank = await isDrawingDataBlank(session.canvas_drawing_data_url);
+    if (!isBlank) return true;
+    return false;
+  }
+
+  // 2. Si pas de canvas_drawing_data_url, examiner l'image fusionnée ou dessin historique
+  const merged = session.canvas_annotation_image_blob ||
+                 session.anatomical_drawing ||
+                 session.anatomicalDrawing ||
+                 session.drawing ||
+                 session.schema ||
+                 session.annotations;
+
+  if (!merged || typeof merged !== 'string' || !merged.trim()) {
+    return false;
+  }
+
+  const trimmed = merged.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const strokes = Array.isArray(parsed) ? parsed : (parsed.strokes || parsed.lines || parsed.objects || []);
+      return Array.isArray(strokes) && strokes.length > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth || 600;
+        c.height = img.naturalHeight || 400;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+        const imgData = ctx.getImageData(0, 0, c.width, c.height);
+        const data = imgData.data;
+        // Recherche de pixels colorés (tracés de la praticienne : rouge, vert, bleu, jaune, etc.)
+        for (let i = 0; i < data.length; i += 16) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const a = data[i + 3];
+          if (a > 50 && (Math.abs(r - g) > 20 || Math.abs(r - b) > 20 || Math.abs(g - b) > 20)) {
+            return resolve(true);
+          }
+        }
+        resolve(false);
+      } catch (err) {
+        resolve(false);
+      }
+    };
+    img.onerror = () => resolve(false);
+    img.src = merged;
+  });
 }
 
 function renderDrawingDataToCanvas(ctx, data, width, height) {
@@ -6926,8 +7032,9 @@ async function saveSessionForm() {
   };
 
   // Canvas dessin : exporter le tracé transparent & le tracé fusionné
-  let drawingDataUrl = canvasElement ? canvasElement.toDataURL('image/png') : '';
-  let mergedDataUrl = await generateMergedCanvasDataUrl();
+  const isCurrentBlank = isCanvasBlank(canvasElement);
+  let drawingDataUrl = (!isCurrentBlank && canvasElement) ? canvasElement.toDataURL('image/png') : '';
+  let mergedDataUrl = !isCurrentBlank ? await generateMergedCanvasDataUrl() : '';
 
   // Sécurité anti-écrasement lors de l'édition d'une séance existante (v1.7.2) :
   // Si le canvas n'a pas été retouché ou s'il est vide sans intention explicite d'effacement,
@@ -7756,10 +7863,10 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       'max-width: 794px !important',
       'min-width: 794px !important',
       'margin: 0 !important',
-      'padding: 20mm !important',
+      'padding: 15mm !important',
       'box-sizing: border-box !important',
       'height: auto !important',
-      'min-height: 1123px !important',
+      'min-height: 0 !important',
       'display: block !important',
       'overflow: visible !important',
       'background: #ffffff !important',
@@ -7797,14 +7904,15 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       h.style.setProperty('width', '100%', 'important');
     });
 
-    // Espacement du Schéma d'annotations en page 2 (padding-top: 15mm pour respirer sous le bord supérieur)
+    // Espacement du Schéma d'annotations (sauts de page souples évitant les pages blanches inutiles)
     const schemaBlocs = sandbox.querySelectorAll('.schema-bloc, #portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique');
     schemaBlocs.forEach(bloc => {
-      bloc.style.setProperty('padding-top', '15mm', 'important');
-      bloc.style.setProperty('page-break-before', 'always', 'important');
-      bloc.style.setProperty('break-before', 'page', 'important');
+      bloc.style.setProperty('page-break-before', 'auto', 'important');
+      bloc.style.setProperty('break-before', 'auto', 'important');
       bloc.style.setProperty('page-break-inside', 'avoid', 'important');
       bloc.style.setProperty('break-inside', 'avoid', 'important');
+      bloc.style.setProperty('margin-top', '15px', 'important');
+      bloc.style.setProperty('padding-top', '5px', 'important');
       bloc.style.setProperty('height', 'auto', 'important');
       bloc.style.setProperty('max-height', 'none', 'important');
       bloc.style.setProperty('overflow', 'visible', 'important');
@@ -7818,6 +7926,36 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
       el.style.setProperty('break-inside', 'avoid', 'important');
     });
 
+    // Gestion adaptative des textes longs pour un calage optimal de la page 1 (évite le débordement prématuré)
+    const resumeEl = sandbox.querySelector('#portal-cr-session-resume-content');
+    const resumeText = resumeEl ? resumeEl.textContent.trim() : '';
+    const isLongText = (resumeText.length > 350) || (resumeEl && resumeEl.scrollHeight > 280);
+
+    if (isLongText) {
+      sandbox.querySelectorAll('.print-section').forEach(sec => {
+        sec.style.setProperty('margin-bottom', '10px', 'important');
+      });
+      sandbox.querySelectorAll('.divider, hr').forEach(hr => {
+        hr.style.setProperty('margin', '6px 0', 'important');
+      });
+      sandbox.querySelectorAll('.print-section-title').forEach(t => {
+        t.style.setProperty('margin', '4px 0 3px 0', 'important');
+        t.style.setProperty('font-size', '0.80rem', 'important');
+      });
+      sandbox.querySelectorAll('.print-text-block').forEach(b => {
+        b.style.setProperty('font-size', '8pt', 'important');
+        b.style.setProperty('line-height', '1.30', 'important');
+        b.style.setProperty('padding', '6px 8px', 'important');
+      });
+      sandbox.querySelectorAll('.print-grid-2').forEach(g => {
+        g.style.setProperty('margin-bottom', '8px', 'important');
+        g.style.setProperty('gap', '14px', 'important');
+      });
+      sandbox.querySelectorAll('.print-header').forEach(h => {
+        h.style.setProperty('margin-bottom', '8px', 'important');
+      });
+    }
+
     // Bas de page : Mentions légales insérées en dernier, sous les précisions / documents joints ou le schéma
     const canvasSectionInSandbox = sandbox.querySelector('#portal-cr-section-canvas, .schema-bloc');
     const precisionsSectionInSandbox = sandbox.querySelector('#portal-cr-section-precisions, #print-section-precisions');
@@ -7830,7 +7968,7 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     // Ne pas injecter de mentions légales supplémentaires sur le dossier de suivi (il possède déjà son propre pied de page officiel complet)
     if (!isAnimalDossier) {
       const legalNoticeHtml = `
-        <div class="cr-legal-notice" style="margin-top: 30px; padding-top: 10px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
+        <div class="cr-legal-notice" style="margin-top: ${isLongText ? '15px' : '25px'}; padding-top: 8px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
           Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.
         </div>
       `;
@@ -7884,18 +8022,44 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     console.warn("Vérification mentions dans le DOM :", sandbox.querySelector('.cr-legal-notice'));
 
     const hasSchema = canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none';
+    if (!hasSchema && canvasSectionInSandbox) {
+      canvasSectionInSandbox.remove();
+    }
     const pageUnitHeight = Math.floor(794 * (297 / 210)); // 1122px (hauteur exacte d'une page A4 pour html2pdf à 794px de large)
     let contentHeight;
     let neededPages = 1;
+
+    // Mesure précise de l'encombrement vertical réel du contenu visible
+    const sandboxRect = sandboxToPrint.getBoundingClientRect();
+    let maxContentBottom = 0;
+    sandboxToPrint.querySelectorAll('*').forEach(el => {
+      if (el.offsetWidth > 0 || el.offsetHeight > 0 || (el.getClientRects && el.getClientRects().length > 0)) {
+        const st = window.getComputedStyle(el);
+        if (st.display !== 'none' && st.visibility !== 'hidden' && st.opacity !== '0') {
+          const r = el.getBoundingClientRect();
+          const b = r.bottom - sandboxRect.top;
+          if (b > maxContentBottom) {
+            maxContentBottom = b;
+          }
+        }
+      }
+    });
+
+    const naturalHeight = Math.ceil(Math.max(maxContentBottom, sandboxToPrint.scrollHeight || 0));
+
     if (hasSchema) {
-      contentHeight = pageUnitHeight * 2; // Exactement 2244px pour 2 pages A4 complètes, évitant tout débordement sur une 3ème page
+      neededPages = Math.max(2, Math.ceil(naturalHeight / pageUnitHeight));
+      contentHeight = neededPages * pageUnitHeight;
     } else if (isAnimalDossier) {
-      const naturalHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || pageUnitHeight);
       neededPages = Math.max(2, Math.ceil(naturalHeight / pageUnitHeight));
       contentHeight = neededPages * pageUnitHeight;
     } else {
-      const naturalHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || pageUnitHeight);
-      neededPages = Math.max(1, Math.ceil(naturalHeight / pageUnitHeight));
+      // Compte-rendu sans schéma : si le contenu visible loge dans une page A4 (1122px)
+      if (maxContentBottom <= pageUnitHeight || naturalHeight <= (pageUnitHeight + 15)) {
+        neededPages = 1;
+      } else {
+        neededPages = Math.max(1, Math.ceil(maxContentBottom / pageUnitHeight));
+      }
       contentHeight = neededPages * pageUnitHeight;
     }
 
@@ -7926,20 +8090,19 @@ async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
     // 5. Génération et extraction du Blob avec suppression garantie de page blanche terminale
     let pdfBlob = null;
     try {
-      const maxAllowedPages = hasSchema ? 2 : (isAnimalDossier ? 2 : neededPages);
-      const worker = html2pdf()
-        .set(opt)
-        .from(sandboxToPrint)
-        .toPdf()
-        .get('pdf')
-        .then((pdf) => {
-          if (pdf && pdf.internal && typeof pdf.internal.getNumberOfPages === 'function') {
-            while (pdf.internal.getNumberOfPages() > maxAllowedPages && typeof pdf.deletePage === 'function') {
-              pdf.deletePage(pdf.internal.getNumberOfPages());
-            }
-          }
-        });
-      pdfBlob = await worker.output('blob');
+      const maxAllowedPages = neededPages;
+      const worker = html2pdf().set(opt).from(sandboxToPrint);
+      const pdf = await worker.toPdf().get('pdf');
+      if (pdf && pdf.internal && typeof pdf.internal.getNumberOfPages === 'function') {
+        const totalP = pdf.internal.getNumberOfPages();
+        console.warn(`[html2pdf] Pages créées: ${totalP}, maxAllowed: ${maxAllowedPages}`);
+        while (pdf.internal.getNumberOfPages() > maxAllowedPages && typeof pdf.deletePage === 'function') {
+          console.warn(`[html2pdf] Suppression page excédentaire #${pdf.internal.getNumberOfPages()}`);
+          pdf.deletePage(pdf.internal.getNumberOfPages());
+        }
+        console.warn(`[html2pdf] Pages finales après trim: ${pdf.internal.getNumberOfPages()}`);
+      }
+      pdfBlob = pdf.output('blob');
     } catch (error) {
       console.error("ERREUR DÉTECTÉE DANS HTML2PDF :", error);
       throw error;
@@ -10942,8 +11105,8 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
   const title = `Compte-Rendu — ${animal?.nom || 'Animal'}`;
 
-  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.1) ---
-  const cacheKey = `cr_pdf_${session.id}`;
+  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.4) ---
+  const cacheKey = `cr_pdf_${APP_VERSION}_r2_${session.id}`;
   const sessionUpdateTime = getSessionLastUpdateTime(session);
 
   if (!extraInfo.forceRegenerate) {
@@ -11055,12 +11218,15 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   // 6. Schéma d'annotations
   const canvasSection = document.getElementById('portal-cr-section-canvas');
   const canvasImg = document.getElementById('portal-cr-session-canvas-img');
+  const hasDrawing = await sessionHasActualAnnotations(session);
   if (canvasSection && canvasImg) {
-    if (session.canvas_annotation_image_blob) {
+    if (hasDrawing && session.canvas_annotation_image_blob) {
       canvasImg.src = session.canvas_annotation_image_blob;
       canvasImg.setAttribute('src', session.canvas_annotation_image_blob);
       canvasSection.style.setProperty('display', 'block', 'important');
     } else {
+      canvasImg.src = '';
+      canvasImg.removeAttribute('src');
       canvasSection.style.setProperty('display', 'none', 'important');
     }
   }

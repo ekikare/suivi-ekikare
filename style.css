@@ -2696,7 +2696,7 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
   max-width: 794px !important;
   min-width: 794px !important;
   height: auto !important;
-  min-height: 1123px !important;
+  min-height: 0 !important;
   display: block !important;
   overflow: visible !important;
   background: #ffffff !important;
@@ -2812,17 +2812,17 @@ body:not(.is-printing) #view-sessions-details #session-print-area {
 .planche-anatomique,
 #portal-cr-section-canvas,
 #print-section-canvas {
-  page-break-before: always !important;
-  break-before: page !important;
+  page-break-before: auto !important;
+  break-before: auto !important;
   page-break-inside: avoid !important;
   break-inside: avoid !important;
-  padding-top: 15mm !important;
-  display: block !important;
+  margin-top: 15px !important;
+  padding-top: 5px !important;
 }
 
 .legal-notice,
 .cr-legal-notice {
-  margin-top: 30px !important;
+  margin-top: 20px !important;
   font-size: 7.5pt !important;
   line-height: 1.35 !important;
   color: #4b5563 !important;
