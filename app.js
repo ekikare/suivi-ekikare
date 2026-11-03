@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.7.8';
+} from './db.js?v=1.7.9';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.8';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.7.9';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -43,7 +43,7 @@ if (typeof window !== 'undefined' && initialClient) {
 }
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.7.8';
+export const APP_VERSION = 'v1.7.9';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
 }
@@ -10943,7 +10943,7 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
   const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
   const title = `Compte-Rendu — ${animal?.nom || 'Animal'}`;
 
-  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.8) ---
+  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.7.9) ---
   const cacheKey = `cr_pdf_${APP_VERSION}_${session.id}`;
   const sessionUpdateTime = getSessionLastUpdateTime(session);
 
@@ -10956,7 +10956,8 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
         `cr_pdf_v1.7.4_r2_${session.id}`,
         `cr_pdf_v1.7.5_${session.id}`,
         `cr_pdf_v1.7.6_${session.id}`,
-        `cr_pdf_v1.7.7_${session.id}`
+        `cr_pdf_v1.7.7_${session.id}`,
+        `cr_pdf_v1.7.8_${session.id}`
       ];
       for (const lk of legacyKeys) {
         try { await deletePdfCache(lk); } catch (_) {}

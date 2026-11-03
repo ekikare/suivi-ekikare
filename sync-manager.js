@@ -15,13 +15,14 @@ import {
   getAll,
   getById,
   updateLocal,
+  removeLocal,
   getTrackedDeletions,
   clearTrackedDeletion,
   mapLocalToSupabase,
   mapSupabaseToLocal,
   reconcileClientUUIDsFromSupabase,
   registerDatabaseChangeCallback
-} from './db.js?v=1.6.62';
+} from './db.js?v=1.7.9';
 
 /**
  * Récupère le client Supabase actif (via window.supabaseClient ou getSupabaseClient)
@@ -172,6 +173,147 @@ export function buildScalarPatch(storeName, record) {
   return patch;
 }
 
+/**
+ * Cascade la mise à jour d'un client_id suite à confirmation ou réattribution d'ID par Supabase.
+ */
+async function cascadeClientIdUpdate(oldClientId, newClientId) {
+  if (oldClientId === newClientId || !oldClientId || !newClientId) return;
+  const oldIdStr = String(oldClientId);
+  const newIdNum = Number(newClientId);
+
+  // 1. Mettre à jour les animaux correspondants dans IndexedDB
+  try {
+    const localAnimals = await getAll('animals');
+    for (const animal of localAnimals) {
+      if (String(animal.client_id) === oldIdStr) {
+        animal.client_id = newIdNum;
+        await updateLocal('animals', animal);
+      }
+    }
+  } catch (err) {
+    console.warn(`[SyncManager] Erreur cascade animals pour client ${oldClientId}->${newClientId}:`, err);
+  }
+
+  // 2. Mettre à jour les séances correspondantes dans IndexedDB
+  try {
+    const localSessions = await getAll('sessions');
+    for (const session of localSessions) {
+      if (String(session.client_id) === oldIdStr) {
+        session.client_id = newIdNum;
+        await updateLocal('sessions', session);
+      }
+    }
+  } catch (err) {
+    console.warn(`[SyncManager] Erreur cascade sessions pour client ${oldClientId}->${newClientId}:`, err);
+  }
+
+  // 3. Mettre à jour les rappels correspondants dans IndexedDB
+  try {
+    const localReminders = await getAll('reminders');
+    for (const rem of localReminders) {
+      let changed = false;
+      if (String(rem.client_id) === oldIdStr) {
+        rem.client_id = newIdNum;
+        changed = true;
+      }
+      if (String(rem.related_client_id) === oldIdStr) {
+        rem.related_client_id = newIdNum;
+        changed = true;
+      }
+      if (changed) {
+        await updateLocal('reminders', rem);
+      }
+    }
+  } catch (err) {
+    console.warn(`[SyncManager] Erreur cascade reminders pour client ${oldClientId}->${newClientId}:`, err);
+  }
+}
+
+/**
+ * Cascade la mise à jour d'un animal_id suite à confirmation ou réattribution d'ID par Supabase.
+ */
+async function cascadeAnimalIdUpdate(oldAnimalId, newAnimalId) {
+  if (oldAnimalId === newAnimalId || !oldAnimalId || !newAnimalId) return;
+  const oldIdStr = String(oldAnimalId);
+  const newIdNum = Number(newAnimalId);
+
+  // 1. Mettre à jour les séances correspondantes dans IndexedDB
+  try {
+    const localSessions = await getAll('sessions');
+    for (const session of localSessions) {
+      if (String(session.animal_id) === oldIdStr) {
+        session.animal_id = newIdNum;
+        await updateLocal('sessions', session);
+      }
+    }
+  } catch (err) {
+    console.warn(`[SyncManager] Erreur cascade sessions pour animal ${oldAnimalId}->${newAnimalId}:`, err);
+  }
+
+  // 2. Mettre à jour les rappels correspondants dans IndexedDB
+  try {
+    const localReminders = await getAll('reminders');
+    for (const rem of localReminders) {
+      let changed = false;
+      if (String(rem.animal_id) === oldIdStr) {
+        rem.animal_id = newIdNum;
+        changed = true;
+      }
+      if (String(rem.related_animal_id) === oldIdStr) {
+        rem.related_animal_id = newIdNum;
+        changed = true;
+      }
+      if (changed) {
+        await updateLocal('reminders', rem);
+      }
+    }
+  } catch (err) {
+    console.warn(`[SyncManager] Erreur cascade reminders pour animal ${oldAnimalId}->${newAnimalId}:`, err);
+  }
+}
+
+/**
+ * Cascade la mise à jour d'un session_id suite à confirmation ou réattribution d'ID par Supabase.
+ */
+async function cascadeSessionIdUpdate(oldSessionId, newSessionId) {
+  if (oldSessionId === newSessionId || !oldSessionId || !newSessionId) return;
+  const oldIdStr = String(oldSessionId);
+  const newIdNum = Number(newSessionId);
+
+  try {
+    const localReminders = await getAll('reminders');
+    for (const rem of localReminders) {
+      if (String(rem.session_id) === oldIdStr) {
+        rem.session_id = newIdNum;
+        await updateLocal('reminders', rem);
+      }
+    }
+  } catch (err) {
+    console.warn(`[SyncManager] Erreur cascade reminders pour session ${oldSessionId}->${newSessionId}:`, err);
+  }
+}
+
+/**
+ * Cascade la mise à jour d'un professional_id suite à confirmation ou réattribution d'ID par Supabase.
+ */
+async function cascadeProfessionalIdUpdate(oldProfId, newProfId) {
+  if (oldProfId === newProfId || !oldProfId || !newProfId) return;
+  const oldIdStr = String(oldProfId);
+  const newIdNum = Number(newProfId);
+
+  try {
+    const localAnimals = await getAll('animals');
+    for (const animal of localAnimals) {
+      if (Array.isArray(animal.pros_associes_ids) && animal.pros_associes_ids.some(id => String(id) === oldIdStr)) {
+        animal.pros_associes_ids = animal.pros_associes_ids.map(id => String(id) === oldIdStr ? newIdNum : id);
+        await updateLocal('animals', animal);
+      }
+    }
+  } catch (err) {
+    console.warn(`[SyncManager] Erreur cascade animals pour pro ${oldProfId}->${newProfId}:`, err);
+  }
+}
+
 export const SyncManager = {
   /**
    * Récupère le timestamp de la dernière synchronisation réussie
@@ -193,11 +335,16 @@ export const SyncManager = {
 
   /**
    * Pousse vers Supabase les éléments créés ou modifiés localement en mode hors-ligne.
-   * Règle d'or : Les mises à jour distantes se font exclusivement en PATCH partiel scalaire.
+   * Règle d'or :
+   * - Mises à jour en PATCH partiel scalaire.
+   * - Insertions explicites sécurisées pour les nouveaux éléments créés hors-ligne.
+   * - Cascade immédiate des IDs confirmés par Supabase vers les tables enfants pour éviter l'erreur FK 23503.
+   * @returns {Promise<boolean>} true si au moins une modification locale a été opérée (cascade/réconciliation)
    */
   async pushPending() {
     const supabase = getActiveSupabaseClient();
-    if (!supabase) return;
+    if (!supabase) return false;
+    let anyChanges = false;
 
     // 1. Pousser les suppressions en attente
     try {
@@ -208,6 +355,7 @@ export const SyncManager = {
           const { error } = await supabase.from(table).delete().eq('id', String(del.recordId));
           if (!error) {
             await clearTrackedDeletion(del.id);
+            anyChanges = true;
           } else {
             console.warn(`[SyncManager] Erreur suppression distante (${table}):`, error.message || error);
           }
@@ -219,61 +367,541 @@ export const SyncManager = {
       console.warn('[SyncManager] Erreur lecture suppressions tracées:', err);
     }
 
-    // 2. Pousser les modifications locales non synchronisées (synced === 0)
-    for (const storeName of SYNCED_STORES) {
-      const table = getTableName(storeName);
-      try {
-        const localRecords = await getAll(storeName);
-        const unsynced = localRecords.filter(r => r.synced === 0);
+    // 2. Pousser les clients en attente de synchronisation
+    try {
+      const localClients = await getAll('clients');
+      const unsyncedClients = localClients.filter(c => c.synced === 0);
 
-        for (const record of unsynced) {
-          try {
-            const isSettings = storeName === 'settings';
-            const keyCol = isSettings ? 'key' : 'id';
-            const keyValue = isSettings ? String(record.key) : String(record.id);
+      for (const client of unsyncedClients) {
+        try {
+          const oldLocalId = Number(client.id);
 
-            // Vérifier si l'enregistrement existe déjà côté Supabase
-            const { data: remoteExisting } = await supabase
-              .from(table)
-              .select(keyCol)
-              .eq(keyCol, keyValue)
+          // A. Vérifier si le client existe déjà côté Supabase (par uuid en priorité, sinon par id)
+          let remoteExisting = null;
+          if (client.uuid) {
+            const { data: byUuid } = await supabase
+              .from('clients')
+              .select('id, uuid')
+              .eq('uuid', client.uuid)
+              .maybeSingle();
+            if (byUuid) remoteExisting = byUuid;
+          }
+
+          if (!remoteExisting && client.id && !isNaN(Number(client.id))) {
+            const { data: byId } = await supabase
+              .from('clients')
+              .select('id, uuid')
+              .eq('id', String(client.id))
+              .maybeSingle();
+            if (byId && (!byId.uuid || byId.uuid === client.uuid)) {
+              remoteExisting = byId;
+            }
+          }
+
+          if (remoteExisting) {
+            // ENREGISTREMENT EXISTANT : PATCH partiel strict
+            const remoteId = Number(remoteExisting.id);
+            const patchPayload = buildScalarPatch('clients', client);
+            if (!patchPayload.uuid && remoteExisting.uuid) {
+              patchPayload.uuid = remoteExisting.uuid;
+            }
+            const { error: updateErr } = await supabase
+              .from('clients')
+              .update(patchPayload)
+              .eq('id', String(remoteId));
+
+            if (!updateErr) {
+              client.synced = 1;
+              if (remoteId !== oldLocalId) {
+                console.log(`[SyncManager] Réconciliation client : ID local ${oldLocalId} -> ID distant ${remoteId}`);
+                await removeLocal('clients', oldLocalId);
+                client.id = remoteId;
+                await updateLocal('clients', client);
+                await cascadeClientIdUpdate(oldLocalId, remoteId);
+                anyChanges = true;
+              } else {
+                await updateLocal('clients', client);
+              }
+            } else {
+              console.warn(`[SyncManager] Erreur update client #${client.id}:`, updateErr.message || updateErr);
+            }
+          } else {
+            // NOUVEAU CLIENT CRÉÉ HORS-LIGNE : Insertion explicite
+            const insertPayload = mapLocalToSupabase('clients', client);
+            let insertRes = await supabase
+              .from('clients')
+              .insert(insertPayload)
+              .select('id, uuid')
+              .single();
+
+            // Si échec avec l'ID local (conflit de clé primaire ou auto-increment identity), retenter sans le champ 'id'
+            if (insertRes.error) {
+              console.warn(`[SyncManager] Tentative insertion client id=${client.id} rejetée (${insertRes.error.message}), insertion avec ID auto-généré...`);
+              const payloadNoId = { ...insertPayload };
+              delete payloadNoId.id;
+              insertRes = await supabase
+                .from('clients')
+                .insert(payloadNoId)
+                .select('id, uuid')
+                .single();
+            }
+
+            if (!insertRes.error && insertRes.data) {
+              const remoteId = Number(insertRes.data.id);
+              client.synced = 1;
+              if (insertRes.data.uuid && !client.uuid) {
+                client.uuid = insertRes.data.uuid;
+              }
+              if (remoteId !== oldLocalId) {
+                console.log(`[SyncManager] Nouveau client confirmé sur Supabase : ID local ${oldLocalId} -> ID Supabase ${remoteId}`);
+                await removeLocal('clients', oldLocalId);
+                client.id = remoteId;
+                await updateLocal('clients', client);
+                await cascadeClientIdUpdate(oldLocalId, remoteId);
+                anyChanges = true;
+              } else {
+                await updateLocal('clients', client);
+              }
+            } else if (insertRes.error) {
+              console.warn(`[SyncManager] Erreur insertion nouveau client (${client.id}):`, insertRes.error.message || insertRes.error);
+            }
+          }
+        } catch (clientErr) {
+          console.warn(`[SyncManager] Exception push client (${client.id}):`, clientErr);
+        }
+      }
+    } catch (errClients) {
+      console.warn('[SyncManager] Erreur store clients:', errClients);
+    }
+
+    // 3. Pousser les professionnels en attente
+    try {
+      const localProfs = await getAll('professionals');
+      const unsyncedProfs = localProfs.filter(p => p.synced === 0);
+
+      for (const prof of unsyncedProfs) {
+        try {
+          const oldLocalId = Number(prof.id);
+          let remoteExisting = null;
+          if (prof.id && !isNaN(Number(prof.id))) {
+            const { data: byId } = await supabase
+              .from('professionals')
+              .select('id')
+              .eq('id', String(prof.id))
+              .maybeSingle();
+            if (byId) remoteExisting = byId;
+          }
+
+          if (remoteExisting) {
+            const remoteId = Number(remoteExisting.id);
+            const patchPayload = buildScalarPatch('professionals', prof);
+            const { error: updateErr } = await supabase
+              .from('professionals')
+              .update(patchPayload)
+              .eq('id', String(remoteId));
+
+            if (!updateErr) {
+              prof.synced = 1;
+              if (remoteId !== oldLocalId) {
+                await removeLocal('professionals', oldLocalId);
+                prof.id = remoteId;
+                await updateLocal('professionals', prof);
+                await cascadeProfessionalIdUpdate(oldLocalId, remoteId);
+                anyChanges = true;
+              } else {
+                await updateLocal('professionals', prof);
+              }
+            } else {
+              console.warn(`[SyncManager] Erreur update pro #${prof.id}:`, updateErr.message || updateErr);
+            }
+          } else {
+            const insertPayload = mapLocalToSupabase('professionals', prof);
+            let insertRes = await supabase
+              .from('professionals')
+              .insert(insertPayload)
+              .select('id')
+              .single();
+
+            if (insertRes.error) {
+              const payloadNoId = { ...insertPayload };
+              delete payloadNoId.id;
+              insertRes = await supabase
+                .from('professionals')
+                .insert(payloadNoId)
+                .select('id')
+                .single();
+            }
+
+            if (!insertRes.error && insertRes.data) {
+              const remoteId = Number(insertRes.data.id);
+              prof.synced = 1;
+              if (remoteId !== oldLocalId) {
+                await removeLocal('professionals', oldLocalId);
+                prof.id = remoteId;
+                await updateLocal('professionals', prof);
+                await cascadeProfessionalIdUpdate(oldLocalId, remoteId);
+                anyChanges = true;
+              } else {
+                await updateLocal('professionals', prof);
+              }
+            } else if (insertRes.error) {
+              console.warn(`[SyncManager] Erreur insertion pro (${prof.id}):`, insertRes.error.message || insertRes.error);
+            }
+          }
+        } catch (profErr) {
+          console.warn(`[SyncManager] Exception push pro (${prof.id}):`, profErr);
+        }
+      }
+    } catch (errProfs) {
+      console.warn('[SyncManager] Erreur store professionals:', errProfs);
+    }
+
+    // 4. Pousser les animaux en attente (avec client_id désormais à jour et validé sur Supabase)
+    try {
+      const localAnimals = await getAll('animals');
+      const unsyncedAnimals = localAnimals.filter(a => a.synced === 0);
+
+      for (const animal of unsyncedAnimals) {
+        try {
+          const oldLocalId = Number(animal.id);
+
+          // Sécurité stricte FK : vérifier que client_id existe sur Supabase
+          if (animal.client_id) {
+            const { data: remoteClientCheck } = await supabase
+              .from('clients')
+              .select('id')
+              .eq('id', String(animal.client_id))
               .maybeSingle();
 
-            let error = null;
-
-            if (remoteExisting) {
-              // ENREGISTREMENT EXISTANT : PATCH partiel strict des colonnes scalaires
-              const patchPayload = buildScalarPatch(storeName, record);
-              const res = await supabase
-                .from(table)
-                .update(patchPayload)
-                .eq(keyCol, keyValue);
-              error = res.error;
-            } else {
-              // NOUVEL ENREGISTREMENT CRÉÉ HORS-LIGNE : Insertion / Upsert formaté
-              const insertPayload = mapLocalToSupabase(storeName, record);
-              // Nettoyer les éventuels tableaux non supportés pour 'animals' ou colonnes directes
-              if (storeName === 'animals' && insertPayload && typeof insertPayload.custom_details === 'object') {
-                insertPayload.custom_details = JSON.stringify(insertPayload.custom_details);
-              }
-              const res = await supabase.from(table).upsert(insertPayload);
-              error = res.error;
+            if (!remoteClientCheck) {
+              console.warn(`[SyncManager] Report du push de l'animal #${animal.id} (${animal.nom || animal.name}) : client_id=${animal.client_id} inexistant sur Supabase.`);
+              continue; // Ne pas pousser pour éviter l'erreur 23503 !
             }
-
-            if (!error) {
-              record.synced = 1;
-              await updateLocal(storeName, record);
-            } else {
-              console.warn(`[SyncManager] Erreur push (${table} ${keyCol}=${keyValue}):`, error.message || error);
-            }
-          } catch (recordErr) {
-            console.warn(`[SyncManager] Exception push (${table}):`, recordErr);
           }
+
+          let remoteExisting = null;
+          if (animal.id && !isNaN(Number(animal.id))) {
+            const { data: byId } = await supabase
+              .from('animals')
+              .select('id, client_id, name')
+              .eq('id', String(animal.id))
+              .maybeSingle();
+
+            if (byId && String(byId.client_id) === String(animal.client_id)) {
+              remoteExisting = byId;
+            }
+          }
+
+          if (remoteExisting) {
+            const remoteId = Number(remoteExisting.id);
+            const patchPayload = buildScalarPatch('animals', animal);
+            const { error: updateErr } = await supabase
+              .from('animals')
+              .update(patchPayload)
+              .eq('id', String(remoteId));
+
+            if (!updateErr) {
+              animal.synced = 1;
+              if (remoteId !== oldLocalId) {
+                await removeLocal('animals', oldLocalId);
+                animal.id = remoteId;
+                await updateLocal('animals', animal);
+                await cascadeAnimalIdUpdate(oldLocalId, remoteId);
+                anyChanges = true;
+              } else {
+                await updateLocal('animals', animal);
+              }
+            } else {
+              console.warn(`[SyncManager] Erreur update animal #${animal.id}:`, updateErr.message || updateErr);
+            }
+          } else {
+            const insertPayload = mapLocalToSupabase('animals', animal);
+            if (insertPayload && typeof insertPayload.custom_details === 'object') {
+              insertPayload.custom_details = JSON.stringify(insertPayload.custom_details);
+            }
+            insertPayload.client_id = String(animal.client_id);
+
+            let insertRes = await supabase
+              .from('animals')
+              .insert(insertPayload)
+              .select('id')
+              .single();
+
+            if (insertRes.error) {
+              console.warn(`[SyncManager] Tentative insertion animal id=${animal.id} rejetée (${insertRes.error.message}), insertion avec ID auto-généré...`);
+              const payloadNoId = { ...insertPayload };
+              delete payloadNoId.id;
+              insertRes = await supabase
+                .from('animals')
+                .insert(payloadNoId)
+                .select('id')
+                .single();
+            }
+
+            if (!insertRes.error && insertRes.data) {
+              const remoteId = Number(insertRes.data.id);
+              animal.synced = 1;
+              if (remoteId !== oldLocalId) {
+                console.log(`[SyncManager] Nouvel animal confirmé sur Supabase : ID local ${oldLocalId} -> ID Supabase ${remoteId}`);
+                await removeLocal('animals', oldLocalId);
+                animal.id = remoteId;
+                await updateLocal('animals', animal);
+                await cascadeAnimalIdUpdate(oldLocalId, remoteId);
+                anyChanges = true;
+              } else {
+                await updateLocal('animals', animal);
+              }
+            } else if (insertRes.error) {
+              console.warn(`[SyncManager] Erreur insertion animal (${animal.id}):`, insertRes.error.message || insertRes.error);
+            }
+          }
+        } catch (animalErr) {
+          console.warn(`[SyncManager] Exception push animal (${animal.id}):`, animalErr);
         }
-      } catch (storeErr) {
-        console.warn(`[SyncManager] Erreur store (${storeName}):`, storeErr);
       }
+    } catch (errAnimals) {
+      console.warn('[SyncManager] Erreur store animals:', errAnimals);
     }
+
+    // 5. Pousser les séances en attente (avec animal_id désormais à jour et validé sur Supabase)
+    try {
+      const localSessions = await getAll('sessions');
+      const unsyncedSessions = localSessions.filter(s => s.synced === 0);
+
+      for (const session of unsyncedSessions) {
+        try {
+          const oldLocalId = Number(session.id);
+
+          // Sécurité stricte FK : vérifier que animal_id existe sur Supabase
+          if (session.animal_id) {
+            const { data: remoteAnimalCheck } = await supabase
+              .from('animals')
+              .select('id')
+              .eq('id', String(session.animal_id))
+              .maybeSingle();
+
+            if (!remoteAnimalCheck) {
+              console.warn(`[SyncManager] Report du push de la séance #${session.id} : animal_id=${session.animal_id} inexistant sur Supabase.`);
+              continue; // Ne pas pousser pour éviter l'erreur 23503 !
+            }
+          }
+
+          // Sécurité stricte FK : vérifier que client_id existe sur Supabase si présent
+          if (session.client_id) {
+            const { data: remoteClientCheck } = await supabase
+              .from('clients')
+              .select('id')
+              .eq('id', String(session.client_id))
+              .maybeSingle();
+
+            if (!remoteClientCheck) {
+              console.warn(`[SyncManager] Report du push de la séance #${session.id} : client_id=${session.client_id} inexistant sur Supabase.`);
+              continue; // Ne pas pousser pour éviter l'erreur 23503 !
+            }
+          }
+
+          let remoteExisting = null;
+          if (session.id && !isNaN(Number(session.id))) {
+            const { data: byId } = await supabase
+              .from('sessions')
+              .select('id, animal_id, client_id')
+              .eq('id', String(session.id))
+              .maybeSingle();
+
+            if (byId && (!session.animal_id || String(byId.animal_id) === String(session.animal_id))) {
+              remoteExisting = byId;
+            }
+          }
+
+          if (remoteExisting) {
+            const remoteId = Number(remoteExisting.id);
+            const patchPayload = buildScalarPatch('sessions', session);
+            const { error: updateErr } = await supabase
+              .from('sessions')
+              .update(patchPayload)
+              .eq('id', String(remoteId));
+
+            if (!updateErr) {
+              session.synced = 1;
+              if (remoteId !== oldLocalId) {
+                await removeLocal('sessions', oldLocalId);
+                session.id = remoteId;
+                await updateLocal('sessions', session);
+                await cascadeSessionIdUpdate(oldLocalId, remoteId);
+                anyChanges = true;
+              } else {
+                await updateLocal('sessions', session);
+              }
+            } else {
+              console.warn(`[SyncManager] Erreur update séance #${session.id}:`, updateErr.message || updateErr);
+            }
+          } else {
+            const insertPayload = mapLocalToSupabase('sessions', session);
+            if (session.animal_id) insertPayload.animal_id = String(session.animal_id);
+            if (session.client_id) insertPayload.client_id = String(session.client_id);
+
+            let insertRes = await supabase
+              .from('sessions')
+              .insert(insertPayload)
+              .select('id')
+              .single();
+
+            if (insertRes.error) {
+              console.warn(`[SyncManager] Tentative insertion séance id=${session.id} rejetée (${insertRes.error.message}), insertion avec ID auto-généré...`);
+              const payloadNoId = { ...insertPayload };
+              delete payloadNoId.id;
+              insertRes = await supabase
+                .from('sessions')
+                .insert(payloadNoId)
+                .select('id')
+                .single();
+            }
+
+            if (!insertRes.error && insertRes.data) {
+              const remoteId = Number(insertRes.data.id);
+              session.synced = 1;
+              if (remoteId !== oldLocalId) {
+                console.log(`[SyncManager] Nouvelle séance confirmée sur Supabase : ID local ${oldLocalId} -> ID Supabase ${remoteId}`);
+                await removeLocal('sessions', oldLocalId);
+                session.id = remoteId;
+                await updateLocal('sessions', session);
+                await cascadeSessionIdUpdate(oldLocalId, remoteId);
+                anyChanges = true;
+              } else {
+                await updateLocal('sessions', session);
+              }
+            } else if (insertRes.error) {
+              console.warn(`[SyncManager] Erreur insertion séance (${session.id}):`, insertRes.error.message || insertRes.error);
+            }
+          }
+        } catch (sessionErr) {
+          console.warn(`[SyncManager] Exception push séance (${session.id}):`, sessionErr);
+        }
+      }
+    } catch (errSessions) {
+      console.warn('[SyncManager] Erreur store sessions:', errSessions);
+    }
+
+    // 6. Pousser les rappels en attente
+    try {
+      const localReminders = await getAll('reminders');
+      const unsyncedReminders = localReminders.filter(r => r.synced === 0);
+
+      for (const reminder of unsyncedReminders) {
+        try {
+          const oldLocalId = Number(reminder.id);
+
+          // Sécurité FK : si client_id ou animal_id sont spécifiés, vérifier qu'ils existent sur Supabase
+          if (reminder.client_id) {
+            const { data: cCheck } = await supabase.from('clients').select('id').eq('id', String(reminder.client_id)).maybeSingle();
+            if (!cCheck) continue;
+          }
+          if (reminder.animal_id && reminder.animal_id !== 'ALL' && !isNaN(Number(reminder.animal_id))) {
+            const { data: aCheck } = await supabase.from('animals').select('id').eq('id', String(reminder.animal_id)).maybeSingle();
+            if (!aCheck) continue;
+          }
+
+          let remoteExisting = null;
+          if (reminder.id && !isNaN(Number(reminder.id))) {
+            const { data: byId } = await supabase
+              .from('tasks')
+              .select('id')
+              .eq('id', String(reminder.id))
+              .maybeSingle();
+            if (byId) remoteExisting = byId;
+          }
+
+          if (remoteExisting) {
+            const remoteId = Number(remoteExisting.id);
+            const patchPayload = buildScalarPatch('reminders', reminder);
+            const { error: updateErr } = await supabase
+              .from('tasks')
+              .update(patchPayload)
+              .eq('id', String(remoteId));
+
+            if (!updateErr) {
+              reminder.synced = 1;
+              if (remoteId !== oldLocalId) {
+                await removeLocal('reminders', oldLocalId);
+                reminder.id = remoteId;
+                await updateLocal('reminders', reminder);
+                anyChanges = true;
+              } else {
+                await updateLocal('reminders', reminder);
+              }
+            } else {
+              console.warn(`[SyncManager] Erreur update rappel #${reminder.id}:`, updateErr.message || updateErr);
+            }
+          } else {
+            const insertPayload = mapLocalToSupabase('reminders', reminder);
+            let insertRes = await supabase
+              .from('tasks')
+              .insert(insertPayload)
+              .select('id')
+              .single();
+
+            if (insertRes.error) {
+              const payloadNoId = { ...insertPayload };
+              delete payloadNoId.id;
+              insertRes = await supabase
+                .from('tasks')
+                .insert(payloadNoId)
+                .select('id')
+                .single();
+            }
+
+            if (!insertRes.error && insertRes.data) {
+              const remoteId = Number(insertRes.data.id);
+              reminder.synced = 1;
+              if (remoteId !== oldLocalId) {
+                await removeLocal('reminders', oldLocalId);
+                reminder.id = remoteId;
+                await updateLocal('reminders', reminder);
+                anyChanges = true;
+              } else {
+                await updateLocal('reminders', reminder);
+              }
+            } else if (insertRes.error) {
+              console.warn(`[SyncManager] Erreur insertion rappel (${reminder.id}):`, insertRes.error.message || insertRes.error);
+            }
+          }
+        } catch (remErr) {
+          console.warn(`[SyncManager] Exception push rappel (${reminder.id}):`, remErr);
+        }
+      }
+    } catch (errReminders) {
+      console.warn('[SyncManager] Erreur store reminders:', errReminders);
+    }
+
+    // 7. Pousser les paramètres en attente
+    try {
+      const localSettings = await getAll('settings');
+      const unsyncedSettings = localSettings.filter(s => s.synced === 0);
+
+      for (const setting of unsyncedSettings) {
+        try {
+          const insertPayload = {
+            key: String(setting.key),
+            value: typeof setting.value === 'object' && setting.value !== null ? JSON.stringify(setting.value) : String(setting.value ?? ''),
+            updated_at: new Date().toISOString()
+          };
+          const { error } = await supabase.from('settings').upsert(insertPayload);
+          if (!error) {
+            setting.synced = 1;
+            await updateLocal('settings', setting);
+            anyChanges = true;
+          } else {
+            console.warn(`[SyncManager] Erreur push setting (${setting.key}):`, error.message || error);
+          }
+        } catch (sErr) {
+          console.warn(`[SyncManager] Exception push setting (${setting.key}):`, sErr);
+        }
+      }
+    } catch (errSettings) {
+      console.warn('[SyncManager] Erreur store settings:', errSettings);
+    }
+
+    return anyChanges;
   },
 
   /**
@@ -439,10 +1067,11 @@ export const SyncManager = {
 
     try {
       // 1. Envoyer les modifications locales en attente (évite tout écrasement par le pull)
-      await this.pushPending();
+      const pushHadChanges = await this.pushPending();
 
       // 2. Récupérer les modifications distantes depuis la dernière synchronisation
-      const hasChanges = await this.pullChanges();
+      const pullHadChanges = await this.pullChanges();
+      const hasChanges = Boolean(pushHadChanges || pullHadChanges);
 
       // 3. Mettre à jour le timestamp de dernière synchro réussie
       this.setLastSyncTimestamp(new Date().toISOString());
