@@ -1,14 +1,14 @@
 // Service Worker eKiKare
-const CACHE_NAME = 'ekikare-cache-v1.7.9';
+const CACHE_NAME = 'ekikare-cache-v1.8.0';
 
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './style.css?v=1.7.9',
-  './app.js?v=1.7.9',
-  './db.js?v=1.7.9',
-  './sync-manager.js?v=1.7.9',
-  './lib/pinch-zoom.umd.js?v=1.7.9',
+  './style.css?v=1.8.0',
+  './app.js?v=1.8.0',
+  './db.js?v=1.8.0',
+  './sync-manager.js?v=1.8.0',
+  './lib/pinch-zoom.umd.js?v=1.8.0',
   './manifest.json',
   './favicon.ico',
   './assets/logo-icon.png',
@@ -21,12 +21,13 @@ const ASSETS_TO_CACHE = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
       await Promise.allSettled(
         ASSETS_TO_CACHE.map((url) => cache.add(url))
       );
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
@@ -36,12 +37,19 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
+            console.log('[SW] Suppression ancien cache:', key);
             return caches.delete(key);
           }
         })
       );
     }).then(() => self.clients.claim())
   );
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', (event) => {
