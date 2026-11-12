@@ -1,0 +1,1640 @@
+/**
+ * db.js - Gestionnaire de base de données locale (IndexedDB) pour Suivi eKiKare
+ */
+
+const DB_NAME = 'eKiKareDB';
+const DB_VERSION = 4; // Version incrémentée pour supporter le store pdf_cache
+let dbInstance = null;
+
+// CONFIGURATION SYNCHRONISATION
+export const SYNCED_STORES = ['clients', 'professionals', 'animals', 'sessions', 'reminders', 'settings'];
+let supabaseClient = null;
+
+/**
+ * Lazy initialisation du client Supabase
+ */
+export function getSupabaseClient() {
+  if (supabaseClient) {
+    if (typeof window !== 'undefined') {
+      window.supabaseClient = supabaseClient;
+    }
+    return supabaseClient;
+  }
+  if (typeof window !== 'undefined') {
+    if (window.supabaseClient) {
+      supabaseClient = window.supabaseClient;
+      return supabaseClient;
+    }
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+      supabaseClient = window.supabase.createClient(
+        "https://vctunemarfbmoffvgjha.supabase.co",
+        "sb_publishable_qxlXJDcBhAP0j8zYbNAeBQ_cjLDYy3H"
+      );
+      window.supabaseClient = supabaseClient;
+    } else {
+      console.warn("Supabase CDN non chargé.");
+    }
+  }
+  return supabaseClient;
+}
+
+// Initialisation et exposition immédiate sur window
+const initialSupabaseClient = getSupabaseClient();
+if (typeof window !== 'undefined' && initialSupabaseClient) {
+  window.supabaseClient = initialSupabaseClient;
+}
+
+/**
+ * Maps local IndexedDB object structure to Supabase SQL structure.
+ */
+// SYNC CHANGE CALLBACK SYSTEM
+let onDatabaseChangeCallback = null;
+
+export function registerDatabaseChangeCallback(callback) {
+  onDatabaseChangeCallback = callback;
+}
+
+/**
+ * Maps local IndexedDB object structure to Supabase SQL structure.
+ */
+export function mapLocalToSupabase(storeName, item) {
+  if (!item) return null;
+  const isoTime = new Date().toISOString();
+  const mapped = { 
+    id: String(item.id),
+    updated_at: isoTime
+  };
+
+  let specificFields = {};
+  switch (storeName) {
+    case 'clients': {
+      const cleanNotes = item.notes ? String(item.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim() : '';
+      const isCgvAccepted = item.cgv_rgpd_accepted !== undefined && item.cgv_rgpd_accepted !== null ? Boolean(item.cgv_rgpd_accepted) : false;
+      specificFields = {
+        first_name: item.prenom || item.first_name || '',
+        last_name: item.nom || item.last_name || '',
+        phone: item.telephone || item.phone || '',
+        email: item.email || '',
+        address: item.adresse || item.address || '',
+        main_stable: item.ecurie || item.main_stable || item.mainStable || '',
+        notes: cleanNotes,
+        uuid: item.uuid || null,
+        archived_at: item.archived_at || null,
+        archive_reason: item.archive_reason || null,
+        cgv_rgpd_accepted: isCgvAccepted,
+        cgv_rgpd_accepted_at: isCgvAccepted ? (item.cgv_rgpd_accepted_at || isoTime) : null,
+        cgv_rgpd_version: isCgvAccepted ? (item.cgv_rgpd_version || 'v7') : null
+      };
+      break;
+    }
+    case 'animals':
+      let existingCustom = {};
+      if (item.custom_details) {
+        if (typeof item.custom_details === 'object' && item.custom_details !== null) {
+          existingCustom = item.custom_details;
+        } else if (typeof item.custom_details === 'string') {
+          try {
+            existingCustom = JSON.parse(item.custom_details);
+          } catch (e) {
+            existingCustom = {};
+          }
+        }
+      }
+
+      // Résolution antécédents / événements médicaux
+      let resolvedMedicalEvents = [];
+      if (Array.isArray(item.medical_events) && item.medical_events.length > 0) {
+        resolvedMedicalEvents = item.medical_events;
+      } else if (Array.isArray(existingCustom.medical_events) && existingCustom.medical_events.length > 0) {
+        resolvedMedicalEvents = existingCustom.medical_events;
+      }
+
+      // Résolution professionnels associés
+      let resolvedProsAssocies = [];
+      if (Array.isArray(item.pros_associes_ids)) {
+        resolvedProsAssocies = item.pros_associes_ids;
+      } else if (Array.isArray(existingCustom.pros_associes_ids)) {
+        resolvedProsAssocies = existingCustom.pros_associes_ids;
+      }
+
+      const customPayload = {
+        id_number: item.id_number !== undefined ? item.id_number : (existingCustom.id_number || ''),
+        robe: item.robe !== undefined ? item.robe : (existingCustom.robe || ''),
+        lifestyle_details: item.lifestyle_details !== undefined ? item.lifestyle_details : (existingCustom.lifestyle_details || ''),
+        stable_name: item.stable_name || item.lieu_de_vie || item.stable || existingCustom.stable_name || '',
+        stable_address: item.stable_address !== undefined ? item.stable_address : (existingCustom.stable_address || ''),
+        stable_zip: item.stable_zip !== undefined ? item.stable_zip : (existingCustom.stable_zip || ''),
+        stable_city: item.stable_city !== undefined ? item.stable_city : (existingCustom.stable_city || ''),
+        stable_distance: item.stable_distance !== undefined && item.stable_distance !== null
+          ? Number(item.stable_distance)
+          : (item.distance_km !== undefined && item.distance_km !== null
+              ? Number(item.distance_km)
+              : (existingCustom.stable_distance !== undefined ? Number(existingCustom.stable_distance) : 0)),
+        stable_at_home: item.stable_at_home !== undefined
+          ? Boolean(item.stable_at_home)
+          : (existingCustom.stable_at_home !== undefined ? Boolean(existingCustom.stable_at_home) : false),
+        housing_type: item.housing_type || item.housing_mode || existingCustom.housing_type || '',
+        housing_type_other: item.housing_type_other || item.housing_mode_other || existingCustom.housing_type_other || '',
+        social_type: item.social_type || item.social_life || existingCustom.social_type || '',
+        tracking_mode: item.tracking_mode || existingCustom.tracking_mode || '4x par an',
+        tracking_mode_other: item.tracking_mode_other || existingCustom.tracking_mode_other || '',
+        nutritionist: item.nutritionist !== undefined
+          ? Boolean(item.nutritionist)
+          : (existingCustom.nutritionist !== undefined ? Boolean(existingCustom.nutritionist) : false),
+        nutrition_details: item.nutrition_details !== undefined
+          ? item.nutrition_details
+          : (item.diet || existingCustom.nutrition_details || ''),
+        work_objective: item.work_objective !== undefined
+          ? item.work_objective
+          : (item.work_goals || existingCustom.work_objective || ''),
+        main_problems: item.main_problems !== undefined
+          ? item.main_problems
+          : (item.issues || existingCustom.main_problems || ''),
+        medical_events: resolvedMedicalEvents,
+        pros_associes_ids: resolvedProsAssocies,
+        archived_at: item.archived_at !== undefined ? item.archived_at : (existingCustom.archived_at || null),
+        archive_reason: item.archive_reason !== undefined ? item.archive_reason : (existingCustom.archive_reason || null)
+      };
+      specificFields = {
+        client_id: String(item.client_id || item.clientId || ''),
+        name: item.name || item.nom || '',
+        species: item.species || item.espece || 'Cheval',
+        breed: item.breed || item.race || null,
+        gender: item.gender || item.sexe || null,
+        birth_date: item.birthDate || item.birth_date || item.date_naissance_ou_age || null,
+        photo: item.photo || item.photo_data_url || item.photo_blob || null,
+        stable: item.stable || item.stable_name || item.lieu_de_vie || null,
+        housing_type: item.housingType || item.housing_type || item.housing_mode || null,
+        social_life: item.socialLife || item.social_life || item.social_type || null,
+        work_goals: item.workGoals || item.work_goals || item.work_objective || null,
+        diet: item.diet || item.nutrition_details || null,
+        medical_history: item.medicalHistory || item.medical_history || item.antecedents || null,
+        issues: item.issues || item.main_problems || null,
+        notes: item.notes || null,
+        custom_details: JSON.stringify(customPayload),
+        distance_km: item.distanceKm !== undefined && item.distanceKm !== null ? Number(item.distanceKm) : (item.distance_km !== undefined && item.distance_km !== null ? Number(item.distance_km) : (item.stable_distance !== undefined && item.stable_distance !== null ? Number(item.stable_distance) : null)),
+        tracking_mode: item.trackingMode || item.tracking_mode || null,
+        archived_at: item.archived_at || null,
+        archive_reason: item.archive_reason || null
+      };
+      break;
+    case 'sessions':
+      specificFields = {
+        client_id: String(item.clientId || item.client_id || ''),
+        animal_id: String(item.animalId || item.animal_id || ''),
+        session_type: item.sessionType || item.session_type || (item.isExternal ? 'Externe' : 'Générale'),
+        practitioner_name: item.practitionerName || item.practitioner_name || null,
+        practitioner_profession: item.practitionerProfession || item.practitioner_profession || item.profession || null,
+        session_date: item.sessionDate || item.session_date || item.date_seance || new Date().toISOString().split('T')[0],
+        reason: item.reason || item.motif || null,
+        protocols: item.protocols || item.protocoles_realises || null,
+        summary: item.summary || item.cr_personnel || null,
+        private_clinical_notes: item.privateClinicalNotes || item.private_clinical_notes || item.notes_observations || null,
+        detailed_pro_report: item.detailedProReport || item.detailed_pro_report || item.precisions || null,
+        general_notes: item.generalNotes || item.general_notes || item.resume_client_genere || null,
+        anatomical_drawing: item.anatomicalDrawing || item.anatomical_drawing || item.canvas_annotation_image_blob || null,
+        attachments: item.attachments || item.fileData || null
+      };
+      break;
+    case 'professionals':
+      const profFullName = [item.prenom || item.first_name || '', item.nom || item.last_name || ''].filter(Boolean).join(' ').trim() || item.name || '';
+      specificFields = {
+        name: profFullName,
+        profession: item.profession || item.specialite || item.specialty || '',
+        phone: item.telephone || item.phone || '',
+        email: item.email || '',
+        notes: item.notes || ''
+      };
+      break;
+    case 'reminders':
+      const titleValue = item.type_rappel || item.title || item.motif || 'Rappel';
+      const notesValue = item.notes || item.description || item.note || '';
+      specificFields = {
+        title: titleValue,
+        description: notesValue,
+        due_date: item.dueDate || item.due_date || item.date_prevue || null,
+        completed: item.completed !== undefined ? Boolean(item.completed) : (item.statut === 'fait'),
+        related_client_id: String(item.relatedClientId || item.client_id || ''),
+        related_animal_id: String(item.relatedAnimalId || item.animal_id || ''),
+        client_id: String(item.relatedClientId || item.client_id || ''),
+        animal_id: String(item.relatedAnimalId || item.animal_id || '')
+      };
+      break;
+    case 'settings':
+      return {
+        key: String(item.key),
+        value: typeof item.value === 'object' && item.value !== null ? JSON.stringify(item.value) : String(item.value ?? ''),
+        updated_at: item.updated_at || isoTime
+      };
+    default:
+      return item;
+  }
+
+  // Combine and clean undefined properties
+  const combined = { ...mapped, ...specificFields };
+  const cleaned = {};
+  for (const key in combined) {
+    if (combined[key] !== undefined) {
+      cleaned[key] = combined[key];
+    } else {
+      cleaned[key] = null; // Map undefined to null for SQL
+    }
+  }
+  return cleaned;
+}
+
+/**
+ * Maps Supabase SQL structure back to local IndexedDB object structure.
+ */
+export function mapSupabaseToLocal(storeName, item) {
+  if (!item) return null;
+  const timeVal = item.last_modified || item.updated_at;
+  const local = { 
+    id: Number(item.id),
+    last_modified: timeVal ? new Date(timeVal).getTime() : Date.now()
+  };
+
+  switch (storeName) {
+    case 'clients': {
+      const rawNotes = item.notes ? String(item.notes) : '';
+      let cgvMeta = null;
+      const cgvMatch = rawNotes.match(/\[cgv_rgpd:(.*?)\]/);
+      if (cgvMatch) {
+        try {
+          cgvMeta = JSON.parse(cgvMatch[1]);
+        } catch (e) {
+          console.warn("Erreur parsing cgv_rgpd tag:", e);
+        }
+      }
+      const cleanNotesFromDb = rawNotes.replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
+      const clientUuid = item.uuid || (item.id ? String(item.id) : null);
+      
+      // Rétrocompatibilité à la lecture : lecture prioritaire des colonnes dédiées, repli sur tag notes si vide
+      const hasDedicatedCol = item.cgv_rgpd_accepted !== undefined && item.cgv_rgpd_accepted !== null;
+      const isAccepted = hasDedicatedCol
+        ? Boolean(item.cgv_rgpd_accepted)
+        : (cgvMeta ? Boolean(cgvMeta.accepted) : false);
+
+      const acceptedAt = (item.cgv_rgpd_accepted_at !== undefined && item.cgv_rgpd_accepted_at !== null)
+        ? item.cgv_rgpd_accepted_at
+        : (isAccepted && cgvMeta?.accepted_at ? cgvMeta.accepted_at : (isAccepted ? new Date().toISOString() : null));
+
+      const version = (item.cgv_rgpd_version !== undefined && item.cgv_rgpd_version !== null)
+        ? item.cgv_rgpd_version
+        : (isAccepted && cgvMeta?.version ? cgvMeta.version : (isAccepted ? 'v7' : null));
+
+      return {
+        ...local,
+        prenom: item.first_name || '',
+        nom: item.last_name || '',
+        telephone: item.phone || '',
+        email: item.email || '',
+        adresse: item.address || '',
+        ecurie: item.main_stable || '',
+        notes: cleanNotesFromDb,
+        uuid: clientUuid,
+        archived_at: item.archived_at || null,
+        archive_reason: item.archive_reason || null,
+        cgv_rgpd_accepted: isAccepted,
+        cgv_rgpd_accepted_at: acceptedAt,
+        cgv_rgpd_version: version
+      };
+    }
+    case 'animals':
+      let parsedCustom = {};
+      if (item.custom_details) {
+        try {
+          if (typeof item.custom_details === 'string' && item.custom_details.trim().startsWith('{')) {
+            parsedCustom = JSON.parse(item.custom_details);
+          } else if (typeof item.custom_details === 'object' && item.custom_details !== null) {
+            parsedCustom = item.custom_details;
+          }
+        } catch (e) {
+          parsedCustom = {};
+        }
+      }
+      return {
+        ...local,
+        client_id: item.client_id ? Number(item.client_id) : null,
+        nom: item.name || '',
+        id_number: parsedCustom.id_number || item.id_number || '',
+        espece: item.species || 'Cheval',
+        race: item.breed || '',
+        robe: item.robe || parsedCustom.robe || '',
+        sexe: item.gender || '',
+        date_naissance_ou_age: item.birth_date || '',
+        photo_blob: item.photo || null,
+        photo_data_url: item.photo || null,
+        stable_name: item.stable || parsedCustom.stable_name || '',
+        stable_address: parsedCustom.stable_address || item.stable_address || '',
+        stable_zip: parsedCustom.stable_zip || item.stable_zip || '',
+        stable_city: parsedCustom.stable_city || item.stable_city || '',
+        stable_distance: item.distance_km !== null && item.distance_km !== undefined ? Number(item.distance_km) : (parsedCustom.stable_distance !== undefined ? Number(parsedCustom.stable_distance) : 0),
+        stable_at_home: parsedCustom.stable_at_home !== undefined ? Boolean(parsedCustom.stable_at_home) : Boolean(item.stable_at_home),
+        lieu_de_vie: item.stable || parsedCustom.stable_name || '',
+        housing_type: item.housing_type || parsedCustom.housing_type || '',
+        housing_type_other: parsedCustom.housing_type_other || item.housing_type_other || '',
+        social_type: item.social_life || parsedCustom.social_type || '',
+        housing_mode: item.housing_type || parsedCustom.housing_type || '',
+        lifestyle_details: parsedCustom.lifestyle_details !== undefined ? parsedCustom.lifestyle_details : '',
+        medical_events: Array.isArray(parsedCustom.medical_events) ? parsedCustom.medical_events : (Array.isArray(item.medical_events) ? item.medical_events : []),
+        antecedents: item.medical_history || '',
+        pros_associes_ids: Array.isArray(parsedCustom.pros_associes_ids) ? parsedCustom.pros_associes_ids : (Array.isArray(item.pros_associes_ids) ? item.pros_associes_ids : []),
+        tracking_mode: item.tracking_mode || parsedCustom.tracking_mode || '4x par an',
+        tracking_mode_other: parsedCustom.tracking_mode_other || '',
+        nutritionist: Boolean(parsedCustom.nutritionist),
+        nutrition_details: item.diet || parsedCustom.nutrition_details || '',
+        work_objective: item.work_goals || parsedCustom.work_objective || '',
+        main_problems: item.issues || parsedCustom.main_problems || '',
+        notes: item.notes || '',
+        custom_details: typeof item.custom_details === 'string' ? item.custom_details : JSON.stringify(parsedCustom || {}),
+        archived_at: item.archived_at || parsedCustom.archived_at || null,
+        archive_reason: item.archive_reason || parsedCustom.archive_reason || null
+      };
+    case 'sessions':
+      return {
+        ...local,
+        animal_id: item.animal_id ? Number(item.animal_id) : null,
+        client_id: item.client_id ? Number(item.client_id) : null,
+        date_seance: item.session_date || '',
+        motif: item.reason || '',
+        n_seance_annee: item.n_seance_annee !== null ? Number(item.n_seance_annee) : null,
+        q_avant_seance: item.q_avant_seance || {},
+        q_3_semaines: item.q_3_semaines || {},
+        protocoles_realises: item.protocols || {},
+        canvas_annotation_image_blob: item.anatomical_drawing || (local && local.canvas_annotation_image_blob) || '',
+        canvas_drawing_data_url: item.canvas_drawing_data_url || (local && local.canvas_drawing_data_url) || '',
+        cr_personnel: item.summary || '',
+        notes_observations: item.private_clinical_notes || '',
+        precisions: item.detailed_pro_report || '',
+        resume_client_genere: item.general_notes || '',
+        isExternal: item.session_type === 'Externe',
+        practitionerName: item.practitioner_name || '',
+        profession: item.practitioner_profession || '',
+        summary: item.summary || '',
+        fileData: item.attachments || '',
+        fileName: item.file_name || '',
+        fileType: item.file_type || ''
+      };
+    case 'professionals':
+      let profPrenom = item.prenom || item.first_name || '';
+      let profNom = item.nom || item.last_name || '';
+      if (!profPrenom && !profNom && item.name) {
+        const parts = String(item.name).trim().split(' ');
+        if (parts.length > 1) {
+          profPrenom = parts[0];
+          profNom = parts.slice(1).join(' ');
+        } else {
+          profNom = parts[0] || '';
+        }
+      }
+      return {
+        ...local,
+        prenom: profPrenom,
+        nom: profNom,
+        telephone: item.phone || item.telephone || '',
+        email: item.email || '',
+        specialite: item.profession || item.specialite || item.specialty || '',
+        notes: item.notes || ''
+      };
+    case 'reminders':
+      const rawTitle = item.title || item.reminder_type || item.type_rappel || item.motif || '';
+      const rawNotes = item.description || item.notes || item.note || '';
+      return {
+        ...local,
+        animal_id: item.animal_id === 'ALL' ? 'ALL' : (item.animal_id && !isNaN(Number(item.animal_id)) ? Number(item.animal_id) : (item.animal_id || null)),
+        client_id: item.client_id ? Number(item.client_id) : null,
+        session_id: item.session_id ? Number(item.session_id) : null,
+        date_prevue: item.due_date || item.date_prevue || '',
+        semaine_prevue: item.planned_week || item.semaine_prevue || '',
+        type_rappel: rawTitle,
+        title: rawTitle,
+        motif: rawTitle,
+        statut: (item.completed !== undefined) ? (item.completed ? 'fait' : 'en_attente') : (item.statut || 'en_attente'),
+        notes: rawNotes,
+        description: rawNotes,
+        note: rawNotes,
+        delay: item.delay || ''
+      };
+    case 'settings':
+      const timeValSettings = item.updated_at || item.last_modified;
+      return {
+        key: String(item.key),
+        value: item.value,
+        updated_at: item.updated_at || new Date().toISOString(),
+        last_modified: timeValSettings ? new Date(timeValSettings).getTime() : Date.now(),
+        synced: 1
+      };
+    default:
+      return item;
+  }
+}
+
+/**
+ * Initialise et connecte la base de données IndexedDB.
+ * @returns {Promise<IDBDatabase>}
+ */
+export function getDB() {
+  if (dbInstance) return Promise.resolve(dbInstance);
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+
+      // Table Clients
+      if (!db.objectStoreNames.contains('clients')) {
+        db.createObjectStore('clients', { keyPath: 'id', autoIncrement: true });
+      }
+
+      // Table Professionnels
+      if (!db.objectStoreNames.contains('professionals')) {
+        db.createObjectStore('professionals', { keyPath: 'id', autoIncrement: true });
+      }
+
+      // Table Animaux
+      if (!db.objectStoreNames.contains('animals')) {
+        const animalStore = db.createObjectStore('animals', { keyPath: 'id', autoIncrement: true });
+        animalStore.createIndex('client_id', 'client_id', { unique: false });
+      }
+
+      // Table Séances
+      if (!db.objectStoreNames.contains('sessions')) {
+        const sessionStore = db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
+        sessionStore.createIndex('animal_id', 'animal_id', { unique: false });
+        sessionStore.createIndex('client_id', 'client_id', { unique: false });
+      }
+
+      // Table Rappels
+      if (!db.objectStoreNames.contains('reminders')) {
+        const reminderStore = db.createObjectStore('reminders', { keyPath: 'id', autoIncrement: true });
+        reminderStore.createIndex('animal_id', 'animal_id', { unique: false });
+        reminderStore.createIndex('client_id', 'client_id', { unique: false });
+        reminderStore.createIndex('session_id', 'session_id', { unique: false });
+        reminderStore.createIndex('statut', 'statut', { unique: false });
+        reminderStore.createIndex('date_prevue', 'date_prevue', { unique: false });
+      }
+
+      // Table deleted_records pour le suivi hors-ligne
+      if (!db.objectStoreNames.contains('deleted_records')) {
+        db.createObjectStore('deleted_records', { keyPath: 'id', autoIncrement: true });
+      }
+
+      // Table settings pour les paramètres pérennes et synchronisés
+      if (!db.objectStoreNames.contains('settings')) {
+        db.createObjectStore('settings', { keyPath: 'key' });
+      }
+
+      // Table pdf_cache pour la mise en cache locale des PDF générés (v1.7.1)
+      if (!db.objectStoreNames.contains('pdf_cache')) {
+        db.createObjectStore('pdf_cache', { keyPath: 'key' });
+      }
+    };
+
+    request.onsuccess = (event) => {
+      dbInstance = event.target.result;
+      resolve(dbInstance);
+    };
+
+    request.onerror = (event) => {
+      console.error("Erreur d'ouverture d'IndexedDB:", event.target.error);
+      reject(event.target.error);
+    };
+  });
+}
+
+export const initDB = getDB;
+
+/**
+ * Récupère tous les éléments d'un magasin d'objets.
+ * @param {string} storeName 
+ * @returns {Promise<Array>}
+ */
+export async function getAll(storeName) {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readonly');
+    const store = transaction.objectStore(storeName);
+    const request = store.getAll();
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Récupère un élément par son identifiant unique (id).
+ * @param {string} storeName 
+ * @param {number} id 
+ * @returns {Promise<any>}
+ */
+export async function getById(storeName, id) {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readonly');
+    const store = transaction.objectStore(storeName);
+    const key = (storeName === 'settings' || (typeof id === 'string' && isNaN(Number(id)))) ? id : (!isNaN(Number(id)) ? Number(id) : id);
+    const request = store.get(key);
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Récupère tous les éléments correspondant à un index et sa valeur.
+ * @param {string} storeName 
+ * @param {string} indexName 
+ * @param {any} value 
+ * @returns {Promise<Array>}
+ */
+export async function getByIndex(storeName, indexName, value) {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readonly');
+    const store = transaction.objectStore(storeName);
+    let index;
+    try {
+      index = store.index(indexName);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    const request = index.getAll(value);
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Ajoute un nouvel élément dans la base de données.
+ * @param {string} storeName 
+ * @param {Object} item 
+ * @returns {Promise<number>} L'identifiant généré
+ */
+/**
+ * Ajoute un nouvel élément en local dans IndexedDB.
+ */
+export async function addLocal(storeName, item) {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readwrite');
+    const store = transaction.objectStore(storeName);
+    
+    if (item.id === undefined || item.id === null || item.id === '') {
+      delete item.id;
+    }
+    
+    const request = store.add(item);
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Ajoute un nouvel élément localement, puis tente de le synchroniser avec Supabase.
+ * @param {string} storeName 
+ * @param {Object} item 
+ * @returns {Promise<number>} L'identifiant généré
+ */
+export async function add(storeName, item) {
+  if (storeName === 'clients') {
+    if (!item.uuid) {
+      item.uuid = generateUUID();
+    }
+  }
+  if (SYNCED_STORES.includes(storeName)) {
+    const now = Date.now();
+    item.last_modified = now;
+    item.updated_at = new Date(now).toISOString();
+    item.synced = 0;
+  }
+  
+  const id = await addLocal(storeName, item);
+  item.id = id;
+  
+  if (SYNCED_STORES.includes(storeName) && navigator.onLine) {
+    if (onDatabaseChangeCallback) {
+      // Déclenchement direct sans bloquer l'UI
+      (async () => {
+        try {
+          await onDatabaseChangeCallback();
+        } catch (err) {
+          console.error("Erreur callback sync:", err);
+        }
+      })();
+    }
+  }
+  return id;
+}
+
+/**
+ * Met à jour un élément en local dans IndexedDB.
+ */
+export async function updateLocal(storeName, item) {
+  if (storeName === 'sessions' && item && item.id) {
+    try {
+      await deletePdfCache(`cr_pdf_${item.id}`);
+    } catch (_) {}
+  }
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readwrite');
+    const store = transaction.objectStore(storeName);
+    
+    if (storeName !== 'settings' && item.id && !isNaN(Number(item.id))) {
+      item.id = Number(item.id);
+    }
+    
+    const request = store.put(item);
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Récupère un paramètre depuis le store local 'settings'.
+ * @param {string} key 
+ * @returns {Promise<any>}
+ */
+export async function getSetting(key) {
+  const rec = await getById('settings', key);
+  if (!rec) return null;
+  return rec.value !== undefined ? rec.value : null;
+}
+
+/**
+ * Enregistre ou met à jour un paramètre dans le store local 'settings' avec marquage synced: 0 et déclenchement sync.
+ * @param {string} key 
+ * @param {any} value 
+ * @returns {Promise<Object>}
+ */
+export async function setSetting(key, value) {
+  const now = Date.now();
+  const iso = new Date(now).toISOString();
+  const strValue = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
+
+  const item = {
+    key: String(key),
+    value: strValue,
+    updated_at: iso,
+    last_modified: now,
+    synced: 0
+  };
+
+  await updateLocal('settings', item);
+
+  if (navigator.onLine && onDatabaseChangeCallback) {
+    (async () => {
+      try {
+        await onDatabaseChangeCallback();
+      } catch (err) {
+        console.error("Erreur callback sync setting:", err);
+      }
+    })();
+  }
+
+  return item;
+}
+
+/**
+ * Tente de récupérer un paramètre directement depuis Supabase et met à jour IndexedDB localement.
+ * @param {string} key 
+ * @returns {Promise<string|null>}
+ */
+export async function fetchRemoteSetting(key) {
+  if (!navigator.onLine) return null;
+  try {
+    const supabase = getSupabaseClient();
+    if (!supabase) return null;
+    const { data, error } = await supabase
+      .from('settings')
+      .select('key, value, updated_at')
+      .eq('key', String(key))
+      .maybeSingle();
+
+    if (!error && data && data.value !== undefined) {
+      await updateLocal('settings', {
+        key: String(data.key),
+        value: data.value,
+        updated_at: data.updated_at || new Date().toISOString(),
+        last_modified: data.updated_at ? new Date(data.updated_at).getTime() : Date.now(),
+        synced: 1
+      });
+      return data.value;
+    }
+  } catch (err) {
+    console.warn(`[db] Erreur fetchRemoteSetting (${key}):`, err);
+  }
+  return null;
+}
+
+/**
+ * Tente de récupérer l'ensemble des paramètres depuis Supabase et met à jour IndexedDB localement.
+ * @returns {Promise<Array<Object>|null>}
+ */
+export async function fetchRemoteSettings() {
+  if (!navigator.onLine) return null;
+  try {
+    const supabase = getSupabaseClient();
+    if (!supabase) return null;
+    const { data, error } = await supabase
+      .from('settings')
+      .select('key, value, updated_at');
+
+    if (!error && Array.isArray(data)) {
+      for (const item of data) {
+        if (item && item.key) {
+          await updateLocal('settings', {
+            key: String(item.key),
+            value: item.value,
+            updated_at: item.updated_at || new Date().toISOString(),
+            last_modified: item.updated_at ? new Date(item.updated_at).getTime() : Date.now(),
+            synced: 1
+          });
+        }
+      }
+      return data;
+    }
+  } catch (err) {
+    console.warn("[db] Erreur fetchRemoteSettings:", err);
+  }
+  return null;
+}
+
+/**
+ * Met à jour un élément localement, puis tente de le synchroniser avec Supabase.
+ * @param {string} storeName 
+ * @param {Object} item 
+ * @returns {Promise<number>} L'identifiant mis à jour
+ */
+export async function update(storeName, item) {
+  if (SYNCED_STORES.includes(storeName)) {
+    const now = Date.now();
+    item.last_modified = now;
+    item.updated_at = new Date(now).toISOString();
+    item.synced = 0;
+  }
+  
+  const id = await updateLocal(storeName, item);
+  
+  if (SYNCED_STORES.includes(storeName) && navigator.onLine) {
+    if (onDatabaseChangeCallback) {
+      // Déclenchement direct sans bloquer l'UI
+      (async () => {
+        try {
+          await onDatabaseChangeCallback();
+        } catch (err) {
+          console.error("Erreur callback sync:", err);
+        }
+      })();
+    }
+  }
+  return id;
+}
+
+/**
+ * Supprime un élément localement dans IndexedDB.
+ */
+export async function removeLocal(storeName, id) {
+  if (storeName === 'sessions' && id) {
+    try {
+      await deletePdfCache(`cr_pdf_${id}`);
+    } catch (_) {}
+  }
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readwrite');
+    const store = transaction.objectStore(storeName);
+    const request = store.delete(Number(id));
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Supprime un élément localement, et tente de le supprimer sur Supabase (ou l'enregistre en attente de suppression).
+ * @param {string} storeName 
+ * @param {number} id 
+ * @returns {Promise<void>}
+ */
+export async function remove(storeName, id) {
+  await removeLocal(storeName, id);
+  
+  if (SYNCED_STORES.includes(storeName)) {
+    // Toujours tracer la suppression localement pour garantir la synchro
+    await trackDeletion(storeName, id);
+    
+    if (navigator.onLine && onDatabaseChangeCallback) {
+      // Déclenchement direct sans bloquer l'UI
+      (async () => {
+        try {
+          await onDatabaseChangeCallback();
+        } catch (err) {
+          console.error("Erreur callback sync:", err);
+        }
+      })();
+    }
+  }
+}
+
+// ============================================================================
+// MODULE CACHE LOCAL PDF (v1.7.1)
+// ============================================================================
+
+/**
+ * Récupère un PDF mis en cache dans le store 'pdf_cache'.
+ * @param {string} key - Ex: 'cr_pdf_123'
+ * @returns {Promise<{ key: string, blob: Blob, updatedAt: number, savedAt: number } | null>}
+ */
+export async function getPdfCache(key) {
+  if (!key) return null;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('pdf_cache')) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('pdf_cache', 'readonly');
+        const store = tx.objectStore('pdf_cache');
+        const req = store.get(String(key));
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = (e) => {
+          console.warn("[pdf_cache] Erreur lecture cache:", e);
+          resolve(null);
+        };
+      } catch (errTx) {
+        console.warn("[pdf_cache] Erreur transaction lecture:", errTx);
+        resolve(null);
+      }
+    });
+  } catch (err) {
+    console.warn("[pdf_cache] getPdfCache:", err);
+    return null;
+  }
+}
+
+/**
+ * Enregistre un Blob PDF dans le store 'pdf_cache'.
+ * @param {string} key - Ex: 'cr_pdf_123'
+ * @param {Blob} blob - Le Blob PDF généré
+ * @param {number|string} updatedAt - Timestamp ou date de modification de la séance
+ * @returns {Promise<void>}
+ */
+export async function setPdfCache(key, blob, updatedAt) {
+  if (!key || !(blob instanceof Blob)) return;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('pdf_cache')) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('pdf_cache', 'readwrite');
+        const store = tx.objectStore('pdf_cache');
+        let finalUpdated = Date.now();
+        if (typeof updatedAt === 'number' && !isNaN(updatedAt)) {
+          finalUpdated = updatedAt;
+        } else if (updatedAt) {
+          const parsed = new Date(updatedAt).getTime();
+          if (!isNaN(parsed)) finalUpdated = parsed;
+        }
+
+        const record = {
+          key: String(key),
+          blob: blob,
+          updatedAt: finalUpdated,
+          savedAt: Date.now()
+        };
+        const req = store.put(record);
+        req.onsuccess = () => resolve();
+        req.onerror = (e) => {
+          console.warn("[pdf_cache] Erreur écriture cache:", e);
+          resolve();
+        };
+      } catch (errTx) {
+        console.warn("[pdf_cache] Erreur transaction écriture:", errTx);
+        resolve();
+      }
+    });
+  } catch (err) {
+    console.warn("[pdf_cache] setPdfCache:", err);
+  }
+}
+
+/**
+ * Supprime une entrée du store 'pdf_cache'.
+ * @param {string} key - Ex: 'cr_pdf_123'
+ * @returns {Promise<void>}
+ */
+export async function deletePdfCache(key) {
+  if (!key) return;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('pdf_cache')) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('pdf_cache', 'readwrite');
+        const store = tx.objectStore('pdf_cache');
+        const req = store.delete(String(key));
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+      } catch (errTx) {
+        resolve();
+      }
+    });
+  } catch (err) {
+    console.warn("[pdf_cache] deletePdfCache:", err);
+  }
+}
+
+/**
+ * Purge la totalité du store 'pdf_cache'.
+ * @returns {Promise<void>}
+ */
+export async function clearAllPdfCache() {
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('pdf_cache')) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('pdf_cache', 'readwrite');
+        const store = tx.objectStore('pdf_cache');
+        const req = store.clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+      } catch (errTx) {
+        resolve();
+      }
+    });
+  } catch (err) {
+    console.warn("[pdf_cache] clearAllPdfCache:", err);
+  }
+}
+
+/**
+ * Enregistre une suppression en attente pour synchronisation ultérieure.
+ */
+export async function trackDeletion(storeName, recordId) {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction('deleted_records', 'readwrite');
+    const store = transaction.objectStore('deleted_records');
+    const request = store.add({ storeName, recordId: Number(recordId) });
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Récupère les suppressions en attente de synchronisation.
+ */
+export async function getTrackedDeletions() {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction('deleted_records', 'readonly');
+    const store = transaction.objectStore('deleted_records');
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Supprime une tâche de suppression en attente une fois exécutée.
+ */
+export async function clearTrackedDeletion(id) {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction('deleted_records', 'readwrite');
+    const store = transaction.objectStore('deleted_records');
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Exporte toutes les données de la base dans un seul objet JSON.
+ * @returns {Promise<Object>}
+ */
+export async function exportAllData() {
+  const stores = ['clients', 'professionals', 'animals', 'sessions', 'reminders', 'settings'];
+  const exportData = {};
+  
+  for (const storeName of stores) {
+    exportData[storeName] = await getAll(storeName);
+  }
+  
+  return exportData;
+}
+
+/**
+ * Importe un ensemble de données dans IndexedDB (écrase les données existantes).
+ * @param {Object} importData 
+ * @returns {Promise<void>}
+ */
+export async function importAllData(importData) {
+  const db = await getDB();
+  const stores = ['clients', 'professionals', 'animals', 'sessions', 'reminders', 'settings'];
+  
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(stores, 'readwrite');
+    
+    transaction.oncomplete = async () => {
+      try {
+        await clearAllPdfCache();
+      } catch (_) {}
+      resolve();
+    };
+    transaction.onerror = (event) => reject(event.target.error);
+    
+    for (const storeName of stores) {
+      const store = transaction.objectStore(storeName);
+      store.clear(); // Vider le magasin existant
+      
+      const items = importData[storeName] || [];
+      for (const item of items) {
+        // Nettoyage et typage de l'ID si nécessaire
+        if (storeName !== 'settings' && item.id && !isNaN(Number(item.id))) {
+          item.id = Number(item.id);
+        }
+        store.put(item);
+      }
+    }
+  });
+}
+
+/**
+ * Génère un identifiant universel sécurisé UUID v4.
+ */
+export function generateUUID() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+/**
+ * Récupère un client via son UUID sécurisé ou son identifiant numérique de repli.
+ */
+export async function getClientByUuid(token) {
+  if (!token) return null;
+  const clients = await getAll('clients');
+  const tokenStr = String(token).trim().toLowerCase();
+  let found = clients.find(c => c.uuid && String(c.uuid).toLowerCase() === tokenStr);
+  if (!found) {
+    found = clients.find(c => String(c.id).toLowerCase() === tokenStr);
+  }
+  return found || null;
+}
+export const getClientByToken = getClientByUuid;
+
+/**
+ * Synchronise et réconcilie de façon descendante les UUIDs des clients depuis Supabase vers IndexedDB.
+ */
+export async function reconcileClientUUIDsFromSupabase() {
+  if (!navigator.onLine) return false;
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+
+  try {
+    // 1. Récupérer l'ensemble des clients distants depuis Supabase
+    const { data: remoteClients, error } = await supabase
+      .from('clients')
+      .select('id, uuid, email, phone, first_name, last_name, archived_at, archive_reason');
+
+    if (error || !remoteClients || remoteClients.length === 0) {
+      return false;
+    }
+
+    const localClients = await getAll('clients');
+    let hasChanges = false;
+
+    for (const remote of remoteClients) {
+      if (!remote.uuid) continue;
+      
+      const remoteIdStr = String(remote.id);
+      const remoteEmail = (remote.email || '').trim().toLowerCase();
+      const remotePhoneClean = (remote.phone || '').replace(/\D/g, '');
+      const remoteFirst = (remote.first_name || '').trim().toLowerCase();
+      const remoteLast = (remote.last_name || '').trim().toLowerCase();
+
+      // Correspondance prioritaire : ID distant
+      let matchedLocal = localClients.find(c => String(c.id) === remoteIdStr);
+
+      // Correspondance secondaire : email
+      if (!matchedLocal && remoteEmail) {
+        matchedLocal = localClients.find(c => c.email && c.email.trim().toLowerCase() === remoteEmail);
+      }
+
+      // Correspondance secondaire : téléphone
+      if (!matchedLocal && remotePhoneClean && remotePhoneClean.length >= 6) {
+        matchedLocal = localClients.find(c => c.telephone && c.telephone.replace(/\D/g, '') === remotePhoneClean);
+      }
+
+      // Correspondance tertiaire : nom & prénom
+      if (!matchedLocal && remoteFirst && remoteLast) {
+        matchedLocal = localClients.find(c => 
+          c.nom && c.prenom && 
+          c.nom.trim().toLowerCase() === remoteLast && 
+          c.prenom.trim().toLowerCase() === remoteFirst
+        );
+      }
+
+      if (matchedLocal) {
+        let changed = false;
+        
+        // 3. Mettre à jour l'enregistrement local si l'UUID est manquant ou différent de celui de Supabase
+        if (matchedLocal.uuid !== remote.uuid) {
+          matchedLocal.uuid = remote.uuid;
+          changed = true;
+        }
+
+        // 4. Réconcilier l'état d'archivage (Supabase <-> Local)
+        if (remote.archived_at !== (matchedLocal.archived_at || null)) {
+          if (matchedLocal.synced === 0) {
+            // Changement local en attente de synchronisation
+            try {
+              await supabase.from('clients').update({
+                archived_at: matchedLocal.archived_at || null,
+                archive_reason: matchedLocal.archive_reason || null,
+                updated_at: new Date().toISOString()
+              }).eq('id', matchedLocal.id);
+              matchedLocal.synced = 1;
+            } catch (e) {
+              console.error("Erreur sync reconcileClientUUIDsFromSupabase:", e);
+            }
+          } else {
+            // Modification distante depuis Supabase -> Le local s'aligne
+            matchedLocal.archived_at = remote.archived_at || null;
+            matchedLocal.archive_reason = remote.archive_reason || null;
+            changed = true;
+          }
+        }
+
+        // 5. Nettoyer définitivement toute chaîne résiduelle [portal_token:...] qui subsisterait dans le champ notes local
+        if (matchedLocal.notes && matchedLocal.notes.includes('[portal_token:')) {
+          matchedLocal.notes = matchedLocal.notes.replace(/\[portal_token:[^\]]+\]/g, '').trim();
+          changed = true;
+        }
+        if (matchedLocal.portal_token) {
+          delete matchedLocal.portal_token;
+          changed = true;
+        }
+
+        if (changed) {
+          matchedLocal.synced = 1;
+          await updateLocal('clients', matchedLocal);
+          hasChanges = true;
+        }
+      }
+    }
+
+    return hasChanges;
+  } catch (err) {
+    console.error("Erreur lors de la réconciliation des UUIDs clients:", err);
+    return false;
+  }
+}
+
+/**
+ * Assure la migration et présence d'un token UUID sécurisé pour tous les clients existants et nettoie les notes.
+ */
+export async function ensureClientsHaveUUID() {
+  // 1. D'abord tenter la réconciliation descendante depuis Supabase
+  if (navigator.onLine) {
+    try {
+      await reconcileClientUUIDsFromSupabase();
+    } catch (e) {
+      console.warn("Réconciliation Supabase au démarrage non effectuée:", e);
+    }
+  }
+
+  // 2. Nettoyer et s'assurer que tous les clients locaux restants possèdent un UUID valide
+  const clients = await getAll('clients');
+  let hasChanges = false;
+  for (const client of clients) {
+    let changed = false;
+    // Nettoyage des résidus [portal_token:...] dans le champ notes
+    if (client.notes && client.notes.includes('[portal_token:')) {
+      client.notes = client.notes.replace(/\[portal_token:[^\]]+\]/g, '').trim();
+      changed = true;
+    }
+    // Migration et nettoyage rétrocompatible du tag [cgv_rgpd:...] dans le champ notes
+    if (client.notes && client.notes.includes('[cgv_rgpd:')) {
+      const cgvMatch = client.notes.match(/\[cgv_rgpd:(.*?)\]/);
+      if (cgvMatch) {
+        try {
+          const cgvMeta = JSON.parse(cgvMatch[1]);
+          if (client.cgv_rgpd_accepted === undefined || client.cgv_rgpd_accepted === null) {
+            client.cgv_rgpd_accepted = Boolean(cgvMeta.accepted);
+          }
+          if (!client.cgv_rgpd_accepted_at && cgvMeta.accepted_at) {
+            client.cgv_rgpd_accepted_at = cgvMeta.accepted_at;
+          }
+          if (!client.cgv_rgpd_version && cgvMeta.version) {
+            client.cgv_rgpd_version = cgvMeta.version;
+          }
+        } catch (e) {
+          console.warn("Erreur migration cgv_rgpd tag local:", e);
+        }
+      }
+      client.notes = client.notes.replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
+      changed = true;
+    }
+    if (client.cgv_rgpd_accepted === undefined || client.cgv_rgpd_accepted === null) {
+      client.cgv_rgpd_accepted = false;
+      client.cgv_rgpd_accepted_at = null;
+      client.cgv_rgpd_version = null;
+      changed = true;
+    }
+    if (client.portal_token) {
+      if (!client.uuid) {
+        client.uuid = client.portal_token;
+      }
+      delete client.portal_token;
+      changed = true;
+    }
+    if (!client.uuid) {
+      client.uuid = generateUUID();
+      changed = true;
+    }
+    if (changed || !client.synced) {
+      client.synced = 1;
+      await updateLocal('clients', client);
+      if (navigator.onLine) {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const updatePayload = {
+            uuid: client.uuid,
+            notes: client.notes || '',
+            cgv_rgpd_accepted: Boolean(client.cgv_rgpd_accepted),
+            cgv_rgpd_accepted_at: client.cgv_rgpd_accepted_at || null,
+            cgv_rgpd_version: client.cgv_rgpd_version || null
+          };
+          if (client.archived_at) {
+            updatePayload.archived_at = client.archived_at;
+            updatePayload.archive_reason = client.archive_reason;
+          }
+          await supabase.from('clients').update(updatePayload).eq('id', client.id);
+        }
+      }
+      hasChanges = true;
+    }
+  }
+  return hasChanges;
+}
+
+/**
+ * Récupère le dossier complet d'un client et ses animaux/séances depuis Supabase pour le portail distant.
+ */
+export async function fetchClientPortalData(portalUuid) {
+  if (!portalUuid) return null;
+  const tokenStr = String(portalUuid).trim();
+  
+  // 1. Tenter la récupération distante depuis Supabase si connecté
+  if (navigator.onLine) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        // Requête directe standard sur la colonne uuid
+        let { data: clientData, error: clientErr } = await supabase
+          .from('clients')
+          .select('*')
+          .eq('uuid', tokenStr)
+          .maybeSingle();
+
+        // Repli si tokenStr est un ID numérique
+        if (!clientData && !isNaN(Number(tokenStr))) {
+          const { data: fallbackData } = await supabase
+            .from('clients')
+            .select('*')
+            .eq('id', tokenStr)
+            .maybeSingle();
+          clientData = fallbackData;
+        }
+
+        if (clientData) {
+          const localClient = mapSupabaseToLocal('clients', clientData);
+          localClient.synced = 1;
+          await updateLocal('clients', localClient);
+
+          // Si le client est archivé, ne PAS charger ses animaux ni ses séances
+          if (localClient.archived_at) {
+            return localClient;
+          }
+
+          // Récupérer les animaux associés
+          const { data: animalsData } = await supabase.from('animals')
+            .select('*')
+            .eq('client_id', String(clientData.id));
+
+          if (animalsData && animalsData.length > 0) {
+            for (const an of animalsData) {
+              await updateLocal('animals', mapSupabaseToLocal('animals', an));
+            }
+          }
+
+          // Récupérer les séances associées
+          const { data: sessionsData } = await supabase.from('sessions')
+            .select('*')
+            .eq('client_id', String(clientData.id));
+
+          if (sessionsData && sessionsData.length > 0) {
+            for (const s of sessionsData) {
+              await updateLocal('sessions', mapSupabaseToLocal('sessions', s));
+            }
+          }
+
+          // Récupérer les rappels/tâches associés
+          const { data: tasksData } = await supabase.from('tasks')
+            .select('*')
+            .eq('client_id', String(clientData.id));
+
+          if (tasksData && tasksData.length > 0) {
+            for (const t of tasksData) {
+              await updateLocal('reminders', mapSupabaseToLocal('reminders', t));
+            }
+          }
+
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('clients-updated', { detail: { store: 'clients' } }));
+          }
+
+          return localClient;
+        }
+      } catch (err) {
+        console.warn("fetchClientPortalData distant a échoué:", err);
+      }
+    }
+  }
+
+  // 2. Repli local IndexedDB (mode hors-ligne ou Supabase inaccessible)
+  let localFound = await getClientByUuid(tokenStr);
+  if (!localFound && !isNaN(Number(tokenStr))) {
+    localFound = await getById('clients', Number(tokenStr));
+  }
+  return localFound;
+}
+
+/**
+ * Archive un enregistrement (client ou animal) avec synchronisation immédiate et stricte.
+ */
+export async function archiveRecordDirect(storeName, id, reason) {
+  const now = new Date().toISOString();
+  const recId = Number(id);
+  
+  // 1. IndexedDB immédiat
+  let local = await getById(storeName, recId);
+  if (!local) {
+    const all = await getAll(storeName);
+    local = all.find(r => Number(r.id) === recId || String(r.id) === String(id));
+  }
+  if (!local) return null;
+
+  local.archived_at = now;
+  local.archive_reason = reason || 'Archivé par le praticien';
+  local.updated_at = now;
+  local.last_modified = Date.now();
+  local.synced = 1;
+  await updateLocal(storeName, local);
+
+  // 2. Supabase immédiat avec await strict
+  if (navigator.onLine) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const table = storeName === 'reminders' ? 'tasks' : storeName;
+      try {
+        const { error: updateErr } = await supabase
+          .from(table)
+          .update({
+            archived_at: now,
+            archive_reason: local.archive_reason,
+            updated_at: now,
+            last_modified: now
+          })
+          .eq('id', recId);
+        
+        if (updateErr) {
+          console.error(`Erreur update direct ${table} archive:`, updateErr);
+          await supabase
+            .from(table)
+            .update({
+              archived_at: now,
+              archive_reason: local.archive_reason,
+              updated_at: now,
+              last_modified: now
+            })
+            .eq('id', String(id));
+        }
+      } catch (err) {
+        console.error(`Exception sync directe archive ${storeName}:`, err);
+      }
+    }
+  }
+
+  // 3. Cascade : si client, archiver tous ses animaux rattachés
+  if (storeName === 'clients') {
+    const allAnimals = await getAll('animals');
+    const clientAnimals = allAnimals.filter(an => String(an.client_id) === String(recId) || Number(an.client_id) === recId);
+    const animalReason = `Client archivé (${reason || 'Archivé par le praticien'})`;
+
+    for (const an of clientAnimals) {
+      if (!an.archived_at) {
+        an.archived_at = now;
+        an.archive_reason = animalReason;
+        an.updated_at = now;
+        an.last_modified = Date.now();
+        an.synced = 1;
+        await updateLocal('animals', an);
+
+        if (navigator.onLine) {
+          const supabase = getSupabaseClient();
+          if (supabase) {
+            try {
+              await supabase
+                .from('animals')
+                .update({
+                  archived_at: now,
+                  archive_reason: animalReason,
+                  updated_at: now,
+                  last_modified: now
+                })
+                .eq('id', an.id);
+            } catch (err) {
+              console.error("Erreur sync cascade animal archive:", err);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return local;
+}
+
+/**
+ * Désarchive / restaure un enregistrement (client ou animal) avec synchronisation immédiate et stricte.
+ */
+export async function restoreRecordDirect(storeName, id) {
+  const now = new Date().toISOString();
+  const recId = Number(id);
+
+  // 1. IndexedDB immédiat
+  let local = await getById(storeName, recId);
+  if (!local) {
+    const all = await getAll(storeName);
+    local = all.find(r => Number(r.id) === recId || String(r.id) === String(id));
+  }
+  if (!local) return null;
+
+  local.archived_at = null;
+  local.archive_reason = null;
+  local.updated_at = now;
+  local.last_modified = Date.now();
+  local.synced = 1;
+  await updateLocal(storeName, local);
+
+  // 2. Supabase immédiat avec await strict (remise à null)
+  if (navigator.onLine) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const table = storeName === 'reminders' ? 'tasks' : storeName;
+      try {
+        const { error: updateErr } = await supabase
+          .from(table)
+          .update({
+            archived_at: null,
+            archive_reason: null,
+            updated_at: now,
+            last_modified: now
+          })
+          .eq('id', recId);
+
+        if (updateErr) {
+          console.error(`Erreur update direct ${table} restore:`, updateErr);
+          await supabase
+            .from(table)
+            .update({
+              archived_at: null,
+              archive_reason: null,
+              updated_at: now,
+              last_modified: now
+            })
+            .eq('id', String(id));
+        }
+      } catch (err) {
+        console.error(`Exception sync directe restore ${storeName}:`, err);
+      }
+    }
+  }
+
+  // 3. Cascade : si client, restaurer tous ses animaux rattachés
+  if (storeName === 'clients') {
+    const allAnimals = await getAll('animals');
+    const clientAnimals = allAnimals.filter(an => String(an.client_id) === String(recId) || Number(an.client_id) === recId);
+
+    for (const an of clientAnimals) {
+      if (an.archived_at && an.archive_reason && an.archive_reason.startsWith('Client archivé')) {
+        an.archived_at = null;
+        an.archive_reason = null;
+        an.updated_at = now;
+        an.last_modified = Date.now();
+        an.synced = 1;
+        await updateLocal('animals', an);
+
+        if (navigator.onLine) {
+          const supabase = getSupabaseClient();
+          if (supabase) {
+            try {
+              await supabase
+                .from('animals')
+                .update({
+                  archived_at: null,
+                  archive_reason: null,
+                  updated_at: now,
+                  last_modified: now
+                })
+                .eq('id', an.id);
+            } catch (err) {
+              console.error("Erreur sync cascade animal restore:", err);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return local;
+}
+
+/**
+ * Supprime définitivement un animal et toutes ses données associées (séances, rappels).
+ * @param {number} animalId
+ */
+export async function deleteAnimalCascade(animalId) {
+  const anId = Number(animalId);
+  if (!anId) return;
+
+  // 1. Supprimer les séances associées
+  const allSessions = await getAll('sessions');
+  const animalSessions = allSessions.filter(s => Number(s.animal_id) === anId);
+  for (const session of animalSessions) {
+    await remove('sessions', session.id);
+  }
+
+  // 2. Supprimer les rappels associés
+  const allReminders = await getAll('reminders');
+  const animalReminders = allReminders.filter(r => Number(r.animal_id) === anId || Number(r.relatedAnimalId) === anId);
+  for (const reminder of animalReminders) {
+    await remove('reminders', reminder.id);
+  }
+
+  // 3. Supprimer l'animal
+  await remove('animals', anId);
+}
+
+/**
+ * Supprime définitivement un client et toutes ses données associées en cascade (animaux, séances, rappels).
+ * @param {number} clientId
+ */
+export async function deleteClientCascade(clientId) {
+  const cId = Number(clientId);
+  if (!cId) return;
+
+  // 1. Récupérer et supprimer tous les animaux associés en cascade
+  const allAnimals = await getAll('animals');
+  const clientAnimals = allAnimals.filter(a => Number(a.client_id) === cId);
+  for (const animal of clientAnimals) {
+    await deleteAnimalCascade(animal.id);
+  }
+
+  // 2. Supprimer les rappels directement liés au client
+  const allReminders = await getAll('reminders');
+  const clientReminders = allReminders.filter(r => Number(r.client_id) === cId || Number(r.relatedClientId) === cId);
+  for (const reminder of clientReminders) {
+    await remove('reminders', reminder.id);
+  }
+
+  // 3. Supprimer le client
+  await remove('clients', cId);
+}
+
+// Initialiser et exposer immédiatement l'instance Supabase connectée si disponible
+if (typeof window !== 'undefined') {
+  if (window.supabase && typeof window.supabase.createClient === 'function') {
+    getSupabaseClient();
+  }
+  window.getPdfCache = getPdfCache;
+  window.setPdfCache = setPdfCache;
+  window.deletePdfCache = deletePdfCache;
+  window.clearAllPdfCache = clearAllPdfCache;
+}
+

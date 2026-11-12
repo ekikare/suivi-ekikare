@@ -1,0 +1,12052 @@
+/**
+ * app.js - Logique applicative pour Suivi eKiKare
+ */
+
+import { 
+  getAll, 
+  getById, 
+  getByIndex, 
+  add, 
+  update, 
+  remove, 
+  exportAllData, 
+  importAllData,
+  getSupabaseClient,
+  updateLocal,
+  mapSupabaseToLocal,
+  generateUUID,
+  getClientByUuid,
+  ensureClientsHaveUUID,
+  fetchClientPortalData,
+  deleteClientCascade,
+  deleteAnimalCascade,
+  archiveRecordDirect,
+  restoreRecordDirect,
+  getSetting,
+  setSetting,
+  fetchRemoteSetting,
+  fetchRemoteSettings,
+  getDB,
+  initDB,
+  getPdfCache,
+  setPdfCache,
+  deletePdfCache,
+  clearAllPdfCache
+} from './db.js?v=1.8.1';
+
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.1';
+
+// Exposition immédiate du client Supabase pour tout le scope applicatif et la console
+const initialClient = getSupabaseClient();
+if (typeof window !== 'undefined' && initialClient) {
+  window.supabaseClient = initialClient;
+}
+
+// Détection de l'environnement Beta (/beta/)
+export const IS_BETA_ENV = typeof window !== 'undefined' && window.location.pathname.includes('/beta');
+
+// Version courante de l'application (alignée avec sw.js)
+export const APP_VERSION = 'v1.8.1';
+if (typeof window !== 'undefined') {
+  window.APP_VERSION = APP_VERSION;
+  window.IS_BETA_ENV = IS_BETA_ENV;
+}
+
+// Purge automatique des caches PDF lors d'un changement de version
+try {
+  const versionStorageKey = IS_BETA_ENV ? 'ekikare_version_beta' : 'ekikare_version';
+  const storedVersion = localStorage.getItem(versionStorageKey);
+  if (storedVersion !== APP_VERSION) {
+    console.log(`[Version] Nouvelle version détectée (${APP_VERSION}), purge des caches obsolètes...`);
+    clearAllPdfCache().catch(e => console.warn('[Version] Erreur purge pdf cache:', e));
+    localStorage.setItem(versionStorageKey, APP_VERSION);
+  }
+} catch (_) {}
+
+// Mise à jour dynamique de la version affichée et du badge VERSION BETA
+function syncAppVersionDisplay() {
+  const versionEls = document.querySelectorAll('.app-version');
+  versionEls.forEach(el => {
+    el.innerHTML = `eKiKare ${APP_VERSION}${IS_BETA_ENV ? ' (BETA)' : ''} &bull; Offline Database`;
+  });
+
+  const betaBadge = document.getElementById('beta-env-badge');
+  if (betaBadge) {
+    betaBadge.style.display = IS_BETA_ENV ? 'inline-flex' : 'none';
+  }
+
+  if (IS_BETA_ENV && typeof document !== 'undefined' && !document.title.startsWith('[BETA]')) {
+    document.title = `[BETA] ${document.title}`;
+  }
+}
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', syncAppVersionDisplay);
+  } else {
+    syncAppVersionDisplay();
+  }
+}
+
+// --- INITIALISATION SPEECH RECOGNITION ---
+let recognition = null;
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+  const SpeechObj = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SpeechObj();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'fr-FR';
+}
+
+// --- VARIABLES GLOBALES DE L'APPLI ---
+let currentRoute = 'dashboard';
+let currentSortCol = 'name';
+let currentSortDir = 'asc';
+let clientSortCol = 'name';
+let clientSortDir = 'asc';
+let clientsArchiveFilter = 'active'; // 'active' | 'archived'
+let animalsArchiveFilter = 'active'; // 'active' | 'archived'
+let previousRoute = '';
+let animalDetailsProvenance = null;
+let activeSpeechTarget = null;
+let activeSpeechBtn = null;
+
+// Rétrocompatibilité
+function checkAndSyncIfInactive() {
+  if (window.SyncManager) window.SyncManager.triggerSync({ silent: true });
+}
+window.checkAndSyncIfInactive = checkAndSyncIfInactive;
+
+// --- GESTIONNAIRE LOCAL DE PARAMÈTRES (SETTINGS STORE & CACHE) ---
+let settingsCache = {};
+
+async function loadSettingsCache() {
+  try {
+    const all = await getAll('settings');
+    if (Array.isArray(all)) {
+      all.forEach(s => {
+        if (s && s.key) {
+          settingsCache[s.key] = s.value;
+        }
+      });
+    }
+  } catch (e) {
+    console.warn("Erreur chargement settingsCache:", e);
+  }
+}
+window.loadSettingsCache = loadSettingsCache;
+
+async function migrateLocalStorageToSettings() {
+  try {
+    await loadSettingsCache();
+
+    // 1. Rétrocompatibilité : code PIN praticien
+    if (!settingsCache['practitioner_pin']) {
+      const pin = localStorage.getItem('ekikare_practitioner_pin');
+      if (pin) {
+        await setSetting('practitioner_pin', pin);
+        settingsCache['practitioner_pin'] = pin;
+      }
+    }
+
+    // 2. Rétrocompatibilité : spécialités personnalisées
+    if (!settingsCache['custom_specialties']) {
+      const specs = localStorage.getItem('custom_specialties');
+      if (specs) {
+        await setSetting('custom_specialties', specs);
+        settingsCache['custom_specialties'] = specs;
+      }
+    }
+
+    // 3. Rétrocompatibilité : motifs d'archivage clients
+    if (!settingsCache['archive_reasons_clients']) {
+      const arcClients = localStorage.getItem('ekikare_archive_reasons_clients');
+      if (arcClients) {
+        await setSetting('archive_reasons_clients', arcClients);
+        settingsCache['archive_reasons_clients'] = arcClients;
+      }
+    }
+
+    // 4. Rétrocompatibilité : motifs d'archivage animaux
+    if (!settingsCache['archive_reasons_animals']) {
+      const arcAnimals = localStorage.getItem('ekikare_archive_reasons_animals');
+      if (arcAnimals) {
+        await setSetting('archive_reasons_animals', arcAnimals);
+        settingsCache['archive_reasons_animals'] = arcAnimals;
+      }
+    }
+  } catch (err) {
+    console.warn("Erreur migration settings:", err);
+  }
+}
+window.migrateLocalStorageToSettings = migrateLocalStorageToSettings;
+
+// Écouter les mises à jour distantes du store settings pour réactualiser le cache en temps réel
+window.addEventListener('settings-updated', async () => {
+  await loadSettingsCache();
+  if (typeof populateSpecialtyDropdown === 'function') {
+    populateSpecialtyDropdown();
+  }
+});
+
+// --- UTILITAIRE DE NORMALISATION DES ENTRÉES (FORM SANITIZER) ---
+const FormSanitizer = {
+  /**
+   * Téléphones : nettoie les indicatifs (+33, 0033) et reformate systématiquement en "XX XX XX XX XX".
+   * @param {string} val
+   * @returns {string}
+   */
+  formatPhone(val) {
+    if (!val) return '';
+    let str = String(val).trim();
+    if (!str) return '';
+
+    // Nettoyer les indicatifs internationaux français (+33, 0033, +33(0), etc.)
+    str = str.replace(/^(?:\+33|0033)\s*(?:\(0\)\s*)?/, '0');
+    let digits = str.replace(/\D/g, '');
+
+    if (digits.startsWith('0033')) {
+      digits = '0' + digits.slice(4);
+    } else if (digits.startsWith('33')) {
+      digits = '0' + digits.slice(2);
+    }
+    // Si 9 chiffres (omission du 0 initial)
+    if (digits.length === 9) {
+      digits = '0' + digits;
+    }
+
+    // Tronquer à 10 chiffres maximum
+    digits = digits.slice(0, 10);
+
+    return digits.replace(/(\d{2})(?=\d)/g, '$1 ').trim();
+  },
+
+  /**
+   * Noms de famille et Villes : convertit en MAJUSCULES avec trim().
+   * @param {string} val
+   * @returns {string}
+   */
+  formatUpperCase(val) {
+    if (!val) return '';
+    return String(val).trim().toUpperCase();
+  },
+
+  /**
+   * Prénoms et Noms d'animaux : majuscule initiale (Capitalize) et trim().
+   * Gère les prénoms et noms composés (espaces, tirets, apostrophes).
+   * @param {string} val
+   * @returns {string}
+   */
+  formatCapitalize(val) {
+    if (!val) return '';
+    const trimmed = String(val).trim();
+    if (!trimmed) return '';
+    return trimmed.toLowerCase().replace(/(^|[\s\-'’(])([a-zà-ÿ\u00C0-\u017F])/g, (match, prefix, char) => {
+      return prefix + char.toUpperCase();
+    });
+  },
+
+  /**
+   * Codes postaux : force 5 chiffres numériques.
+   * @param {string} val
+   * @returns {string}
+   */
+  formatZipCode(val) {
+    if (!val) return '';
+    const digits = String(val).replace(/\D/g, '');
+    return digits.slice(0, 5);
+  },
+
+  /**
+   * Numéros d'identification (SIRE, puce, transpondeur) :
+   * retire les espaces et caractères non alphanumériques.
+   * @param {string} val
+   * @returns {string}
+   */
+  formatIdNumber(val) {
+    if (!val) return '';
+    return String(val).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  },
+
+  /**
+   * Attache un écouteur de blur pour formater la valeur à la perte de focus.
+   * @param {HTMLInputElement|HTMLTextAreaElement|string} inputOrId
+   * @param {Function} formatFn
+   */
+  attachBlur(inputOrId, formatFn) {
+    const el = typeof inputOrId === 'string' ? document.getElementById(inputOrId) : inputOrId;
+    if (!el || el.dataset.sanitizerAttached === 'true') return;
+    el.dataset.sanitizerAttached = 'true';
+    el.addEventListener('blur', () => {
+      if (el.value) {
+        el.value = formatFn(el.value);
+      }
+    });
+  },
+
+  /**
+   * Initialise les écouteurs de blur sur tous les champs cibles des formulaires clients, animaux, professionnels.
+   * Ne modifie jamais .value pendant la saisie pour ne pas casser le canal de gestes Gboard.
+   */
+  initBlurListeners() {
+    // Formulaire Client
+    this.attachBlur('client-form-lastname', this.formatUpperCase);
+    this.attachBlur('client-form-firstname', this.formatCapitalize);
+    this.attachBlur('client-form-phone', this.formatPhone);
+    this.attachBlur('client-form-address', (val) => {
+      if (!val) return '';
+      const parsed = parseAddress(val);
+      if (parsed.zip && parsed.city) {
+        return `${parsed.address ? parsed.address + ', ' : ''}${parsed.zip} ${parsed.city}`;
+      }
+      return val.trim();
+    });
+
+    // Formulaire Animal
+    this.attachBlur('animal-form-name', this.formatCapitalize);
+    this.attachBlur('animal-form-stable-city', this.formatUpperCase);
+    this.attachBlur('animal-form-stable-zip', this.formatZipCode);
+
+    // Formulaire Professionnel
+    this.attachBlur('prof-form-lastname', this.formatUpperCase);
+    this.attachBlur('prof-form-firstname', this.formatCapitalize);
+    this.attachBlur('prof-form-phone', this.formatPhone);
+  }
+};
+window.FormSanitizer = FormSanitizer;
+
+// --- OPTIMISATION SAISIE STYLET / CLAVIER VIRTUEL (GBOARD) ---
+
+/**
+ * Configure les attributs nécessaires à la reconnaissance des gestes manuscrits Gboard
+ * (rayer, entourer, insérer) et à la navigation par le clavier virtuel sur les inputs et textareas.
+ * @param {HTMLElement|Document} root
+ */
+function enhanceInputsForGboard(root = document) {
+  if (!root || !root.querySelectorAll) return;
+
+  // 1. Inputs à ligne unique
+  const singleLineInputs = root.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="image"])');
+  singleLineInputs.forEach(input => {
+    if (input.dataset.gboardEnhanced === 'true') return;
+    input.dataset.gboardEnhanced = 'true';
+
+    // enterkeyhint="next" pour indiquer à Gboard d'afficher la flèche "Suivant"
+    if (!input.hasAttribute('enterkeyhint')) {
+      input.setAttribute('enterkeyhint', 'next');
+    }
+    // autocomplete="off" pour éviter les popups bloquant l'écriture au stylet
+    if (!input.hasAttribute('autocomplete') && input.type !== 'password') {
+      input.setAttribute('autocomplete', 'off');
+    }
+    input.setAttribute('spellcheck', 'false');
+    input.setAttribute('autocorrect', 'off');
+
+    const type = (input.type || 'text').toLowerCase();
+
+    // Gestes Gboard : inputmode="text" pour les champs textuels afin d'activer pleinement les gestes
+    if (['text', 'search'].includes(type) || !input.hasAttribute('type')) {
+      if (!input.hasAttribute('inputmode')) {
+        input.setAttribute('inputmode', 'text');
+      }
+    }
+
+    if (['number', 'tel', 'date', 'time', 'datetime-local'].includes(type) || input.id === 'client-form-phone' || input.id === 'prof-form-phone') {
+      input.setAttribute('autocapitalize', 'none');
+    } else if (type === 'email') {
+      input.setAttribute('autocapitalize', 'none');
+    } else if (input.id === 'client-form-lastname' || input.id === 'prof-form-lastname' || input.id === 'animal-form-stable-city' || input.id === 'client-form-stable-city') {
+      input.setAttribute('autocapitalize', 'characters');
+    } else {
+      if (!input.hasAttribute('autocapitalize')) {
+        input.setAttribute('autocapitalize', 'sentences');
+      }
+    }
+  });
+
+  // 2. Zones de texte multi-lignes
+  const textareas = root.querySelectorAll('textarea');
+  textareas.forEach(textarea => {
+    if (textarea.dataset.gboardEnhanced === 'true') return;
+    textarea.dataset.gboardEnhanced = 'true';
+
+    // Gestes manuscrits Gboard complets (rayer, entourer, insérer)
+    // Ne pas forcer inputmode="text" sur textarea pour préserver le comportement multi-ligne natif de Gboard
+    if (!textarea.hasAttribute('enterkeyhint')) textarea.setAttribute('enterkeyhint', 'enter');
+    textarea.setAttribute('autocomplete', 'off');
+    textarea.setAttribute('autocorrect', 'off');
+    textarea.setAttribute('spellcheck', 'false');
+    if (!textarea.hasAttribute('autocapitalize')) textarea.setAttribute('autocapitalize', 'sentences');
+  });
+
+  // 3. Attacher la prévention anti-submit sur les formulaires du fragment
+  setupFormEnterKeyPrevention(root);
+}
+
+/**
+ * Empêche la soumission automatique sur Entrée sur les formulaires (<form>)
+ * UNIQUEMENT si l'utilisateur n'est pas dans un <textarea> et n'est pas en cours de composition IME (Gboard/stylet).
+ * N'effectue AUCUN blur() ni déplacement forcé de focus pour laisser le clavier/panneau d'écriture ouvert.
+ * @param {HTMLElement|Document} root
+ */
+function setupFormEnterKeyPrevention(root = document) {
+  const forms = root.querySelectorAll ? root.querySelectorAll('form') : [];
+  forms.forEach(form => {
+    if (form.dataset.enterPreventAttached === 'true') return;
+    form.dataset.enterPreventAttached = 'true';
+
+    form.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target && e.target.tagName !== 'TEXTAREA') {
+        if (e.isComposing || e.keyCode === 229) return; // Ignore la validation d'écriture manuscrite/Gboard
+        e.preventDefault(); // Empêche le submit intempestif
+      }
+    });
+  });
+}
+
+/**
+ * Protection contre la soumission involontaire via le bouton d'action/validation du panneau manuscrit Gboard
+ * (signal IME Action Done). Bloque systématiquement le submit sur les balises <form> de modales et de séances
+ * à moins que l'utilisateur n'ait cliqué explicitement sur le bouton Enregistrer.
+ */
+let lastExplicitSubmitClickTime = 0;
+
+function initModalSubmitProtection() {
+  const markExplicitSubmit = (e) => {
+    // Ne pas intercepter ni interférer si la cible est un champ de saisie
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+      return;
+    }
+    const btn = e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]');
+    if (btn) {
+      lastExplicitSubmitClickTime = Date.now();
+    }
+  };
+
+  document.addEventListener('click', markExplicitSubmit, true);
+
+  // Intercepter tout événement submit en phase de capture
+  document.addEventListener('submit', (e) => {
+    const form = e.target;
+    if (!form || form.tagName !== 'FORM') return;
+
+    const isModalOrProtectedForm = !!(form.closest('dialog') || form.closest('.app-dialog') || form.closest('.modal-content') || form.closest('.modal-backdrop') || form.id === 'session-form');
+
+    // Vérifier si un clic explicite a eu lieu très récemment (moins de 1000ms) sur un bouton de soumission
+    const timeSinceClick = Date.now() - lastExplicitSubmitClickTime;
+    const isExplicitClick = timeSinceClick < 1000;
+
+    if (isModalOrProtectedForm && !isExplicitClick) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      console.warn('[Gboard Protect] Soumission involontaire bloquée (bouton Entrée / Done du stylet sans clic explicite sur Enregistrer).');
+      return false;
+    }
+
+    // Réinitialiser après utilisation légitime
+    lastExplicitSubmitClickTime = 0;
+  }, true);
+}
+
+/**
+ * Active l'observation des mutations du DOM et initialise les protections stylet / Gboard.
+ */
+function setupStylusInputObserver() {
+  enhanceInputsForGboard(document);
+  setupFormEnterKeyPrevention(document);
+  initModalSubmitProtection();
+
+  // Écouteur global sur document (phase de bouillonnement, sans aucun blur forcé)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target && e.target.tagName !== 'TEXTAREA') {
+      if (e.isComposing || e.keyCode === 229) return; // Ignore la validation d'écriture manuscrite/Gboard
+      if (e.target.tagName === 'INPUT' || e.target.closest('form')) {
+        e.preventDefault(); // Empêche le submit intempestif
+      }
+    }
+  });
+
+  if (typeof MutationObserver !== 'undefined') {
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.addedNodes && m.addedNodes.length > 0) {
+          for (const node of m.addedNodes) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              enhanceInputsForGboard(node);
+              setupFormEnterKeyPrevention(node);
+            }
+          }
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+}
+
+// Motifs d'archivage par défaut
+const DEFAULT_CLIENT_ARCHIVE_REASONS = [
+  "Déménagement",
+  "Inactif / Ne consulte plus",
+  "Donnée de test"
+];
+
+const DEFAULT_ANIMAL_ARCHIVE_REASONS = [
+  "Décédé",
+  "Vendu / Changement de propriétaire",
+  "Donnée de test"
+];
+
+function getArchiveReasons(type) {
+  const settingKey = type === 'client' ? 'archive_reasons_clients' : 'archive_reasons_animals';
+  const legacyKey = type === 'client' ? 'ekikare_archive_reasons_clients' : 'ekikare_archive_reasons_animals';
+  const defaults = type === 'client' ? DEFAULT_CLIENT_ARCHIVE_REASONS : DEFAULT_ANIMAL_ARCHIVE_REASONS;
+  try {
+    const fromCache = settingsCache[settingKey] || settingsCache[legacyKey];
+    if (fromCache) {
+      const parsed = typeof fromCache === 'string' ? JSON.parse(fromCache) : (Array.isArray(fromCache) ? fromCache : []);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return [...new Set([...defaults, ...parsed])];
+      }
+    }
+    const stored = localStorage.getItem(settingKey) || localStorage.getItem(legacyKey);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return [...new Set([...defaults, ...parsed])];
+      }
+    }
+  } catch (e) {
+    console.warn('Erreur lecture motifs archivage:', e);
+  }
+  return [...defaults];
+}
+
+async function saveArchiveReason(type, reason) {
+  if (!reason || !reason.trim()) return;
+  const trimmed = reason.trim();
+  const current = getArchiveReasons(type);
+  if (!current.includes(trimmed)) {
+    current.push(trimmed);
+    const settingKey = type === 'client' ? 'archive_reasons_clients' : 'archive_reasons_animals';
+    const legacyKey = type === 'client' ? 'ekikare_archive_reasons_clients' : 'ekikare_archive_reasons_animals';
+    
+    settingsCache[settingKey] = JSON.stringify(current);
+    try {
+      localStorage.setItem(legacyKey, JSON.stringify(current));
+      localStorage.setItem(settingKey, JSON.stringify(current));
+    } catch (e) {}
+
+    await setSetting(settingKey, current);
+
+    if (navigator.onLine && window.SyncManager) {
+      SyncManager.triggerSync({ silent: true });
+    }
+  }
+}
+
+// Données en cours d'édition/affichage
+let currentClientId = null;
+let currentAnimalId = null;
+let currentSessionId = null;
+let toursMap = null;
+let toursMarkers = [];
+let toursHomeMarker = null;
+
+// Point de départ / Domicile du praticien (Tournées & Lieux de vie)
+const PRACTITIONER_HOME = {
+  address: '70 rue de la Porte Saint-Martin, 78770 Thoiry',
+  coords: [48.8653, 1.7967],
+  popupHtml: '<strong>📍 Mon domicile</strong><br>70 rue de la Porte Saint-Martin, 78770 Thoiry'
+};
+window.PRACTITIONER_HOME = PRACTITIONER_HOME;
+
+const QUESTIONNAIRE_CRITERES = [
+  "Moral",
+  "Gestion émotionnelle",
+  "Energie/Vitalité",
+  "Locomotion",
+  "Gestion de l'effort (récupération, endurance...)",
+  "Système respiratoire",
+  "Qualité yeux, peau, poils, sabots",
+  "Système digestif",
+  "Système immunitaire",
+  "Système hormonal",
+  "Autre"
+];
+
+// --- CANVAS VARIABLES AND CACHE ---
+let canvasElement = null;
+let canvasCtx = null;
+let isDrawing = false;
+let lastX = 0;
+let lastY = 0;
+let currentDrawingColor = '#dc2626'; // default red (#dc2626)
+let currentBrushSize = 2;
+let canvasUndoHistory = []; // stores transparent states
+const MAX_UNDO_STATES = 20;
+
+// Variables pour le Zoom et Pan (Pinch-to-zoom & navigation à deux doigts)
+let canvasScale = 1.0;
+let canvasPanX = 0;
+let canvasPanY = 0;
+let isPinching = false;
+let pinchStartDist = 0;
+let pinchStartScale = 1.0;
+let pinchStartMidX = 0;
+let pinchStartMidY = 0;
+let pinchContentFocalX = 0;
+let pinchContentFocalY = 0;
+const activeCanvasPointers = new Map();
+let prePinchDrawingSnapshot = null;
+let isCanvasModifiedInEditor = false;
+let userExplicitlyClearedCanvas = false;
+
+// --- INITIALISATION AU CHARGEMENT ---
+document.addEventListener('DOMContentLoaded', async () => {
+  await migrateLocalStorageToSettings();
+  setupNavigation();
+  setupPractitionerLock();
+  setupCgvRgpdModal();
+  populateSpecialtyDropdown();
+  setupDateHeader();
+  FormSanitizer.initBlurListeners();
+  setupStylusInputObserver();
+  
+  // Migration automatique des UUIDs pour les clients existants (réservée au praticien)
+  if (isPractitionerUnlocked()) {
+    await ensureClientsHaveUUID();
+  }
+
+  // Initialisation du SyncManager modulaire (écouteurs autonomes, push/pull et statut UI)
+  SyncManager.init({
+    isUnlocked: isPractitionerUnlocked,
+    onSyncStatus: updateSyncStatusUI,
+    onDataChanged: refreshCurrentView
+  });
+
+  if (isPractitionerUnlocked()) {
+    if (navigator.onLine) {
+      try {
+        await SyncManager.pullChanges();
+      } catch (err) {
+        console.warn("[Init] Erreur pull initial:", err);
+      }
+      await SyncManager.triggerSync({ silent: true });
+    }
+  }
+
+  setupFormListeners();
+  setupSpeechRecognition();
+  setupBackupRestore();
+  setupCanvasListeners();
+  setupTensegriteListeners();
+  setupKinesioListeners();
+  setupProtocolAccordionListeners();
+  setupCranioCheckboxListeners();
+  setupExternalSessionListeners();
+  setupCollapsibleCardListeners();
+  setupMobileSidebarListeners();
+  
+  // Charger la page initiale selon le hash ou défaut
+  handleRouting();
+});
+
+// --- DATE HEADER ---
+function setupDateHeader() {
+  const dateEl = document.getElementById('current-date');
+  if (dateEl) {
+    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    dateEl.textContent = new Date().toLocaleDateString('fr-FR', options);
+  }
+}
+
+// --- UTILITAIRE URL PORTAIL CLIENT (COMPATIBLE GITHUB PAGES & LOCALHOST) ---
+function getClientPortalUrl(clientOrUuid) {
+  const origin = window.location.origin;
+  let pathname = window.location.pathname || '/';
+  if (pathname.endsWith('index.html')) {
+    pathname = pathname.slice(0, -'index.html'.length);
+  }
+  if (!pathname.endsWith('/')) {
+    pathname += '/';
+  }
+  let uuid = '';
+  if (clientOrUuid && typeof clientOrUuid === 'object') {
+    uuid = clientOrUuid.uuid || clientOrUuid.id || '';
+  } else {
+    uuid = clientOrUuid || '';
+  }
+  return `${origin}${pathname}#portal/${uuid}`;
+}
+
+// --- SÉCURITÉ & VERROUILLAGE PRATICIEN ---
+function isPractitionerUnlocked() {
+  return localStorage.getItem('ekikare_practitioner_unlocked') === 'true' ||
+         sessionStorage.getItem('ekikare_practitioner_unlocked') === 'true';
+}
+
+let pendingPinPromise = null;
+
+/**
+ * Précharge précocement le code PIN praticien et les réglages depuis Supabase (en tâche de fond).
+ * Met en cache mémoire (settingsCache) et persiste dans le store IndexedDB 'settings'.
+ * @param {number} timeoutMs
+ * @returns {Promise<string|null>}
+ */
+async function preloadPractitionerPin(timeoutMs = 3500) {
+  if (!navigator.onLine) return null;
+  if (pendingPinPromise) return pendingPinPromise;
+
+  pendingPinPromise = (async () => {
+    try {
+      const fetchPromise = (async () => {
+        // 1. Tenter d'abord de charger tous les paramètres pour rafraîchir aussi les spécialités / motifs
+        const allRemote = await fetchRemoteSettings();
+        if (allRemote && Array.isArray(allRemote)) {
+          allRemote.forEach(item => {
+            if (item && item.key) {
+              settingsCache[item.key] = item.value;
+            }
+          });
+          if (settingsCache['practitioner_pin']) {
+            return settingsCache['practitioner_pin'];
+          }
+        }
+
+        // 2. Si non trouvé dans le lot, requête ciblée sur practitioner_pin
+        const remotePin = await fetchRemoteSetting('practitioner_pin');
+        if (remotePin) {
+          settingsCache['practitioner_pin'] = remotePin;
+          return remotePin;
+        }
+        return null;
+      })();
+
+      const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), timeoutMs));
+      return await Promise.race([fetchPromise, timeoutPromise]);
+    } catch (err) {
+      console.warn("[PractitionerLock] Erreur préchargement PIN:", err);
+      return null;
+    } finally {
+      pendingPinPromise = null;
+    }
+  })();
+
+  return pendingPinPromise;
+}
+window.preloadPractitionerPin = preloadPractitionerPin;
+
+async function getPractitionerPin({ forceRemoteIfMissing = true } = {}) {
+  if (settingsCache['practitioner_pin']) {
+    return settingsCache['practitioner_pin'];
+  }
+  try {
+    const val = await getSetting('practitioner_pin');
+    if (val) {
+      settingsCache['practitioner_pin'] = val;
+      return val;
+    }
+  } catch (e) {
+    console.warn("Erreur getPractitionerPin (local):", e);
+  }
+
+  if (forceRemoteIfMissing && navigator.onLine) {
+    try {
+      const remoteVal = await preloadPractitionerPin();
+      if (remoteVal) {
+        return remoteVal;
+      }
+    } catch (e) {
+      console.warn("Erreur getPractitionerPin (distant):", e);
+    }
+  }
+
+  const legacyPin = localStorage.getItem('ekikare_practitioner_pin');
+  if (legacyPin) {
+    settingsCache['practitioner_pin'] = legacyPin;
+    return legacyPin;
+  }
+
+  return '1234';
+}
+window.getPractitionerPin = getPractitionerPin;
+
+function showPractitionerLockOverlay() {
+  const lockOverlay = document.getElementById('practitioner-lock-overlay');
+  if (lockOverlay) {
+    lockOverlay.style.display = 'flex';
+    document.documentElement.classList.add('locked-practitioner');
+    const pinInput = document.getElementById('practitioner-pin-input');
+    if (pinInput) {
+      pinInput.value = '';
+      setTimeout(() => pinInput.focus(), 80);
+    }
+
+    if (navigator.onLine) {
+      preloadPractitionerPin().catch(() => {});
+    }
+  }
+}
+
+function hidePractitionerLockOverlay() {
+  const lockOverlay = document.getElementById('practitioner-lock-overlay');
+  if (lockOverlay) {
+    lockOverlay.style.display = 'none';
+    document.documentElement.classList.remove('locked-practitioner');
+  }
+}
+
+function setupPractitionerLock() {
+  if (!isPractitionerUnlocked() && navigator.onLine) {
+    preloadPractitionerPin().catch(() => {});
+  }
+
+  const form = document.getElementById('practitioner-lock-form');
+  const pinInput = document.getElementById('practitioner-pin-input');
+  const errorMsg = document.getElementById('lock-error-msg');
+  const rememberCheckbox = document.getElementById('remember-practitioner-device');
+  const togglePinBtn = document.getElementById('btn-toggle-pin-visibility');
+
+  if (togglePinBtn && pinInput) {
+    togglePinBtn.onclick = () => {
+      if (pinInput.type === 'password') {
+        pinInput.type = 'text';
+      } else {
+        pinInput.type = 'password';
+      }
+    };
+  }
+
+  if (form && pinInput) {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const enteredPin = pinInput.value.trim();
+      if (!enteredPin) return;
+
+      const submitBtn = form.querySelector('button[type="submit"]');
+      const originalBtnHtml = submitBtn ? submitBtn.innerHTML : '';
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.style.opacity = '0.75';
+      }
+
+      try {
+        const correctPin = await getPractitionerPin({ forceRemoteIfMissing: true });
+
+        if (enteredPin === correctPin) {
+          if (errorMsg) errorMsg.style.display = 'none';
+          if (rememberCheckbox && rememberCheckbox.checked) {
+            localStorage.setItem('ekikare_practitioner_unlocked', 'true');
+          } else {
+            sessionStorage.setItem('ekikare_practitioner_unlocked', 'true');
+          }
+          hidePractitionerLockOverlay();
+          showToast('Espace Praticien déverrouillé avec succès !');
+          
+          // 1. Exécuter en priorité absolue le pull descendant depuis Supabase dès le déverrouillage
+          if (navigator.onLine) {
+            try {
+              await SyncManager.pullChanges();
+            } catch (err) {
+              console.warn("[PractitionerLock] Erreur pull initial:", err);
+            }
+          }
+
+          // 2. Mettre à jour l'affichage avec les données fraîches rapatriées
+          await handleRouting();
+
+          // 3. Déclencher ensuite la synchronisation bidirectionnelle globale
+          if (navigator.onLine) {
+            SyncManager.triggerSync({ silent: true });
+          }
+        } else {
+          if (errorMsg) {
+            errorMsg.style.display = 'block';
+          }
+          pinInput.value = '';
+          pinInput.focus();
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.style.opacity = '';
+          submitBtn.innerHTML = originalBtnHtml;
+        }
+      }
+    };
+  }
+
+  // Configuration dans les Paramètres
+  const savePinBtn = document.getElementById('btn-save-pin');
+  if (savePinBtn) {
+    savePinBtn.onclick = async () => {
+      const currentPinInput = document.getElementById('settings-current-pin');
+      const newPinInput = document.getElementById('settings-new-pin');
+      const confirmPinInput = document.getElementById('settings-confirm-pin');
+
+      const currentPin = currentPinInput ? currentPinInput.value.trim() : '';
+      const newPin = newPinInput ? newPinInput.value.trim() : '';
+      const confirmPin = confirmPinInput ? confirmPinInput.value.trim() : '';
+
+      const actualPin = await getPractitionerPin();
+      if (currentPin !== actualPin) {
+        showToast('Code PIN actuel incorrect.', 'error');
+        return;
+      }
+      if (newPin.length < 4 || newPin.length > 8) {
+        showToast('Le nouveau code PIN doit comporter entre 4 et 8 chiffres.', 'error');
+        return;
+      }
+      if (newPin !== confirmPin) {
+        showToast('Les nouveaux codes PIN ne correspondent pas.', 'error');
+        return;
+      }
+
+      settingsCache['practitioner_pin'] = newPin;
+      try {
+        localStorage.setItem('ekikare_practitioner_pin', newPin);
+      } catch (e) {}
+
+      await setSetting('practitioner_pin', newPin);
+      if (window.SyncManager) {
+        SyncManager.triggerSync({ silent: true });
+      }
+
+      showToast('Nouveau code PIN praticien enregistré !');
+      if (currentPinInput) currentPinInput.value = '';
+      if (newPinInput) newPinInput.value = '';
+      if (confirmPinInput) confirmPinInput.value = '';
+    };
+  }
+
+  const lockSessionBtn = document.getElementById('btn-lock-session-now');
+  if (lockSessionBtn) {
+    lockSessionBtn.onclick = () => {
+      localStorage.removeItem('ekikare_practitioner_unlocked');
+      sessionStorage.removeItem('ekikare_practitioner_unlocked');
+      showToast('Espace praticien verrouillé.');
+      handleRouting();
+    };
+  }
+}
+
+// --- ROUTAGE & NAVIGATION ---
+function setupNavigation() {
+  document.querySelectorAll('.sidebar-nav .nav-item, .sidebar-nav .nav-link, .sidebar-nav a').forEach(item => {
+    item.addEventListener('click', (e) => {
+      // 1. Retirer immédiatement la classe .expanded et fermer le menu mobile/tablette
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar) sidebar.classList.remove('expanded');
+      const backdrop = document.getElementById('sidebar-backdrop');
+      if (backdrop) backdrop.classList.remove('active');
+      const burgerBtn = document.getElementById('btn-header-burger');
+      if (burgerBtn) burgerBtn.setAttribute('aria-expanded', 'false');
+
+      // 2. Forcer le retrait du focus sur le lien cliqué pour éviter que :focus ou :focus-within ne maintiennent le menu ouvert
+      if (e.currentTarget && typeof e.currentTarget.blur === 'function') {
+        e.currentTarget.blur();
+      }
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+
+      sessionStorage.removeItem('portalClientId');
+      currentPortalClientId = null;
+      document.body.classList.remove('is-client-portal');
+      document.documentElement.classList.remove('portal-mode');
+      document.body.classList.remove('portal-mode');
+      const target = item.getAttribute('data-target');
+      if (target) {
+        window.location.hash = target;
+      }
+    });
+  });
+
+  const backToClientsBtn = document.getElementById('btn-back-to-clients');
+  if (backToClientsBtn) {
+    backToClientsBtn.addEventListener('click', () => {
+      window.location.hash = 'clients';
+    });
+  }
+
+  const backToAnimalsBtn = document.getElementById('btn-back-to-animals');
+  if (backToAnimalsBtn) {
+    backToAnimalsBtn.addEventListener('click', () => {
+      window.location.hash = 'animals';
+    });
+  }
+
+  window.addEventListener('hashchange', handleRouting);
+}
+
+let currentPortalClientId = null;
+let currentPortalClientToken = null;
+
+function getNormalizedHash() {
+  let hash = window.location.hash || '';
+  // Nettoyer '#', '#/', '/' au début
+  hash = hash.replace(/^#?\/?/, '');
+  // Nettoyer '/' à la fin si présent
+  hash = hash.replace(/\/+$/, '');
+  return hash || 'dashboard';
+}
+
+async function checkPortalContext() {
+  const storedPortalId = sessionStorage.getItem('portalClientId');
+  const storedPortalToken = sessionStorage.getItem('portalClientToken');
+  const hash = getNormalizedHash();
+  const parts = hash.split('/');
+  const routeBase = parts[0];
+  const routeParam = parts[1];
+
+  const isPortalRoute = routeBase === 'portal' || (window.location.hash && window.location.hash.includes('portal'));
+
+  if (routeBase === 'portal' && routeParam) {
+    let client = await getClientByUuid(routeParam);
+    if (!client && !isNaN(Number(routeParam))) {
+      client = await getById('clients', Number(routeParam));
+    }
+    if (!client && navigator.onLine) {
+      client = await fetchClientPortalData(routeParam);
+    }
+    if (client) {
+      currentPortalClientId = client.id;
+      currentPortalClientToken = client.uuid || String(client.id);
+      sessionStorage.setItem('portalClientId', currentPortalClientId);
+      sessionStorage.setItem('portalClientToken', currentPortalClientToken);
+    } else {
+      currentPortalClientId = null;
+      currentPortalClientToken = routeParam;
+      sessionStorage.removeItem('portalClientId');
+      sessionStorage.removeItem('portalClientToken');
+    }
+  } else if (storedPortalId) {
+    currentPortalClientId = isNaN(Number(storedPortalId)) ? storedPortalId : Number(storedPortalId);
+    currentPortalClientToken = storedPortalToken || String(storedPortalId);
+  } else {
+    currentPortalClientId = null;
+    currentPortalClientToken = null;
+  }
+
+  if (isPortalRoute || currentPortalClientId) {
+    document.body.classList.add('is-client-portal');
+    document.documentElement.classList.add('portal-mode');
+    document.body.classList.add('portal-mode');
+  } else {
+    document.body.classList.remove('is-client-portal');
+    document.documentElement.classList.remove('portal-mode');
+    document.body.classList.remove('portal-mode');
+  }
+}
+
+async function handleRouting() {
+  const hash = getNormalizedHash();
+  previousRoute = currentRoute;
+  currentRoute = hash;
+  
+  await checkPortalContext();
+  
+  // Retirer l'état d'initialisation (Anti-Flicker)
+  document.documentElement.classList.remove('app-initializing');
+
+  let viewId = `view-${hash}`;
+  let routeBase = hash;
+  let routeParam = null;
+  let subRoute = null;
+  let subParam = null;
+
+  if (hash.includes('/')) {
+    const parts = hash.split('/');
+    routeBase = parts[0];
+    routeParam = parts[1];
+    subRoute = parts[2] || null;
+    subParam = parts[3] || null;
+
+    if (routeBase === 'session-editor') {
+      viewId = 'view-session-editor';
+    } else if (routeBase === 'portal') {
+      if (subRoute === 'animals' && subParam) {
+        viewId = 'view-animals-details';
+      } else {
+        viewId = 'view-portal';
+      }
+    } else {
+      viewId = `view-${routeBase}-details`;
+    }
+  }
+
+  const isPortalRoute = routeBase === 'portal' || (window.location.hash && window.location.hash.includes('portal'));
+
+  // 1. ROUTAGE ESPACE PORTAIL CLIENT (Bypass TOTAL et inconditionnel du code PIN praticien)
+  if (isPortalRoute || currentPortalClientId) {
+    hidePractitionerLockOverlay();
+    
+    if (routeBase === 'portal') {
+      if (subRoute === 'animals' && subParam) {
+        viewId = 'view-animals-details';
+      } else {
+        viewId = 'view-portal';
+      }
+    } else {
+      const allowedBases = ['portal'];
+      let isAllowed = allowedBases.includes(routeBase);
+      
+      if (routeBase === 'sessions' && hash.endsWith('/print')) {
+        isAllowed = true;
+      }
+
+      if (!isAllowed) {
+        window.location.hash = `portal/${currentPortalClientToken || currentPortalClientId || ''}`;
+        return;
+      }
+    }
+  } 
+  // 2. ROUTAGE ESPACE PRATICIEN (Protégé par code PIN)
+  else {
+    if (!isPractitionerUnlocked()) {
+      showPractitionerLockOverlay();
+      document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+      return;
+    } else {
+      hidePractitionerLockOverlay();
+    }
+  }
+
+  if (hash.endsWith('/print')) {
+    document.body.classList.add('is-printing');
+  } else {
+    document.body.classList.remove('is-printing');
+  }
+
+  if (routeBase === 'animals' && routeParam) {
+    if (previousRoute === 'reminders' || previousRoute === 'tournee' || previousRoute === 'clients' || previousRoute === 'professionals' || previousRoute.startsWith('clients/')) {
+      animalDetailsProvenance = previousRoute;
+    } else if (previousRoute && !previousRoute.startsWith('animals/')) {
+      animalDetailsProvenance = null;
+    }
+  }
+  
+  // Masquer toutes les sections
+  document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+  
+  // Afficher la section cible
+  const targetSec = document.getElementById(viewId);
+  if (targetSec) {
+    targetSec.classList.add('active');
+  } else {
+    window.location.hash = 'dashboard';
+    return;
+  }
+  
+  // Mettre à jour l'état actif dans la sidebar
+  document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
+    if (item.getAttribute('data-target') === routeBase) {
+      item.classList.add('active');
+    } else {
+      item.classList.remove('active');
+    }
+  });
+
+  // Fermer la dictée
+  stopDictationUI();
+
+  // Déclencher le chargement des données spécifiques à la vue
+  loadViewData(routeBase, routeParam, subRoute, subParam);
+}
+
+// --- CHARGEMENT DES DONNÉES PAR VUE ---
+async function loadViewData(view, param, subRoute = null, subParam = null) {
+  await updateReminderBadge();
+
+  const portalRoute = `portal/${currentPortalClientToken || currentPortalClientId}`;
+
+  switch (view) {
+    case 'dashboard':
+      if (currentPortalClientId) {
+        window.location.hash = portalRoute;
+        return;
+      }
+      await renderDashboard();
+      break;
+    case 'clients':
+      if (param) {
+        currentClientId = Number(param);
+        if (currentPortalClientId && currentClientId !== currentPortalClientId) {
+          window.location.hash = portalRoute;
+          return;
+        }
+        await renderClientDetails(currentClientId);
+      } else {
+        if (currentPortalClientId) {
+          window.location.hash = portalRoute;
+          return;
+        }
+        await renderClientsList();
+      }
+      break;
+    case 'animals':
+      if (param) {
+        currentAnimalId = Number(param);
+        if (currentPortalClientId) {
+          const animal = await getById('animals', currentAnimalId);
+          if (animal && animal.client_id === currentPortalClientId) {
+            window.location.hash = `portal/${currentPortalClientToken || currentPortalClientId}/animals/${animal.id}`;
+            return;
+          } else {
+            showToast("Accès non autorisé.", "error");
+            window.location.hash = portalRoute;
+            return;
+          }
+        }
+        await renderAnimalDetails(currentAnimalId);
+      } else {
+        if (currentPortalClientId) {
+          window.location.hash = portalRoute;
+          return;
+        }
+        await renderAnimalsList();
+      }
+      break;
+    case 'tournee':
+      if (currentPortalClientId) {
+        window.location.hash = portalRoute;
+        return;
+      }
+      await renderTournee();
+      break;
+    case 'sessions':
+      if (param) {
+        currentSessionId = Number(param);
+        const session = await getById('sessions', currentSessionId);
+        if (!session) {
+          showToast("Séance introuvable.", "error");
+          window.location.hash = currentPortalClientId ? portalRoute : 'dashboard';
+          return;
+        }
+        if (currentPortalClientId) {
+          const animal = await getById('animals', session.animal_id);
+          if (!animal || animal.client_id !== currentPortalClientId) {
+            showToast("Accès non autorisé.", "error");
+            window.location.hash = portalRoute;
+            return;
+          }
+          if (!window.location.hash.endsWith('/print')) {
+            window.location.hash = portalRoute;
+            return;
+          }
+        }
+        await renderSessionDetails(currentSessionId);
+      } else {
+        if (currentPortalClientId) {
+          window.location.hash = portalRoute;
+          return;
+        }
+        await renderSessionsList();
+      }
+      break;
+    case 'professionals':
+      if (currentPortalClientId) {
+        window.location.hash = portalRoute;
+        return;
+      }
+      await renderProfessionalsList();
+      break;
+    case 'reminders':
+      if (currentPortalClientId) {
+        window.location.hash = portalRoute;
+        return;
+      }
+      await renderRemindersList();
+      break;
+    case 'settings':
+      if (currentPortalClientId) {
+        window.location.hash = portalRoute;
+        return;
+      }
+      await renderSettingsData();
+      break;
+    case 'session-editor':
+      if (currentPortalClientId) {
+        window.location.hash = portalRoute;
+        return;
+      }
+      await prepareSessionEditor(param);
+      break;
+    case 'portal':
+      if (param) {
+        let client = await getClientByUuid(param);
+        if (!client && !isNaN(Number(param))) {
+          client = await getById('clients', Number(param));
+        }
+        if (!client && navigator.onLine) {
+          client = await fetchClientPortalData(param);
+        }
+
+        if (!client) {
+          showToast("Espace client introuvable.", "error");
+          window.location.hash = 'dashboard';
+          return;
+        }
+
+        // Si le client est archivé : BLOQUER STRICTEMENT quelle que soit la sous-route (dashboard ou animal)
+        if (client.archived_at) {
+          currentPortalClientId = client.id;
+          currentPortalClientToken = client.uuid || String(client.id);
+          sessionStorage.setItem('portalClientId', currentPortalClientId);
+          sessionStorage.setItem('portalClientToken', currentPortalClientToken);
+          
+          document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+          const portalSec = document.getElementById('view-portal');
+          if (portalSec) portalSec.classList.add('active');
+          await renderPortalDetails(param);
+          return;
+        }
+
+        if (subRoute === 'animals' && subParam) {
+          const animalId = Number(subParam);
+          let animal = await getById('animals', animalId);
+          
+          if (!animal && navigator.onLine) {
+            const supabase = getSupabaseClient();
+            if (supabase) {
+              try {
+                const { data } = await supabase.from('animals').select('*').eq('id', animalId).maybeSingle();
+                if (data) {
+                  animal = mapSupabaseToLocal('animals', data);
+                  await updateLocal('animals', animal);
+                }
+              } catch (e) {
+                console.warn("Erreur chargement animal distant:", e);
+              }
+            }
+          }
+
+          // Vérifier strictement qu'il appartient bien à ce client
+          if (!animal || String(animal.client_id) !== String(client.id)) {
+            showToast("Accès refusé : cet animal n'appartient pas à votre espace.", "error");
+            window.location.hash = `portal/${client.uuid || client.id}`;
+            return;
+          }
+
+          // Vérification de l'acceptation CGV & RGPD pour l'accès direct aux animaux
+          if (!client.cgv_rgpd_accepted) {
+            openCgvRgpdDialog(client, true);
+          }
+
+          currentAnimalId = animal.id;
+          await renderAnimalDetails(animal.id);
+        } else {
+          await renderPortalDetails(param);
+        }
+      } else {
+        window.location.hash = 'dashboard';
+      }
+      break;
+  }
+}
+
+// --- TOAST NOTIFICATIONS ---
+function showToast(message, type = 'success') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type === 'error' ? 'toast-error' : type === 'warning' ? 'toast-warning' : ''}`;
+  
+  let icon = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>';
+  if (type === 'error') {
+    icon = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+  } else if (type === 'warning') {
+    icon = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+  }
+
+  toast.innerHTML = `
+    ${icon}
+    <span>${message}</span>
+  `;
+  
+  container.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.animation = 'slideIn 0.3s ease-out reverse';
+    setTimeout(() => toast.remove(), 300);
+  }, 3500);
+}
+
+// --- DICTÉE VOCALE ---
+function setupSpeechRecognition() {
+  const dictateButtons = document.querySelectorAll('.btn-dictate');
+  if (!recognition) {
+    dictateButtons.forEach(btn => { btn.style.display = 'none'; });
+    return;
+  }
+  
+  dictateButtons.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const targetId = btn.getAttribute('data-target');
+      const textarea = document.getElementById(targetId);
+      
+      if (activeSpeechBtn === btn) {
+        recognition.stop();
+        return;
+      }
+      
+      if (activeSpeechBtn) {
+        recognition.stop();
+      }
+      
+      activeSpeechTarget = textarea;
+      activeSpeechBtn = btn;
+      btn.classList.add('dictating');
+      btn.querySelector('span').textContent = 'Écoute...';
+      
+      let originalText = textarea.value;
+      
+      recognition.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        
+        let newText = originalText;
+        if (newText.length > 0 && !newText.endsWith(' ') && finalTranscript.length > 0) {
+          newText += ' ';
+        }
+        newText += finalTranscript;
+        
+        textarea.value = newText + (interimTranscript ? ' ' + interimTranscript : '');
+        textarea.scrollTop = textarea.scrollHeight;
+      };
+      
+      recognition.onerror = (event) => {
+        console.error('Speech error', event);
+        if (event.error !== 'no-speech') {
+          showToast('Erreur lors de la dictée vocale.', 'error');
+          stopDictationUI();
+        }
+      };
+      
+      recognition.onend = () => { stopDictationUI(); };
+      
+      recognition.start();
+      showToast('Micro activé. Vous pouvez dicter.');
+    });
+  });
+}
+
+function stopDictationUI() {
+  if (activeSpeechBtn) {
+    activeSpeechBtn.classList.remove('dictating');
+    activeSpeechBtn.querySelector('span').textContent = 'Dicter';
+    activeSpeechBtn = null;
+    activeSpeechTarget = null;
+  }
+}
+
+// --- HELPER DATES ET AGES ---
+function calculateAge(birthdateStr, estAge = '') {
+  if (!birthdateStr) return estAge || '-';
+  const birthDate = new Date(birthdateStr);
+  if (isNaN(birthDate.getTime())) return estAge || birthdateStr;
+  
+  const today = new Date();
+  const age = today.getFullYear() - birthDate.getFullYear();
+  
+  if (age === 0) {
+    const months = (today.getFullYear() - birthDate.getFullYear()) * 12 + today.getMonth() - birthDate.getMonth();
+    return months > 0 ? `${months} mois` : 'Nouveau-né';
+  }
+  
+  return age === 1 ? '1 an' : `${age} ans`;
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('fr-FR');
+}
+
+// Récupère la semaine au format YYYY-Www
+function getYearWeek(dateObj) {
+  const d = new Date(Date.UTC(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+// Formate la semaine pour l'affichage
+function formatWeekDisplay(yearWeekStr) {
+  if (!yearWeekStr || !yearWeekStr.includes('-W')) return yearWeekStr;
+  const parts = yearWeekStr.split('-W');
+  return `Semaine ${parts[1]} (${parts[0]})`;
+}
+
+function calculateFutureDate(fromDateStr, delayType) {
+  const date = new Date(fromDateStr);
+  if (isNaN(date.getTime())) return fromDateStr;
+  
+  switch(delayType) {
+    case '2w': date.setDate(date.getDate() + 14); break;
+    case '3w': date.setDate(date.getDate() + 21); break;
+    case '1m': date.setMonth(date.getMonth() + 1); break;
+    case '2m': date.setMonth(date.getMonth() + 2); break;
+    case '3m': date.setMonth(date.getMonth() + 3); break;
+  }
+  
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// --- LOGIQUE DE REMINDER DE 2 SEMAINES (TRIGGER) ---
+function isReminderTriggered(datePrevueStr) {
+  if (!datePrevueStr) return false;
+  const prevue = new Date(datePrevueStr);
+  if (isNaN(prevue.getTime())) return false;
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  // Différence en millisecondes
+  const diffTime = prevue - today;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  // Déclenché à partir de 14 jours avant la date prévue
+  return diffDays <= 14;
+}
+
+// --- REMINDER BADGE SIDEBAR ---
+async function updateReminderBadge() {
+  const reminders = await getAll('reminders');
+  const activeReminders = reminders.filter(r => r.statut === 'en_attente' && isReminderTriggered(r.date_prevue));
+  const badge = document.getElementById('reminder-badge');
+  if (badge) {
+    if (activeReminders.length > 0) {
+      badge.textContent = activeReminders.length;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+}
+
+// --- RENDU : TABLEAU DE BORD (DASHBOARD) ---
+async function renderDashboard() {
+  const clients = await getAll('clients');
+  const animals = await getAll('animals');
+  const sessions = await getAll('sessions');
+  const reminders = await getAll('reminders');
+
+  // Stats numeriques (actifs uniquement)
+  const activeClients = clients.filter(c => !c.archived_at);
+  const activeAnimals = animals.filter(a => !a.archived_at);
+  document.getElementById('stat-clients-count').textContent = activeClients.length;
+  document.getElementById('stat-animals-count').textContent = activeAnimals.length;
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  const sessionsThisMonth = sessions.filter(s => {
+    if (!s.date_seance) return false;
+    const sDate = new Date(s.date_seance);
+    return sDate.getFullYear() === currentYear && sDate.getMonth() === currentMonth;
+  });
+
+  const sessionMonthEl = document.getElementById('stat-sessions-month');
+  if (sessionMonthEl) {
+    sessionMonthEl.innerHTML = `${sessionsThisMonth.length} <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-sub);">ce mois</span>`;
+  }
+  const sessionTotalEl = document.getElementById('stat-sessions-total');
+  if (sessionTotalEl) {
+    sessionTotalEl.textContent = sessions.length;
+  }
+
+  const urgentReminders = reminders.filter(r => r.statut === 'en_attente' && isReminderTriggered(r.date_prevue));
+  document.getElementById('stat-reminders-count').textContent = urgentReminders.length;
+  document.getElementById('urgent-reminders-badge').textContent = `${urgentReminders.length} actif(s)`;
+
+  // Click navigation handlers for stat cards
+  const cardClients = document.getElementById('card-nav-clients');
+  if (cardClients) {
+    cardClients.onclick = () => { window.location.hash = 'clients'; };
+  }
+  const cardAnimals = document.getElementById('card-nav-animals');
+  if (cardAnimals) {
+    cardAnimals.onclick = () => { window.location.hash = 'animals'; };
+  }
+  const cardSessions = document.getElementById('card-nav-sessions');
+  if (cardSessions) {
+    cardSessions.onclick = () => { window.location.hash = 'sessions'; };
+  }
+  const cardReminders = document.getElementById('card-nav-reminders');
+  if (cardReminders) {
+    cardReminders.onclick = () => { window.location.hash = 'reminders'; };
+  }
+
+  // Liste des rappels urgents sur le Dashboard
+  const listContainer = document.getElementById('dashboard-reminders-list');
+  listContainer.innerHTML = '';
+
+  if (urgentReminders.length === 0) {
+    listContainer.innerHTML = '<p class="empty-state">Aucun rappel actif pour le moment. Tout est à jour !</p>';
+  } else {
+    // Trier par date prévue ascendante (les plus en retard d'abord)
+    urgentReminders.sort((a, b) => new Date(a.date_prevue) - new Date(b.date_prevue));
+    
+    for (const r of urgentReminders) {
+      const isAllAnimals = (r.animal_id === 'ALL');
+      const animal = !isAllAnimals ? animals.find(an => an.id === r.animal_id) : null;
+      const client = clients.find(cl => cl.id === r.client_id);
+      
+      const rawType = r.type_rappel || r.title || r.motif || 'Rappel';
+      const displayName = (rawType === 'prendre_des_nouvelles') ? 'Prendre des nouvelles' : ((rawType === 'fixer_rdv' || rawType === 'prendre_rdv') ? 'Planifier un nouveau RDV' : rawType);
+      
+      let subjectLabel = '';
+      if (isAllAnimals) {
+        const clientAnimals = r.client_id ? animals.filter(an => an.client_id === r.client_id && !an.archived_at) : [];
+        const namesStr = clientAnimals.map(a => a.nom).join(', ');
+        const badgeHtml = `<span class="badge-all-animals" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.15); color: var(--color-primary); border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.75rem; padding: 1px 6px; border-radius: 4px; font-weight: 600; vertical-align: middle;">🐾 Tous les animaux${clientAnimals.length > 0 ? ` (${clientAnimals.length})` : ''}</span>`;
+        subjectLabel = `${badgeHtml}${namesStr ? ` <span style="font-size: 0.85em; opacity: 0.85;">(${namesStr})</span>` : ''}`;
+      } else if (animal) {
+        subjectLabel = animal.nom;
+      } else if (client) {
+        subjectLabel = `${client.prenom} ${client.nom}`;
+      }
+      
+      const fullTitle = subjectLabel ? `${displayName} &bull; ${subjectLabel}` : displayName;
+      const ownerName = client ? `${client.prenom} ${client.nom}` : '-';
+      const rawNote = r.notes || r.description || r.note || '';
+      
+      const rItem = document.createElement('div');
+      const delayDays = Math.ceil((new Date(r.date_prevue) - new Date()) / (1000 * 60 * 60 * 24));
+      
+      let statusClass = 'status-future';
+      if (delayDays < 0) {
+        statusClass = 'status-overdue';
+      } else if (delayDays === 0) {
+        statusClass = 'status-today';
+      }
+
+      rItem.className = `reminder-item ${statusClass}`;
+      rItem.innerHTML = `
+        <div class="reminder-left" style="cursor: pointer;">
+          <span class="reminder-date-tag">${formatDate(r.date_prevue)} (${delayDays < 0 ? 'En retard' : delayDays === 0 ? 'Aujourd\'hui' : 'Dans ' + delayDays + ' j'})</span>
+          <span class="reminder-title">${fullTitle}</span>
+          <span class="reminder-meta">Propriétaire : ${ownerName} &bull; ${rawNote ? escapeHtml(rawNote) : 'Pas de note'}</span>
+        </div>
+        <button class="btn btn-secondary btn-small btn-complete-reminder" data-id="${r.id}">Marquer Fait</button>
+      `;
+
+      // Clic pour aller à la fiche animal ou client
+      rItem.querySelector('.reminder-left').addEventListener('click', () => {
+        if (r.animal_id && r.animal_id !== 'ALL') {
+          window.location.hash = `animals/${r.animal_id}`;
+        } else if (r.client_id) {
+          window.location.hash = `clients/${r.client_id}`;
+        } else {
+          openReminderDialog(r);
+        }
+      });
+
+      // Clic pour marquer fait
+      rItem.querySelector('.btn-complete-reminder').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        r.statut = 'fait';
+        await update('reminders', r);
+        showToast('Rappel marqué comme effectué.');
+        await renderDashboard();
+        await updateReminderBadge();
+      });
+
+      listContainer.appendChild(rItem);
+    }
+  }
+
+  // Distribution des espèces (Mini Chart)
+  const speciesLegend = document.getElementById('species-chart-legend');
+  speciesLegend.innerHTML = '';
+  
+  if (animals.length === 0) {
+    speciesLegend.innerHTML = '<p class="empty-state">Aucune statistique disponible.</p>';
+  } else {
+    const speciesCounts = {};
+    animals.forEach(an => {
+      const sp = an.espece || 'Autre';
+      speciesCounts[sp] = (speciesCounts[sp] || 0) + 1;
+    });
+
+    const items = Object.entries(speciesCounts).sort((a,b) => b[1] - a[1]);
+    for (const [sp, val] of items) {
+      const pct = Math.round((val / animals.length) * 100);
+      const row = document.createElement('div');
+      row.style.margin = '10px 0';
+      row.innerHTML = `
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:4px;">
+          <span>${sp}</span>
+          <strong>${val} (${pct}%)</strong>
+        </div>
+        <div style="height:6px; background:rgba(255,255,255,0.1); border-radius:3px; overflow:hidden;">
+          <div style="height:100%; width:${pct}%; background:var(--color-primary); border-radius:3px;"></div>
+        </div>
+      `;
+      speciesLegend.appendChild(row);
+    }
+  }
+}
+
+// --- DIALOGUES & ACTIONS D'ARCHIVAGE ET SUPPRESSION DÉFINITIVE ---
+
+/**
+ * Ouvre la modale d'archivage dynamique pour un client ou un animal
+ */
+function openArchiveRecordDialog(type, record) {
+  const dialog = document.getElementById('dialog-archive-record');
+  if (!dialog) return;
+
+  const titleEl = document.getElementById('archive-dialog-title');
+  const subtitleEl = document.getElementById('archive-dialog-subtitle');
+  const selectEl = document.getElementById('archive-reason-select');
+  const customContainer = document.getElementById('archive-custom-reason-container');
+  const customInput = document.getElementById('archive-custom-reason-input');
+  const confirmBtn = document.getElementById('btn-confirm-archive');
+
+  const recordName = type === 'client' ? `${record.prenom} ${record.nom}` : record.nom;
+  titleEl.textContent = `Archiver ${type === 'client' ? 'le client' : "l'animal"} : ${recordName}`;
+  subtitleEl.textContent = `Sélectionnez un motif d'archivage pour cette fiche`;
+
+  // Remplir les motifs dynamiques
+  const reasons = getArchiveReasons(type);
+  selectEl.innerHTML = '';
+  reasons.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r;
+    opt.textContent = r;
+    selectEl.appendChild(opt);
+  });
+  const customOpt = document.createElement('option');
+  customOpt.value = '__custom__';
+  customOpt.textContent = 'Autre...';
+  selectEl.appendChild(customOpt);
+
+  customContainer.style.display = 'none';
+  customInput.value = '';
+
+  selectEl.onchange = () => {
+    if (selectEl.value === '__custom__') {
+      customContainer.style.display = 'block';
+      customInput.focus();
+    } else {
+      customContainer.style.display = 'none';
+    }
+  };
+
+  // Annulation
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  // Confirmation
+  confirmBtn.onclick = async () => {
+    let chosenReason = selectEl.value;
+    if (chosenReason === '__custom__') {
+      chosenReason = customInput.value.trim();
+      if (!chosenReason) {
+        showToast('Veuillez préciser le motif d\'archivage.', 'error');
+        customInput.focus();
+        return;
+      }
+      await saveArchiveReason(type, chosenReason);
+    }
+
+    const storeName = type === 'client' ? 'clients' : 'animals';
+    await archiveRecordDirect(storeName, record.id, chosenReason);
+
+    showToast(`${type === 'client' ? 'Client' : 'Animal'} archivé avec succès.`);
+    dialog.close();
+
+    // Actualiser les vues
+    if (type === 'client') {
+      if (window.location.hash.startsWith('#clients/')) {
+        await renderClientDetails(record.id);
+      } else {
+        await renderClientsList();
+      }
+    } else {
+      if (window.location.hash.startsWith('#animals/')) {
+        await renderAnimalDetails(record.id);
+      } else {
+        await renderAnimalsList();
+      }
+    }
+    await renderDashboard();
+  };
+
+  dialog.showModal();
+}
+
+/**
+ * Restaure une fiche archivée
+ */
+async function restoreRecord(type, record) {
+  const storeName = type === 'client' ? 'clients' : 'animals';
+  await restoreRecordDirect(storeName, record.id);
+
+  showToast(`${type === 'client' ? 'Client' : 'Animal'} restauré avec succès.`);
+
+  if (type === 'client') {
+    if (window.location.hash.startsWith('#clients/')) {
+      await renderClientDetails(record.id);
+    } else {
+      await renderClientsList();
+    }
+  } else {
+    if (window.location.hash.startsWith('#animals/')) {
+      await renderAnimalDetails(record.id);
+    } else {
+      await renderAnimalsList();
+    }
+  }
+  await renderDashboard();
+}
+
+/**
+ * Ouvre la modale de suppression définitive en cascade
+ */
+function openPermanentDeleteDialog(type, record) {
+  const dialog = document.getElementById('dialog-confirm-delete-permanent');
+  if (!dialog) return;
+
+  const titleEl = document.getElementById('delete-dialog-title');
+  const cascadeInfo = document.getElementById('delete-cascade-info');
+  const input = document.getElementById('delete-confirm-input');
+  const confirmBtn = document.getElementById('btn-confirm-delete-permanent');
+
+  const recordName = type === 'client' ? `${record.prenom} ${record.nom}` : record.nom;
+  titleEl.textContent = `Supprimer définitivement : ${recordName}`;
+
+  if (type === 'client') {
+    cascadeInfo.textContent = 'tous les animaux, séances, comptes-rendus et rappels associés à ce client';
+  } else {
+    cascadeInfo.textContent = 'toutes les séances, comptes-rendus et rappels associés à cet animal';
+  }
+
+  input.value = '';
+  confirmBtn.disabled = true;
+  confirmBtn.style.opacity = '0.5';
+  confirmBtn.style.cursor = 'not-allowed';
+
+  input.oninput = (e) => {
+    if (e && e.isComposing) return;
+    if (input.value.trim().toUpperCase() === 'SUPPRIMER') {
+      confirmBtn.disabled = false;
+      confirmBtn.style.opacity = '1';
+      confirmBtn.style.cursor = 'pointer';
+    } else {
+      confirmBtn.disabled = true;
+      confirmBtn.style.opacity = '0.5';
+      confirmBtn.style.cursor = 'not-allowed';
+    }
+  };
+
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  confirmBtn.onclick = async () => {
+    if (input.value.trim().toUpperCase() !== 'SUPPRIMER') return;
+
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span>Suppression en cours...</span>';
+
+    try {
+      if (type === 'client') {
+        await deleteClientCascade(record.id);
+        showToast('Client et toutes ses données supprimés définitivement.');
+        dialog.close();
+        window.location.hash = 'clients';
+      } else {
+        await deleteAnimalCascade(record.id);
+        showToast('Animal et toutes ses données supprimés définitivement.');
+        dialog.close();
+        window.location.hash = 'animals';
+      }
+    } catch (err) {
+      console.error('Erreur suppression cascade:', err);
+      showToast('Erreur lors de la suppression.', 'error');
+    } finally {
+      confirmBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </svg>
+        <span>Supprimer définitivement</span>
+      `;
+    }
+  };
+
+  dialog.showModal();
+}
+
+// --- RENDU : ANNUAIRE CLIENTS ---
+async function renderClientsList() {
+  const clients = await getAll('clients');
+  const animals = await getAll('animals');
+  
+  // Onglets de statut (Actifs / Archives)
+  const tabActive = document.getElementById('filter-clients-active');
+  const tabArchived = document.getElementById('filter-clients-archived');
+  const badgeArchived = document.getElementById('badge-clients-archived-count');
+  const btnAddClient = document.getElementById('btn-add-client');
+
+  const archivedClientsCount = clients.filter(c => !!c.archived_at).length;
+
+  if (badgeArchived) {
+    badgeArchived.textContent = archivedClientsCount;
+  }
+
+  // Masquer le bouton "+ Nouveau client" en mode Archives
+  if (btnAddClient) {
+    btnAddClient.style.display = clientsArchiveFilter === 'archived' ? 'none' : 'inline-flex';
+  }
+
+  // Adapter l'en-tête de colonne dynamique (Lieu de vie vs Motif d'archivage)
+  const thDynamic = document.getElementById('th-clients-dynamic-col');
+  if (thDynamic) {
+    if (clientsArchiveFilter === 'archived') {
+      thDynamic.innerHTML = `Motif d'archivage <span class="sort-icon"></span>`;
+      thDynamic.dataset.sort = 'archive_reason';
+    } else {
+      thDynamic.innerHTML = `Lieu de vie des animaux <span class="sort-icon"></span>`;
+      thDynamic.dataset.sort = 'location';
+    }
+  }
+
+  if (tabActive && !tabActive.dataset.listener) {
+    tabActive.dataset.listener = 'true';
+    tabActive.addEventListener('click', () => {
+      clientsArchiveFilter = 'active';
+      tabActive.classList.add('active');
+      if (tabArchived) tabArchived.classList.remove('active');
+      renderClientsList();
+    });
+  }
+
+  if (tabArchived && !tabArchived.dataset.listener) {
+    tabArchived.dataset.listener = 'true';
+    tabArchived.addEventListener('click', () => {
+      clientsArchiveFilter = 'archived';
+      tabArchived.classList.add('active');
+      if (tabActive) tabActive.classList.remove('active');
+      renderClientsList();
+    });
+  }
+
+  // Synchroniser l'état visuel des onglets
+  if (tabActive && tabArchived) {
+    if (clientsArchiveFilter === 'archived') {
+      tabArchived.classList.add('active');
+      tabActive.classList.remove('active');
+    } else {
+      tabActive.classList.add('active');
+      tabArchived.classList.remove('active');
+    }
+  }
+
+  const searchInput = document.getElementById('client-search-input');
+  if (searchInput && !searchInput.dataset.listener) {
+    searchInput.dataset.listener = 'true';
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderClientsList();
+    });
+  }
+  const filterVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+  const tbody = document.getElementById('clients-table-body');
+  tbody.innerHTML = '';
+
+  // 1. Filtrer par statut (actif vs archivé)
+  const statusFiltered = clients.filter(c => {
+    if (!c) return false;
+    if (clientsArchiveFilter === 'archived') {
+      return !!c.archived_at;
+    } else {
+      return !c.archived_at;
+    }
+  });
+
+  // 2. Filtrer par recherche textuelle
+  const filtered = statusFiltered.filter(c => {
+    if (!filterVal) return true;
+    const term = normalizeText(filterVal);
+    
+    // Check client details
+    if (normalizeText(c.nom).includes(term)) return true;
+    if (normalizeText(c.prenom).includes(term)) return true;
+    if (normalizeText(c.telephone).includes(term)) return true;
+    if (normalizeText(c.email).includes(term)) return true;
+    if (normalizeText(c.adresse).includes(term)) return true;
+    if (c.archive_reason && normalizeText(c.archive_reason).includes(term)) return true;
+
+    // Check associated animals
+    const clientAnimals = animals.filter(an => an.client_id === c.id);
+    for (const an of clientAnimals) {
+      if (normalizeText(an.nom).includes(term)) return true;
+      if (normalizeText(an.stable_name).includes(term)) return true;
+      if (normalizeText(an.stable_city).includes(term)) return true;
+      if (normalizeText(an.stable_zip).includes(term)) return true;
+      if (normalizeText(an.lieu_de_vie).includes(term)) return true;
+      
+      // Also check department display name if zip matches (e.g. Gironde, Yvelines)
+      if (an.stable_zip) {
+        const deptNum = an.stable_zip.substring(0, 2);
+        const deptName = DEPARTEMENTS[deptNum] || '';
+        if (normalizeText(deptName).includes(term)) return true;
+      }
+    }
+    
+    return false;
+  });
+
+  // Tri des clients
+  filtered.sort((a, b) => {
+    if (!a || !b) return 0;
+    let valA = '';
+    let valB = '';
+
+    if (clientSortCol === 'name') {
+      valA = (a.prenom || '').toLowerCase();
+      valB = (b.prenom || '').toLowerCase();
+    } else if (clientSortCol === 'archive_reason') {
+      valA = (a.archive_reason || '').toLowerCase();
+      valB = (b.archive_reason || '').toLowerCase();
+    } else if (clientSortCol === 'location') {
+      const animsA = animals.filter(an => an.client_id === a.id);
+      const animsB = animals.filter(an => an.client_id === b.id);
+      
+      const zipA = animsA.length > 0 ? (animsA[0].stable_zip || '') : '';
+      const zipB = animsB.length > 0 ? (animsB[0].stable_zip || '') : '';
+      const cityA = animsA.length > 0 ? (animsA[0].stable_city || '').toLowerCase() : '';
+      const cityB = animsB.length > 0 ? (animsB[0].stable_city || '').toLowerCase() : '';
+      
+      if (zipA !== zipB) {
+        if (!zipA) return 1;
+        if (!zipB) return -1;
+        return clientSortDir === 'asc' ? zipA.localeCompare(zipB) : zipB.localeCompare(zipA);
+      }
+      if (cityA !== cityB) {
+        if (!cityA) return 1;
+        if (!cityB) return -1;
+        return clientSortDir === 'asc' ? cityA.localeCompare(cityB, 'fr') : cityB.localeCompare(cityA, 'fr');
+      }
+      return 0;
+    }
+
+    if (valA < valB) return clientSortDir === 'asc' ? -1 : 1;
+    if (valA > valB) return clientSortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  // Configurer le tri interactif sur les en-têtes du tableau clients
+  const headers = document.querySelectorAll('#view-clients th.sortable');
+  headers.forEach(th => {
+    if (!th.dataset.listener) {
+      th.dataset.listener = 'true';
+      th.style.cursor = 'pointer';
+      th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        if (clientSortCol === col) {
+          clientSortDir = clientSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          clientSortCol = col;
+          clientSortDir = 'asc';
+        }
+        renderClientsList();
+      });
+    }
+    
+    const iconSpan = th.querySelector('.sort-icon');
+    if (iconSpan) {
+      if (th.dataset.sort === clientSortCol) {
+        iconSpan.textContent = clientSortDir === 'asc' ? ' ▲' : ' ▼';
+      } else {
+        iconSpan.textContent = '';
+      }
+    }
+  });
+
+  if (filtered.length === 0) {
+    const emptyMsg = clientsArchiveFilter === 'archived' ? 'Aucun client archivé.' : 'Aucun client trouvé.';
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${emptyMsg}</td></tr>`;
+  } else {
+    for (const c of filtered) {
+      const clientAnimals = animals.filter(an => an.client_id === c.id);
+      
+      const animalsHtml = clientAnimals.map(an => {
+        const spec = an.species || an.espece || 'Cheval';
+        let icon = '🐾';
+        if (spec === 'Cheval') icon = '🐴';
+        else if (spec === 'Chien') icon = '🐕';
+        else if (spec === 'Chat') icon = '🐱';
+        return `<span style="white-space: nowrap; margin-right: 8px;">${icon} ${an.nom}</span>`;
+      }).join(' ');
+
+      const locationsHtml = clientAnimals.map(an => {
+        return `<div style="font-size: 0.9rem; color: var(--text-sub); white-space: nowrap;">📍 ${getAnimalLocationSummary(an)}</div>`;
+      }).join('');
+
+      let col5Html = locationsHtml || '<span class="empty-state">-</span>';
+      if (clientsArchiveFilter === 'archived') {
+        const reasonText = c.archive_reason || 'Non précisé';
+        const dateText = c.archived_at ? formatDate(c.archived_at) : '';
+        col5Html = `
+          <div style="font-size: 0.88rem; color: #f59e0b; font-weight: 600;">📁 ${reasonText}</div>
+          ${dateText ? `<div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">le ${dateText}</div>` : ''}
+        `;
+      }
+
+      const cgvBadge = c.cgv_rgpd_accepted 
+        ? `<span class="badge-cgv-check" title="CGV & RGPD validés" style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: #10b981; color: white; font-size: 11px; font-weight: bold; margin-left: 6px; vertical-align: middle; box-shadow: 0 1px 3px rgba(16,185,129,0.35);">✓</span>` 
+        : '';
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${c.nom.toUpperCase()}</strong> ${c.prenom} ${cgvBadge}</td>
+        <td>${c.telephone}</td>
+        <td>${c.email || '-'}</td>
+        <td>${animalsHtml || '<span class="empty-state">-</span>'}</td>
+        <td>${col5Html}</td>
+        <td class="actions-column">
+          <button class="btn btn-secondary btn-small btn-view-client" data-id="${c.id}">Fiche</button>
+        </td>
+      `;
+
+      tr.addEventListener('click', () => { window.location.hash = `clients/${c.id}`; });
+      tr.querySelector('.btn-view-client').addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.location.hash = `clients/${c.id}`;
+      });
+
+      tbody.appendChild(tr);
+    }
+  }
+}
+
+// --- RENDU : FICHE CLIENT (DÉTAILS) ---
+async function renderClientDetails(clientId) {
+  const client = await getById('clients', clientId);
+  if (!client) {
+    showToast('Client introuvable.', 'error');
+    window.location.hash = 'clients';
+    return;
+  }
+
+  const clientNameEl = document.getElementById('detail-client-name');
+  if (clientNameEl) {
+    clientNameEl.innerHTML = `Fiche Client &mdash; ${client.prenom} ${client.nom.toUpperCase()} <span id="detail-client-cgv-badge" style="display: none;"></span>`;
+  }
+  const badgeEl = document.getElementById('detail-client-cgv-badge');
+  if (badgeEl) {
+    if (client.cgv_rgpd_accepted) {
+      badgeEl.innerHTML = `<span class="badge-cgv-check" title="CGV & RGPD validés" style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #10b981; color: white; font-size: 13px; font-weight: bold; margin-left: 8px; vertical-align: middle; box-shadow: 0 2px 6px rgba(16,185,129,0.35);">✓</span>`;
+      badgeEl.style.display = 'inline-flex';
+    } else {
+      badgeEl.style.display = 'none';
+    }
+  }
+
+  // Case à cocher praticienne : validation manuelle (accord direct / papier)
+  const cgvCheckbox = document.getElementById('detail-client-cgv-checkbox');
+  const cgvText = document.getElementById('detail-client-cgv-status-text');
+  if (cgvCheckbox) {
+    cgvCheckbox.checked = !!client.cgv_rgpd_accepted;
+    if (cgvText) {
+      cgvText.textContent = client.cgv_rgpd_accepted ? "Validé (en ligne ou accord papier)" : "En attente de validation";
+      cgvText.style.color = client.cgv_rgpd_accepted ? "#10b981" : "#94a3b8";
+    }
+    cgvCheckbox.onchange = async () => {
+      const isChecked = cgvCheckbox.checked;
+      const nowIso = new Date().toISOString();
+      client.cgv_rgpd_accepted = isChecked;
+      client.cgv_rgpd_accepted_at = isChecked ? (client.cgv_rgpd_accepted_at || nowIso) : null;
+      client.cgv_rgpd_version = isChecked ? (client.cgv_rgpd_version || 'v7') : null;
+      client.updated_at = nowIso;
+      client.last_modified = Date.now();
+      client.synced = 0;
+      if (client.notes) {
+        client.notes = String(client.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
+      }
+      await updateLocal('clients', client);
+      
+      if (badgeEl) {
+        if (isChecked) {
+          badgeEl.innerHTML = `<span class="badge-cgv-check" title="CGV & RGPD validés" style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #10b981; color: white; font-size: 13px; font-weight: bold; margin-left: 8px; vertical-align: middle; box-shadow: 0 2px 6px rgba(16,185,129,0.35);">✓</span>`;
+          badgeEl.style.display = 'inline-flex';
+        } else {
+          badgeEl.style.display = 'none';
+        }
+      }
+      if (cgvText) {
+        cgvText.textContent = isChecked ? "Validé (en ligne ou accord papier)" : "En attente de validation";
+        cgvText.style.color = isChecked ? "#10b981" : "#94a3b8";
+      }
+      
+      // Synchronisation Supabase immédiate si connecté
+      if (navigator.onLine) {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          try {
+            const patch = {
+              cgv_rgpd_accepted: isChecked,
+              cgv_rgpd_accepted_at: client.cgv_rgpd_accepted_at,
+              cgv_rgpd_version: client.cgv_rgpd_version,
+              updated_at: nowIso
+            };
+            const targetCol = client.id ? 'id' : 'uuid';
+            const targetVal = client.id ? String(client.id) : client.uuid;
+            const { error: patchErr } = await supabase.from('clients').update(patch).eq(targetCol, targetVal);
+            if (!patchErr) {
+              client.synced = 1;
+              await updateLocal('clients', client);
+            }
+          } catch (e) {
+            console.warn("Erreur sync manuelle CGV praticienne:", e);
+          }
+        }
+      }
+      showToast(isChecked ? "Acceptation CGV & RGPD validée." : "Acceptation CGV & RGPD révoquée.");
+    };
+  }
+
+  document.getElementById('detail-client-phone').textContent = client.telephone;
+  document.getElementById('detail-client-email').textContent = client.email || '-';
+  document.getElementById('detail-client-address').textContent = client.adresse || '-';
+  document.getElementById('detail-client-stable').textContent = client.ecurie || '-';
+  document.getElementById('detail-client-notes').textContent = client.notes ? String(client.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim() : 'Aucune note enregistrée.';
+
+  // Gestion de l'archivage & des boutons d'actions
+  const archiveBanner = document.getElementById('client-archive-banner');
+  const activeActions = document.getElementById('client-active-actions');
+  const archivedActions = document.getElementById('client-archived-actions');
+  const copyPortalBtn = document.getElementById('btn-copy-client-portal-link');
+
+  if (client.archived_at) {
+    if (archiveBanner) {
+      archiveBanner.innerHTML = `📁 Dossier archivé le <strong>${formatDate(client.archived_at)}</strong> — Motif : <strong>${client.archive_reason || 'Non précisé'}</strong>`;
+      archiveBanner.style.display = 'block';
+    }
+    if (activeActions) activeActions.style.display = 'none';
+    if (archivedActions) archivedActions.style.display = 'inline-flex';
+    if (copyPortalBtn) copyPortalBtn.style.display = 'none';
+
+    const restoreBtn = document.getElementById('btn-restore-client');
+    if (restoreBtn) {
+      restoreBtn.onclick = () => restoreRecord('client', client);
+    }
+
+    const deletePermanentBtn = document.getElementById('btn-delete-client-permanent');
+    if (deletePermanentBtn) {
+      deletePermanentBtn.onclick = () => openPermanentDeleteDialog('client', client);
+    }
+  } else {
+    if (archiveBanner) {
+      archiveBanner.style.display = 'none';
+    }
+    if (activeActions) activeActions.style.display = 'inline-flex';
+    if (archivedActions) archivedActions.style.display = 'none';
+    if (copyPortalBtn) copyPortalBtn.style.display = 'inline-flex';
+
+    const archiveBtn = document.getElementById('btn-archive-client');
+    if (archiveBtn) {
+      archiveBtn.onclick = () => openArchiveRecordDialog('client', client);
+    }
+  }
+
+  // Charger les animaux du client
+  const animals = await getByIndex('animals', 'client_id', clientId);
+  const listContainer = document.getElementById('detail-client-animals');
+  listContainer.innerHTML = '';
+
+  if (animals.length === 0) {
+    listContainer.innerHTML = '<p class="empty-state">Aucun animal enregistré pour ce client.</p>';
+  } else {
+    for (const an of animals) {
+      const card = document.createElement('a');
+      card.className = 'animal-mini-card';
+      const targetHash = currentPortalClientId 
+        ? `portal/${currentPortalClientToken || currentPortalClientId}/animals/${an.id}`
+        : `animals/${an.id}`;
+      card.href = `#${targetHash}`;
+      
+      const avatarText = an.nom.substring(0,2).toUpperCase();
+      const ageDisplay = calculateAge(an.date_naissance_ou_age, an.date_naissance_ou_age);
+
+      const locText = getAnimalLocationSummary(an);
+
+      card.innerHTML = `
+        <div class="animal-mini-info">
+          <div class="animal-avatar-mini">${avatarText}</div>
+          <div>
+            <span class="animal-mini-name">${an.nom} ${an.archived_at ? '<span style="font-size:0.75rem; color:#f59e0b;">(Archivé)</span>' : ''}</span>
+            <div class="animal-mini-details">${an.espece} &bull; ${an.race || 'Race inconnue'} &bull; ${ageDisplay}</div>
+            <div class="animal-mini-location" style="font-size:0.85rem; color:var(--text-sub); margin-top:2px;">📍 ${locText}</div>
+          </div>
+        </div>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      `;
+
+      listContainer.appendChild(card);
+    }
+  }
+
+  // Configurer le clic boutons d'actions
+  if (copyPortalBtn) {
+    copyPortalBtn.onclick = async () => {
+      let freshClient = await getById('clients', clientId);
+      if (!freshClient) freshClient = client;
+      if (!freshClient.uuid) {
+        freshClient.uuid = generateUUID();
+        await update('clients', freshClient);
+      }
+      const portalUrl = getClientPortalUrl(freshClient.uuid);
+      navigator.clipboard.writeText(portalUrl).then(() => {
+        showToast('Lien Espace Client sécurisé copié dans le presse-papier !');
+      }).catch(err => {
+        console.error('Erreur copie lien:', err);
+        showToast('Impossible de copier le lien.', 'error');
+      });
+    };
+  }
+
+  document.getElementById('btn-edit-client-detail').onclick = () => {
+    openClientDialog(client);
+  };
+
+  document.getElementById('btn-add-animal-to-client').onclick = () => {
+    openAnimalDialog(null, client.id);
+  };
+}
+
+// --- RENDU : ANIMAL LIST ---
+async function renderAnimalsList() {
+  const animals = await getAll('animals');
+  const clients = await getAll('clients');
+  
+  // Onglets de statut (Actifs / Archives)
+  const tabActive = document.getElementById('filter-animals-active');
+  const tabArchived = document.getElementById('filter-animals-archived');
+  const badgeArchived = document.getElementById('badge-animals-archived-count');
+  const btnAddAnimal = document.getElementById('btn-add-animal');
+
+  const archivedAnimalsCount = animals.filter(a => !!a.archived_at).length;
+
+  if (badgeArchived) {
+    badgeArchived.textContent = archivedAnimalsCount;
+  }
+
+  // Masquer le bouton "+ Nouvel animal" en mode Archives
+  if (btnAddAnimal) {
+    btnAddAnimal.style.display = animalsArchiveFilter === 'archived' ? 'none' : 'inline-flex';
+  }
+
+  // Adapter l'en-tête de colonne dynamique (Mode de suivi vs Motif d'archivage)
+  const thAnimalsDynamic = document.getElementById('th-animals-dynamic-col');
+  if (thAnimalsDynamic) {
+    if (animalsArchiveFilter === 'archived') {
+      thAnimalsDynamic.innerHTML = `Motif d'archivage <span class="sort-icon"></span>`;
+      thAnimalsDynamic.dataset.sort = 'archive_reason';
+    } else {
+      thAnimalsDynamic.innerHTML = `Mode de suivi <span class="sort-icon"></span>`;
+      thAnimalsDynamic.dataset.sort = 'tracking';
+    }
+  }
+
+  if (tabActive && !tabActive.dataset.listener) {
+    tabActive.dataset.listener = 'true';
+    tabActive.addEventListener('click', () => {
+      animalsArchiveFilter = 'active';
+      tabActive.classList.add('active');
+      if (tabArchived) tabArchived.classList.remove('active');
+      renderAnimalsList();
+    });
+  }
+
+  if (tabArchived && !tabArchived.dataset.listener) {
+    tabArchived.dataset.listener = 'true';
+    tabArchived.addEventListener('click', () => {
+      animalsArchiveFilter = 'archived';
+      tabArchived.classList.add('active');
+      if (tabActive) tabActive.classList.remove('active');
+      renderAnimalsList();
+    });
+  }
+
+  // Synchroniser l'état visuel des onglets
+  if (tabActive && tabArchived) {
+    if (animalsArchiveFilter === 'archived') {
+      tabArchived.classList.add('active');
+      tabActive.classList.remove('active');
+    } else {
+      tabActive.classList.add('active');
+      tabArchived.classList.remove('active');
+    }
+  }
+
+  const searchInput = document.getElementById('animal-search-input');
+  if (searchInput && !searchInput.dataset.listener) {
+    searchInput.dataset.listener = 'true';
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderAnimalsList();
+    });
+  }
+  const speciesFilter = document.getElementById('animal-species-filter');
+  if (speciesFilter && !speciesFilter.dataset.listener) {
+    speciesFilter.dataset.listener = 'true';
+    speciesFilter.addEventListener('change', renderAnimalsList);
+  }
+  
+  const filterVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
+  const specVal = speciesFilter ? speciesFilter.value : '';
+
+  const tbody = document.getElementById('animals-table-body');
+  tbody.innerHTML = '';
+
+  // 1. Filtrer par statut (actif vs archivé)
+  const statusFiltered = animals.filter(a => {
+    if (!a) return false;
+    if (animalsArchiveFilter === 'archived') {
+      return !!a.archived_at;
+    } else {
+      return !a.archived_at;
+    }
+  });
+
+  // 2. Filtrer par espèce et recherche textuelle
+  const filtered = statusFiltered.filter(an => {
+    if (!an) return false;
+    const spec = an.species || an.espece || 'Cheval';
+    
+    // Espèce filter
+    if (specVal) {
+      if (specVal === 'Autre') {
+        if (['Cheval', 'Chien', 'Chat'].includes(spec)) return false;
+      } else {
+        if (spec !== specVal) return false;
+      }
+    }
+    
+    // Texte
+    if (!filterVal) return true;
+    
+    const client = clients.find(c => c.id === an.client_id);
+    const ownerName = client ? `${client.prenom} ${client.nom}`.toLowerCase() : '';
+    
+    const stableName = (an.stable_name || '').toLowerCase();
+    const stableAddress = (an.stable_address || '').toLowerCase();
+    const stableZip = (an.stable_zip || '').toLowerCase();
+    const stableCity = (an.stable_city || '').toLowerCase();
+    const oldLieu = (an.lieu_de_vie || '').toLowerCase();
+
+    return (an.nom && an.nom.toLowerCase().includes(filterVal)) ||
+           (an.race && an.race.toLowerCase().includes(filterVal)) ||
+           (an.archive_reason && an.archive_reason.toLowerCase().includes(filterVal)) ||
+           spec.toLowerCase().includes(filterVal) ||
+           stableName.includes(filterVal) ||
+           stableAddress.includes(filterVal) ||
+           stableZip.includes(filterVal) ||
+           stableCity.includes(filterVal) ||
+           oldLieu.includes(filterVal) ||
+           ownerName.includes(filterVal);
+  });
+
+  // Tri
+  filtered.sort((a, b) => {
+    if (!a || !b) return 0;
+    let valA = '';
+    let valB = '';
+
+    if (currentSortCol === 'name') {
+      valA = (a.nom || '').toLowerCase();
+      valB = (b.nom || '').toLowerCase();
+    } else if (currentSortCol === 'breed') {
+      valA = `${a.race || ''} ${a.robe || ''}`.toLowerCase();
+      valB = `${b.race || ''} ${b.robe || ''}`.toLowerCase();
+    } else if (currentSortCol === 'owner') {
+      const clientA = clients.find(c => c.id === a.client_id);
+      const clientB = clients.find(c => c.id === b.client_id);
+      valA = clientA ? `${clientA.prenom} ${clientA.nom}`.toLowerCase() : '';
+      valB = clientB ? `${clientB.prenom} ${clientB.nom}`.toLowerCase() : '';
+    } else if (currentSortCol === 'location') {
+      const clientA = clients.find(c => c.id === a.client_id);
+      const clientB = clients.find(c => c.id === b.client_id);
+      valA = (a.stable_name || a.lieu_de_vie || '').toLowerCase();
+      valB = (b.stable_name || b.lieu_de_vie || '').toLowerCase();
+    } else if (currentSortCol === 'age') {
+      const dobA = a.date_naissance_ou_age || '';
+      const dobB = b.date_naissance_ou_age || '';
+      const dateA = dobA ? new Date(dobA) : null;
+      const dateB = dobB ? new Date(dobB) : null;
+      const timeA = (dateA && !isNaN(dateA.getTime())) ? dateA.getTime() : 0;
+      const timeB = (dateB && !isNaN(dateB.getTime())) ? dateB.getTime() : 0;
+      return currentSortDir === 'asc' ? timeB - timeA : timeA - timeB;
+    } else if (currentSortCol === 'archive_reason') {
+      valA = (a.archive_reason || '').toLowerCase();
+      valB = (b.archive_reason || '').toLowerCase();
+    } else if (currentSortCol === 'tracking') {
+      const trackA = a.trackingMode || a.modeSuivi || a.tracking_mode || '4x par an';
+      const trackB = b.trackingMode || b.modeSuivi || b.tracking_mode || '4x par an';
+      const otherA = a.tracking_mode_other || '';
+      const otherB = b.tracking_mode_other || '';
+      valA = (trackA === 'Autre' ? otherA : trackA).toLowerCase();
+      valB = (trackB === 'Autre' ? otherB : trackB).toLowerCase();
+    }
+
+    if (valA < valB) return currentSortDir === 'asc' ? -1 : 1;
+    if (valA > valB) return currentSortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  // Configurer le tri interactif sur les en-têtes
+  const headers = document.querySelectorAll('.data-table th.sortable');
+  headers.forEach(th => {
+    if (!th.dataset.listener) {
+      th.dataset.listener = 'true';
+      th.style.cursor = 'pointer';
+      th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        if (currentSortCol === col) {
+          currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          currentSortCol = col;
+          currentSortDir = 'asc';
+        }
+        renderAnimalsList();
+      });
+    }
+    
+    const iconSpan = th.querySelector('.sort-icon');
+    if (iconSpan) {
+      if (th.dataset.sort === currentSortCol) {
+        iconSpan.textContent = currentSortDir === 'asc' ? ' ▲' : ' ▼';
+      } else {
+        iconSpan.textContent = '';
+      }
+    }
+  });
+
+  if (filtered.length === 0) {
+    const emptyMsg = animalsArchiveFilter === 'archived' ? 'Aucun animal archivé.' : 'Aucun animal trouvé.';
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">${emptyMsg}</td></tr>`;
+  } else {
+    for (const an of filtered) {
+      if (!an) continue;
+      const client = clients.find(c => c.id === an.client_id);
+      const ownerName = client ? `${client.prenom} ${client.nom}` : '-';
+      const ageDisplay = calculateAge(an.date_naissance_ou_age, an.date_naissance_ou_age);
+      
+      const spec = an.species || an.espece || 'Cheval';
+      let specIcon = '🐾';
+      if (spec === 'Cheval') specIcon = '🐴';
+      else if (spec === 'Chien') specIcon = '🐕';
+      else if (spec === 'Chat') specIcon = '🐱';
+
+      const prob = an.mainIssues || an.problematique || an.main_problems || '-';
+      
+      const tracking = an.trackingMode || an.modeSuivi || an.tracking_mode || '4x par an';
+      const trackingText = tracking === 'Autre' ? (an.tracking_mode_other || 'Autre') : tracking;
+
+      let col7Html = trackingText;
+      if (animalsArchiveFilter === 'archived') {
+        const reasonText = an.archive_reason || 'Non précisé';
+        const dateText = an.archived_at ? formatDate(an.archived_at) : '';
+        col7Html = `
+          <div style="font-size: 0.88rem; color: #f59e0b; font-weight: 600;">📁 ${reasonText}</div>
+          ${dateText ? `<div style="font-size: 0.78rem; color: var(--text-sub); margin-top: 2px;">le ${dateText}</div>` : ''}
+        `;
+      }
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${specIcon} &nbsp; <strong>${an.nom || 'Sans nom'}</strong></td>
+        <td>${an.race || '-'} ${an.robe ? '('+an.robe+')' : ''}</td>
+        <td>${ownerName}</td>
+        <td>${an.stable_name || an.lieu_de_vie || '-'}</td>
+        <td>${ageDisplay}</td>
+        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${prob}</td>
+        <td>${col7Html}</td>
+        <td class="actions-column">
+          <button class="btn btn-secondary btn-small btn-view-animal" data-id="${an.id}">Fiche</button>
+        </td>
+      `;
+
+      tr.addEventListener('click', () => { window.location.hash = `animals/${an.id}`; });
+      tr.querySelector('.btn-view-animal').addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.location.hash = `animals/${an.id}`;
+      });
+
+      tbody.appendChild(tr);
+    }
+  }
+}
+
+// --- RENDU : ANIMAL DETAIL (FICHE) ---
+async function renderAnimalDetails(animalId) {
+  const animal = await getById('animals', animalId);
+  if (!animal) {
+    showToast('Animal introuvable.', 'error');
+    window.location.hash = 'animals';
+    return;
+  }
+
+  // Dynamic contextual back button logic
+  const contextualBtn = document.getElementById('btn-back-contextual');
+  const contextualText = document.getElementById('btn-back-contextual-text');
+  
+  if (contextualBtn && contextualText) {
+    if (currentPortalClientId) {
+      contextualBtn.style.display = 'inline-flex';
+      contextualText.textContent = 'Retour à mon espace';
+      contextualBtn.onclick = () => { window.location.hash = `portal/${currentPortalClientToken || currentPortalClientId}`; };
+    } else if (animalDetailsProvenance) {
+      contextualBtn.style.display = 'inline-flex';
+      
+      if (animalDetailsProvenance === 'reminders') {
+        contextualText.textContent = 'Retour aux rappels';
+        contextualBtn.onclick = () => { window.location.hash = 'reminders'; };
+      } else if (animalDetailsProvenance === 'tournee') {
+        contextualText.textContent = 'Retour aux tournées';
+        contextualBtn.onclick = () => { window.location.hash = 'tournee'; };
+      } else if (animalDetailsProvenance === 'clients') {
+        contextualText.textContent = 'Retour aux clients';
+        contextualBtn.onclick = () => { window.location.hash = 'clients'; };
+      } else if (animalDetailsProvenance === 'professionals') {
+        contextualText.textContent = 'Retour aux professionnels';
+        contextualBtn.onclick = () => { window.location.hash = 'professionals'; };
+      } else if (animalDetailsProvenance.startsWith('clients/')) {
+        contextualText.textContent = 'Retour au client';
+        contextualBtn.onclick = () => { window.location.hash = animalDetailsProvenance; };
+      } else {
+        contextualBtn.style.display = 'none';
+      }
+    } else {
+      contextualBtn.style.display = 'none';
+    }
+  }
+
+  const client = await getById('clients', animal.client_id);
+  const ownerName = client ? `${client.prenom} ${client.nom.toUpperCase()}` : 'Propriétaire inconnu';
+
+  document.getElementById('detail-animal-name').textContent = animal.nom;
+  document.getElementById('detail-animal-owner').innerHTML = client 
+    ? (currentPortalClientId ? ownerName : `<a href="#clients/${client.id}" style="color:var(--color-primary); font-weight:600; text-decoration:none;">${ownerName}</a>`)
+    : ownerName;
+
+  document.getElementById('detail-animal-identity').textContent = `${animal.espece} • ${animal.race || 'Race inconnue'} ${animal.robe ? '('+animal.robe+')' : ''}`;
+  
+  const idNumberRow = document.getElementById('detail-animal-id-number-row');
+  const idNumberEl = document.getElementById('detail-animal-id-number');
+  if (idNumberRow && idNumberEl) {
+    if (animal.id_number) {
+      idNumberRow.style.display = 'flex';
+      idNumberEl.textContent = animal.id_number;
+    } else {
+      idNumberRow.style.display = 'none';
+      idNumberEl.textContent = '-';
+    }
+  }
+
+  document.getElementById('detail-animal-sex').textContent = animal.sexe || 'Non précisé';
+  
+  const birthdateStr = animal.date_naissance_ou_age || '';
+  const ageDisplay = calculateAge(birthdateStr, birthdateStr);
+  document.getElementById('detail-animal-age').textContent = birthdateStr 
+    ? `${formatDate(birthdateStr)} (${ageDisplay})`
+    : ageDisplay;
+
+  // New photo display logic
+  const detailPhoto = document.getElementById('detail-animal-photo');
+  const detailPlaceholder = document.getElementById('detail-animal-photo-placeholder');
+  if (animal.photo_data_url) {
+    detailPhoto.src = animal.photo_data_url;
+    detailPhoto.style.display = 'block';
+    detailPlaceholder.style.display = 'none';
+    detailPhoto.style.cursor = 'pointer';
+    detailPhoto.title = "Cliquer pour agrandir la photo";
+    detailPhoto.onclick = () => {
+      const preOpenedTab = prepareMobileTabIfNeeded();
+      openUniversalDocument(animal.photo_data_url, `Photo - ${animal.nom || 'Animal'}`, `Photo - ${animal.nom || 'Animal'}`, { preOpenedTab });
+    };
+  } else {
+    detailPhoto.src = '';
+    detailPhoto.style.display = 'none';
+    detailPlaceholder.style.display = 'block';
+    detailPhoto.onclick = null;
+  }
+
+  // Tracking frequency display
+  const trackingText = animal.tracking_mode === 'Autre' ? (animal.tracking_mode_other || 'Autre suivi') : (animal.tracking_mode || '4x par an');
+  document.getElementById('detail-animal-tracking-mode-display').textContent = `Suivi : ${trackingText}`;
+  document.getElementById('detail-animal-tracking-mode').textContent = trackingText;
+
+  // Pension, Location & Distance
+  const stableName = animal.stable_name || animal.lieu_de_vie || '-';
+  let stableAddress = animal.stable_address || '';
+  let stableZip = animal.stable_zip || '';
+  let stableCity = animal.stable_city || '';
+  const stableDistance = animal.stable_distance || 0;
+
+  // Fallback: if stable_address has content but zip and city are empty, try parsing
+  if (stableAddress && !stableZip && !stableCity) {
+    const parsed = parseAddress(stableAddress);
+    stableAddress = parsed.address;
+    stableZip = parsed.zip;
+    stableCity = parsed.city;
+  }
+
+  const fullAddressParts = [];
+  if (stableAddress) fullAddressParts.push(stableAddress);
+  if (stableZip || stableCity) {
+    fullAddressParts.push(`${stableZip} ${stableCity}`.trim());
+  }
+  const fullAddress = fullAddressParts.join(', ') || '-';
+
+  document.getElementById('detail-animal-lieu').textContent = stableName;
+  document.getElementById('detail-animal-address').textContent = fullAddress;
+  document.getElementById('detail-animal-distance').textContent = stableDistance ? `${stableDistance} km` : '-';
+  
+  const isHorse = animal.espece === 'Cheval';
+  
+  const housingRow = document.getElementById('detail-animal-housing-row');
+  const workRow = document.getElementById('detail-animal-work-row');
+  const lifestyleRow = document.getElementById('detail-animal-lifestyle-row');
+
+  if (housingRow) housingRow.style.display = isHorse ? 'flex' : 'none';
+  if (workRow) workRow.style.display = isHorse ? 'flex' : 'none';
+  if (lifestyleRow) {
+    lifestyleRow.style.display = isHorse ? 'none' : 'flex';
+    document.getElementById('detail-animal-lifestyle').textContent = animal.lifestyle_details || '-';
+  }
+
+  // Housing mode
+  let hType = animal.housing_type || animal.housing_mode || '-';
+  if (hType === 'Autre') {
+    hType = animal.housing_type_other || animal.housing_mode_other || 'Autre hébergement';
+  }
+  let sType = animal.social_type || '';
+  if (sType === 'Autre') {
+    sType = 'Autre vie sociale';
+  }
+  
+  let combinedHousing = hType;
+  if (sType) {
+    combinedHousing += ` • ${sType}`;
+  }
+  document.getElementById('detail-animal-housing').textContent = combinedHousing;
+
+  // Nutrition
+  document.getElementById('detail-animal-nutritionist').textContent = animal.nutritionist ? 'Oui' : 'Non';
+  document.getElementById('detail-animal-nutrition-details').textContent = animal.nutrition_details || '-';
+
+  // Work & Main problems
+  document.getElementById('detail-animal-work').textContent = animal.work_objective || '-';
+  document.getElementById('detail-animal-problems').textContent = animal.main_problems || '-';
+
+  // Structured medical history rendering
+  const medHistoryContainer = document.getElementById('detail-animal-medical-history');
+  medHistoryContainer.innerHTML = '';
+  const medEvents = animal.medical_events || [];
+  if (medEvents.length === 0) {
+    if (animal.antecedents) {
+      // Fallback to old text format if any exists
+      const fallbackDiv = document.createElement('div');
+      fallbackDiv.className = 'medical-history-item';
+      fallbackDiv.textContent = animal.antecedents;
+      medHistoryContainer.appendChild(fallbackDiv);
+    } else {
+      medHistoryContainer.innerHTML = '<p class="empty-state">Aucun antécédent médical enregistré.</p>';
+    }
+  } else {
+    // Sort chronologically descending (newer to older)
+    const MONTHS_ORDER = {
+      "Janvier": 1, "Février": 2, "Mars": 3, "Avril": 4, "Mai": 5, "Juin": 6,
+      "Juillet": 7, "Août": 8, "Septembre": 9, "Octobre": 10, "Novembre": 11, "Décembre": 12
+    };
+    medEvents.sort((a, b) => {
+      const yearA = parseInt(a.year) || 0;
+      const yearB = parseInt(b.year) || 0;
+      if (yearA !== yearB) return yearB - yearA;
+      
+      const monthA = MONTHS_ORDER[a.month] || 0;
+      const monthB = MONTHS_ORDER[b.month] || 0;
+      return monthB - monthA;
+    });
+    medEvents.forEach(ev => {
+      const itemDiv = document.createElement('div');
+      itemDiv.className = 'medical-history-item';
+      itemDiv.innerHTML = `
+        <span class="medical-history-date">${ev.year}${ev.month ? ' - ' + ev.month : ''}</span>
+        <span>: ${ev.event}</span>
+      `;
+      medHistoryContainer.appendChild(itemDiv);
+    });
+  }
+
+  // Charger les professionnels associés
+  const professionals = await getAll('professionals');
+  const profsListContainer = document.getElementById('detail-animal-professionals');
+  profsListContainer.innerHTML = '';
+
+  const assocIds = animal.pros_associes_ids || [];
+  const assocProfs = professionals.filter(p => assocIds.includes(p.id));
+
+  if (assocProfs.length === 0) {
+    profsListContainer.innerHTML = '<p class="empty-state">Aucun professionnel enregistré pour le moment.</p>';
+  } else {
+    for (const p of assocProfs) {
+      const pItem = document.createElement('div');
+      pItem.className = 'prof-mini-item';
+      pItem.innerHTML = `
+        <div class="prof-mini-info">
+          <h4>${p.prenom} ${p.nom}</h4>
+          <p>${p.specialite} &bull; Tel : ${p.telephone || '-'}</p>
+        </div>
+      `;
+      profsListContainer.appendChild(pItem);
+    }
+  }
+
+  // Historique des séances de l'animal
+  const sessions = await getAll('sessions');
+  const animalSessions = sessions.filter(s => s.animal_id === animalId);
+  const sessionsContainer = document.getElementById('detail-animal-sessions');
+  sessionsContainer.innerHTML = '';
+
+  // Trier par date descendante (les plus récentes en premier)
+  animalSessions.sort((a,b) => new Date(b.date_seance) - new Date(a.date_seance));
+
+  if (animalSessions.length === 0) {
+    sessionsContainer.innerHTML = '<p class="empty-state">Aucune séance enregistrée pour cet animal.</p>';
+  } else {
+    for (const s of animalSessions) {
+      const item = document.createElement('div');
+      
+      if (s.isExternal) {
+        item.className = 'timeline-item timeline-item-external';
+        const docResource = s.fileData || s.attachments;
+        item.style.cursor = docResource ? 'pointer' : 'default';
+        
+        const cleanSummary = formatTimelineSummary(s.summary || '-');
+        const crBtnHtml = docResource ? `<button type="button" class="btn btn-secondary btn-small btn-view-cr" style="display:inline-flex; align-items:center; gap:4px; padding: 2px 8px; font-size: 0.78rem;">📄 Voir le CR</button>` : '';
+        
+        item.innerHTML = `
+          <div class="timeline-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+            <div class="timeline-objective" style="font-size:0.86rem; font-weight:700; color:#ffffff; margin:0;">
+              ${s.profession || 'Intervention'}${s.practitionerName ? ` - <em style="font-weight:normal; font-style:italic; color:#96A5BA;">${s.practitionerName}</em>` : ''}
+            </div>
+            <span class="badge-external" style="font-size:0.72rem; padding: 2px 8px; margin:0;">${formatDate(s.date_seance)}</span>
+          </div>
+          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; margin-bottom:2px; line-height:1.35; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0; white-space:pre-line;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0; white-space:pre-line;"><strong>Résumé :</strong> <span style="white-space:pre-line; color:#96A5BA;">${cleanSummary}</span></div>
+          <div class="timeline-actions-ext" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px;">
+            ${(!animal.archived_at) ? `
+              <button type="button" class="btn btn-secondary btn-small btn-edit-ext-session" style="padding: 2px 8px; font-size: 0.78rem;">Modifier</button>
+              <button type="button" class="btn btn-danger btn-small btn-delete-ext-session" style="padding: 2px 8px; font-size: 0.78rem;">Supprimer</button>
+            ` : ''}
+            ${crBtnHtml}
+          </div>
+        `;
+        
+        if (docResource) {
+          const openDocHandler = () => {
+            const preOpenedTab = prepareMobileTabIfNeeded();
+            openUniversalDocument(docResource, s.fileName || s.file_name || 'document.pdf', `Compte-rendu ${s.profession} pour ${animal.nom} (${formatDate(s.date_seance)})`, {
+              fileType: s.fileType || s.file_type,
+              subtitle: `Séance du ${formatDate(s.date_seance)} • ${s.profession}`,
+              text: `Compte-rendu ${s.profession} pour ${animal.nom} (${formatDate(s.date_seance)})`,
+              preOpenedTab
+            });
+          };
+
+          item.addEventListener('click', () => {
+            openDocHandler();
+          });
+
+          item.querySelector('.btn-view-cr')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openDocHandler();
+          });
+        }
+
+        item.querySelector('.btn-edit-ext-session')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openExternalSessionDialog(s, animalId);
+        });
+
+        item.querySelector('.btn-delete-ext-session')?.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (confirm("Êtes-vous sûr de vouloir supprimer cette séance ?")) {
+            await remove('sessions', s.id);
+            try { await deletePdfCache(`cr_pdf_${s.id}`); } catch (_) {}
+            showToast("Séance supprimée.");
+            await renderAnimalDetails(animalId);
+          }
+        });
+        
+      } else {
+        item.className = 'timeline-item';
+        item.style.cursor = 'pointer';
+        
+        const rawSum = s.resume_client_genere || 'Aucun résumé client rédigé.';
+        const cleanSummary = formatTimelineSummary(rawSum);
+        
+        // Détection de tous les protocoles cochés/utilisés lors de la séance (Tenségrité fusionnée dans Techniques manuelles pour le client)
+        const activeProtocols = getActiveProtocolsList(s);
+        const cardTitle = activeProtocols.length > 0 ? activeProtocols.join(' + ') : (s.motif || `Séance du ${formatDate(s.date_seance)}`);
+        
+        item.innerHTML = `
+          <div class="timeline-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+            <div class="timeline-objective" style="font-size:0.86rem; font-weight:700; color:#ffffff; margin:0;">${cardTitle}</div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="timeline-date" style="font-size:0.75rem; color:#96A5BA;">${formatDate(s.date_seance)}</span>
+              <span class="timeline-n-session" style="font-size:0.72rem; padding:1px 6px; color:#96A5BA;">Séance ${s.n_seance_annee || 1}</span>
+            </div>
+          </div>
+          ${s.motif ? `<div class="timeline-motif" style="font-size:0.82rem; color:#96A5BA; margin-bottom:2px; line-height:1.35; text-indent:0; margin-left:0; padding-left:0; white-space:pre-line;"><strong>Motif :</strong> ${s.motif}</div>` : ''}
+          <div class="timeline-preview" style="-webkit-line-clamp:unset; max-height:none; overflow:visible; font-size:0.82rem; line-height:1.35; margin:0; word-break:break-word; color:#96A5BA; text-indent:0; margin-left:0; padding-left:0; white-space:pre-line;"><strong>Résumé :</strong> <span style="white-space:pre-line; color:#96A5BA;">${cleanSummary}</span></div>
+          <div style="margin-top:6px; display:flex; gap:6px; align-items:center;">
+            <button class="btn btn-secondary btn-small btn-print-direct" style="display:inline-flex; align-items:center; gap:4px; padding:2px 8px; font-size:0.78rem;">📄 Voir le CR</button>
+          </div>
+        `;
+
+        item.addEventListener('click', () => {
+          if (currentPortalClientId) {
+            const preOpenedTab = prepareMobileTabIfNeeded();
+            openPortalSessionModal(s, animal, { preOpenedTab });
+          } else {
+            window.location.hash = `sessions/${s.id}`;
+          }
+        });
+
+        item.querySelector('.btn-print-direct').addEventListener('click', (e) => {
+          e.stopPropagation();
+          const btn = e.currentTarget;
+          if (btn && btn.disabled) return;
+          if (btn) {
+            btn.disabled = true;
+            setTimeout(() => { btn.disabled = false; }, 2000);
+          }
+          const preOpenedTab = prepareMobileTabIfNeeded();
+          openPortalSessionModal(s, animal, { preOpenedTab });
+        });
+      }
+      
+      sessionsContainer.appendChild(item);
+    }
+  }
+
+  // Rappels associés
+  const reminders = await getAll('reminders');
+  const animalReminders = reminders.filter(r => (r.animal_id === animalId || (r.animal_id === 'ALL' && animal && r.client_id === animal.client_id)) && r.statut === 'en_attente');
+  // Trier impérativement par ordre chronologique CROISSANT (ascendant) : la date la plus proche en premier
+  animalReminders.sort((a, b) => new Date(a.date_prevue || a.due_date || 0) - new Date(b.date_prevue || b.due_date || 0));
+  const remindersContainer = document.getElementById('detail-animal-reminders');
+  remindersContainer.innerHTML = '';
+
+  if (animalReminders.length === 0) {
+    remindersContainer.innerHTML = '<p class="empty-state">Aucun rappel en attente.</p>';
+  } else {
+    for (const r of animalReminders) {
+      const rDiv = document.createElement('div');
+      
+      let statusClass = 'status-future';
+      let tagColorVar = '--color-info';
+      
+      const delayDays = Math.ceil((new Date(r.date_prevue) - new Date()) / (1000 * 60 * 60 * 24));
+      if (delayDays < 0) {
+        statusClass = 'status-overdue';
+        tagColorVar = '--color-danger';
+      } else if (delayDays === 0) {
+        statusClass = 'status-today';
+        tagColorVar = '--color-warning';
+      }
+
+      rDiv.className = `reminder-item ${statusClass}`;
+      rDiv.style.cursor = 'pointer';
+      
+      const rawType = r.type_rappel || r.title || r.motif || 'Rappel';
+      const displayName = (rawType === 'prendre_des_nouvelles') ? 'Prendre des nouvelles' : ((rawType === 'fixer_rdv' || rawType === 'prendre_rdv') ? 'Planifier un nouveau RDV' : rawType);
+      const groupBadge = (r.animal_id === 'ALL') ? `<span class="badge-all-animals" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.15); color: var(--color-primary); border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.72rem; padding: 1px 6px; border-radius: 4px; font-weight: 600; vertical-align: middle; margin-left: 6px;">🐾 Tous les animaux du client</span>` : '';
+      const rawNote = r.notes || r.description || r.note || '';
+
+      rDiv.innerHTML = `
+        <div class="reminder-left" style="flex-grow: 1; margin-right: 15px;">
+          <span class="reminder-date-tag" style="color:var(${tagColorVar});">${formatDate(r.date_prevue)}</span>
+          <span class="reminder-title">${displayName}${groupBadge}</span>
+          <span class="reminder-meta">${rawNote ? escapeHtml(rawNote) : ''}</span>
+        </div>
+        ${(!animal.archived_at && !currentPortalClientId) ? `<button class="btn btn-secondary btn-small btn-complete-reminder-animal" data-id="${r.id}">Marquer Fait</button>` : ''}
+      `;
+
+      if (!currentPortalClientId) {
+        rDiv.addEventListener('click', () => {
+          openReminderDialog(r);
+        });
+      }
+
+      const completeBtn = rDiv.querySelector('.btn-complete-reminder-animal');
+      if (completeBtn) {
+        completeBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          r.statut = 'fait';
+          await update('reminders', r);
+          showToast('Rappel marqué fait.');
+          await renderAnimalDetails(animalId);
+          await updateReminderBadge();
+          await renderDashboard();
+        });
+      }
+
+      remindersContainer.appendChild(rDiv);
+    }
+  }
+
+  // Gestion de l'archivage & des boutons d'actions
+  const archiveBanner = document.getElementById('animal-archive-banner');
+  const activeActions = document.getElementById('animal-active-actions');
+  const archivedActions = document.getElementById('animal-archived-actions');
+  const copyPortalBtn = document.getElementById('btn-copy-animal-portal-link');
+  const exportDossierBtn = document.getElementById('btn-export-animal-dossier');
+  const addMedBtn = document.getElementById('btn-add-medical-event');
+  const assocProfBtn = document.getElementById('btn-associate-prof');
+  const addRemBtn = document.getElementById('btn-add-reminder-for-animal');
+  const btnArchive = document.getElementById('btn-archive-animal');
+  const btnNewSession = document.getElementById('btn-new-session-for-animal');
+  const addExtSessionBtn = document.getElementById('btn-add-external-session-for-animal');
+
+  if (animal.archived_at) {
+    if (archiveBanner) {
+      if (currentPortalClientId) {
+        archiveBanner.innerHTML = `📁 Dossier clôturé (${formatDate(animal.archived_at)}) — Consultation en lecture seule`;
+      } else {
+        archiveBanner.innerHTML = `📁 Dossier archivé le <strong>${formatDate(animal.archived_at)}</strong> — Motif : <strong>${animal.archive_reason || 'Non précisé'}</strong>`;
+      }
+      archiveBanner.style.display = 'block';
+    }
+    if (activeActions) activeActions.style.display = 'none';
+    if (archivedActions) archivedActions.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (copyPortalBtn) copyPortalBtn.style.display = 'none';
+    if (exportDossierBtn) exportDossierBtn.style.display = 'inline-flex';
+    if (addMedBtn) addMedBtn.style.display = 'none';
+    if (assocProfBtn) assocProfBtn.style.display = 'none';
+    if (addRemBtn) addRemBtn.style.display = 'none';
+    if (addExtSessionBtn) addExtSessionBtn.style.display = 'none';
+
+    const restoreBtn = document.getElementById('btn-restore-animal');
+    if (restoreBtn) {
+      restoreBtn.onclick = () => restoreRecord('animal', animal);
+    }
+
+    const deletePermanentBtn = document.getElementById('btn-delete-animal-permanent');
+    if (deletePermanentBtn) {
+      deletePermanentBtn.onclick = () => openPermanentDeleteDialog('animal', animal);
+    }
+  } else {
+    if (archiveBanner) {
+      archiveBanner.style.display = 'none';
+    }
+    if (activeActions) activeActions.style.display = 'inline-flex';
+    if (archivedActions) archivedActions.style.display = 'none';
+    if (copyPortalBtn) copyPortalBtn.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (exportDossierBtn) exportDossierBtn.style.display = 'inline-flex';
+    if (btnArchive) btnArchive.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (btnNewSession) btnNewSession.style.display = currentPortalClientId ? 'none' : 'inline-flex';
+    if (addExtSessionBtn) addExtSessionBtn.style.display = 'inline-flex';
+    if (addMedBtn) addMedBtn.style.display = 'inline-flex';
+    if (assocProfBtn) assocProfBtn.style.display = 'inline-flex';
+    if (addRemBtn) addRemBtn.style.display = 'inline-flex';
+
+    const archiveBtn = document.getElementById('btn-archive-animal');
+    if (archiveBtn) {
+      archiveBtn.onclick = () => openArchiveRecordDialog('animal', animal);
+    }
+  }
+
+  // Boutons d'actions
+  document.getElementById('btn-copy-animal-portal-link').onclick = async () => {
+    let freshAnimal = await getById('animals', animalId);
+    if (!freshAnimal) freshAnimal = animal;
+    let freshClient = await getById('clients', freshAnimal.client_id);
+    if (!freshClient) {
+      showToast('Client associé introuvable.', 'error');
+      return;
+    }
+    if (!freshClient.uuid) {
+      freshClient.uuid = generateUUID();
+      await update('clients', freshClient);
+    }
+    const portalUrl = getClientPortalUrl(freshClient.uuid);
+    navigator.clipboard.writeText(portalUrl).then(() => {
+      showToast('Lien Espace Client sécurisé copié dans le presse-papier !');
+    }).catch(err => {
+      console.error('Erreur copie lien:', err);
+      showToast('Impossible de copier le lien.', 'error');
+    });
+  };
+
+  const editAnimalBtn = document.getElementById('btn-edit-animal-detail');
+  if (editAnimalBtn) {
+    editAnimalBtn.onclick = () => {
+      openAnimalDialog(animal);
+    };
+  }
+
+  if (addExtSessionBtn) {
+    addExtSessionBtn.onclick = () => {
+      openExternalSessionDialog(null, animal.id);
+    };
+  }
+
+  document.getElementById('btn-new-session-for-animal').onclick = () => {
+    window.location.hash = `session-editor/animal-${animal.id}`;
+  };
+
+  document.getElementById('btn-associate-prof').onclick = () => {
+    openAssociateProfsDialog(animal);
+  };
+
+  const addReminderForAnimalBtn = document.getElementById('btn-add-reminder-for-animal');
+  if (addReminderForAnimalBtn) {
+    addReminderForAnimalBtn.onclick = () => {
+      openReminderDialog(null, animal.id);
+    };
+  }
+
+  const addMedicalEventBtn = document.getElementById('btn-add-medical-event');
+  if (addMedicalEventBtn) {
+    addMedicalEventBtn.onclick = () => {
+      openMedicalEventDialog(animal);
+    };
+  }
+
+  if (exportDossierBtn) {
+    exportDossierBtn.onclick = () => {
+      openExportAnimalDossierModal(animal);
+    };
+  }
+}
+
+// Helpers for Leaflet geocoding with official French API Adresse and Nominatim fallbacks
+async function fetchFromFrenchApi(query) {
+  try {
+    const url = `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(query)}&limit=1`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data && data.features && data.features.length > 0) {
+      const feat = data.features[0];
+      if (feat.geometry && feat.geometry.coordinates) {
+        const lon = feat.geometry.coordinates[0];
+        const lat = feat.geometry.coordinates[1];
+        return [lat, lon];
+      }
+    }
+  } catch (err) {
+    console.error('French API Adresse error for query:', query, err);
+  }
+  return null;
+}
+
+async function fetchFromNominatim(query) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query + ', France')}`;
+    const res = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'eKiKare-App/1.0'
+      }
+    });
+    const data = await res.json();
+    if (data && data.length > 0) {
+      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+    }
+  } catch (err) {
+    console.error('Nominatim API error for query:', query, err);
+  }
+  return null;
+}
+
+async function getCoordsForLocation(loc) {
+  const cacheKey = `geo_cache_${normalizeText(loc.zip || '')}_${normalizeText(loc.city || '')}_${normalizeText(loc.address || '')}`;
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) {
+    return JSON.parse(cached);
+  }
+
+  const zip = (loc.zip || '').trim();
+  const city = (loc.city || '').trim() === 'Ville non spécifiée' ? '' : (loc.city || '').trim();
+  const address = (loc.address || '').trim();
+
+  // Cascade fallbacks
+  // Try 1: Full Query (Rue + CP + Ville)
+  if (address && zip && city) {
+    const q1 = `${address} ${zip} ${city}`;
+    let coords = await fetchFromFrenchApi(q1);
+    if (!coords) coords = await fetchFromNominatim(q1);
+    if (coords) {
+      localStorage.setItem(cacheKey, JSON.stringify(coords));
+      return coords;
+    }
+  }
+
+  // Try 2: Rue + Ville
+  if (address && city) {
+    const q2 = `${address} ${city}`;
+    let coords = await fetchFromFrenchApi(q2);
+    if (!coords) coords = await fetchFromNominatim(q2);
+    if (coords) {
+      localStorage.setItem(cacheKey, JSON.stringify(coords));
+      return coords;
+    }
+  }
+
+  // Try 3: Code Postal + Ville (centre-ville fallback)
+  if (zip && city) {
+    const q3 = `${zip} ${city}`;
+    let coords = await fetchFromFrenchApi(q3);
+    if (!coords) coords = await fetchFromNominatim(q3);
+    if (coords) {
+      localStorage.setItem(cacheKey, JSON.stringify(coords));
+      return coords;
+    }
+  } else if (city) {
+    const q3_city = `${city}`;
+    let coords = await fetchFromFrenchApi(q3_city);
+    if (!coords) coords = await fetchFromNominatim(q3_city);
+    if (coords) {
+      localStorage.setItem(cacheKey, JSON.stringify(coords));
+      return coords;
+    }
+  } else if (zip) {
+    const q3_zip = `${zip}`;
+    let coords = await fetchFromFrenchApi(q3_zip);
+    if (!coords) coords = await fetchFromNominatim(q3_zip);
+    if (coords) {
+      localStorage.setItem(cacheKey, JSON.stringify(coords));
+      return coords;
+    }
+  }
+
+  // Fallback default coordinates if all fail (Center of France)
+  const defaultCoords = [46.603354, 1.888334];
+  return defaultCoords;
+}
+
+// --- RENDU : LIEUX DE VIE / TOURNEES ---
+async function renderTournee() {
+  const modeSelect = document.getElementById('tournee-grouping-mode');
+  const groupingMode = modeSelect ? modeSelect.value : 'location'; // default: location
+
+  const clients = await getAll('clients');
+  const animals = await getAll('animals');
+  
+  const container = document.getElementById('tournee-container');
+  container.innerHTML = '';
+
+  // Setup toggle button and map visibility
+  const toggleBtn = document.getElementById('btn-toggle-tours-map');
+  const toggleText = document.getElementById('btn-toggle-tours-map-text');
+  const mapContainer = document.getElementById('tours-map-container');
+  const cardHeaderAction = toggleBtn ? toggleBtn.closest('.card-header-action') : null;
+  
+  if (toggleBtn && mapContainer && !toggleBtn.dataset.listener) {
+    toggleBtn.dataset.listener = 'true';
+    
+    // Always hide on init
+    mapContainer.style.display = 'none';
+    if (toggleText) toggleText.textContent = 'Afficher la carte des lieux de vie';
+    if (cardHeaderAction) cardHeaderAction.style.margin = '0';
+
+    toggleBtn.onclick = () => {
+      const currentlyHidden = mapContainer.style.display === 'none';
+      if (currentlyHidden) {
+        mapContainer.style.display = 'block';
+        if (toggleText) toggleText.textContent = 'Masquer la carte';
+        if (cardHeaderAction) cardHeaderAction.style.marginBottom = '12px';
+        if (toursMap) {
+          setTimeout(() => {
+            toursMap.invalidateSize();
+            const coords = toursMarkers.map(m => m.getLatLng());
+            coords.push(L.latLng(PRACTITIONER_HOME.coords));
+            const bounds = L.latLngBounds(coords);
+            toursMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
+          }, 50);
+        }
+      } else {
+        mapContainer.style.display = 'none';
+        if (toggleText) toggleText.textContent = 'Afficher la carte des lieux de vie';
+        if (cardHeaderAction) cardHeaderAction.style.marginBottom = '0';
+      }
+    };
+  }
+
+  // Initialize Leaflet Map
+  const mapElement = document.getElementById('tours-map');
+  if (mapElement && !toursMap) {
+    toursMap = L.map('tours-map').setView(PRACTITIONER_HOME.coords, 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(toursMap);
+  }
+
+  // Marqueur ponctuel unique distinctif pour le domicile du praticien
+  if (toursMap) {
+    if (!toursHomeMarker) {
+      toursHomeMarker = L.circleMarker(PRACTITIONER_HOME.coords, {
+        radius: 8,
+        fillColor: '#e63946',
+        color: '#ffffff',
+        weight: 2,
+        fillOpacity: 1
+      }).addTo(toursMap).bindPopup(PRACTITIONER_HOME.popupHtml);
+    } else {
+      toursHomeMarker.setLatLng(PRACTITIONER_HOME.coords);
+      toursHomeMarker.setPopupContent(PRACTITIONER_HOME.popupHtml);
+      if (!toursMap.hasLayer(toursHomeMarker)) {
+        toursHomeMarker.addTo(toursMap);
+      }
+    }
+  }
+
+  const searchInput = document.getElementById('tournee-search-input');
+  if (searchInput && !searchInput.dataset.listener) {
+    searchInput.dataset.listener = 'true';
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderTournee();
+    });
+  }
+  const filterVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+  if (animals.length === 0) {
+    container.innerHTML = '<p class="empty-state">Aucun animal à planifier.</p>';
+    if (toursMap) {
+      toursMarkers.forEach(m => toursMap.removeLayer(m));
+      toursMarkers = [];
+    }
+    return;
+  }
+
+  // Filter animals based on search input
+  const filteredAnimals = animals.filter(an => {
+    if (!filterVal) return true;
+    const term = normalizeText(filterVal);
+    const client = clients.find(cl => cl.id === an.client_id);
+    const ownerName = client ? `${client.prenom} ${client.nom}` : '';
+    
+    let stableName = (an.stable_name || '').trim();
+    let stableAddress = (an.stable_address || '').trim();
+    let stableZip = (an.stable_zip || '').trim();
+    let stableCity = (an.stable_city || '').trim();
+    if (!stableName && !stableAddress && !stableZip && !stableCity) {
+      const fallbackLoc = an.lieu_de_vie || '';
+      if (fallbackLoc && fallbackLoc !== 'Non spécifié') {
+        stableName = fallbackLoc;
+        const parsed = parseAddress(fallbackLoc);
+        stableAddress = parsed.address;
+        stableZip = parsed.zip;
+        stableCity = parsed.city;
+      }
+    }
+    if (stableAddress && !stableZip && !stableCity) {
+      const parsed = parseAddress(stableAddress);
+      stableAddress = parsed.address;
+      stableZip = parsed.zip;
+      stableCity = parsed.city;
+    }
+    stableName = stableName || 'Domicile / Pré privé';
+    stableCity = stableCity || 'Ville non spécifiée';
+    const deptName = getDepartmentDisplay(stableZip);
+
+    return normalizeText(an.nom).includes(term) ||
+           normalizeText(an.espece).includes(term) ||
+           normalizeText(ownerName).includes(term) ||
+           normalizeText(stableName).includes(term) ||
+           normalizeText(stableAddress).includes(term) ||
+           normalizeText(stableZip).includes(term) ||
+           normalizeText(stableCity).includes(term) ||
+           normalizeText(deptName).includes(term);
+  });
+
+  if (filteredAnimals.length === 0) {
+    container.innerHTML = '<p class="empty-state">Aucun animal ne correspond à votre recherche.</p>';
+    if (toursMap) {
+      toursMarkers.forEach(m => toursMap.removeLayer(m));
+      toursMarkers = [];
+    }
+    return;
+  }
+
+  if (groupingMode === 'location') {
+    // 1. Grouper les animaux par lieu de vie (Département -> Ville -> Écurie)
+    const depts = {};
+    
+    filteredAnimals.forEach(an => {
+      const client = clients.find(cl => cl.id === an.client_id);
+      
+      let stableName = (an.stable_name || '').trim();
+      let stableAddress = (an.stable_address || '').trim();
+      let stableZip = (an.stable_zip || '').trim();
+      let stableCity = (an.stable_city || '').trim();
+      let stableDistance = an.stable_distance || 0;
+      
+      // Fallback si l'animal n'a pas encore les champs découpés (tous les champs nouveaux sont vides)
+      if (!stableName && !stableAddress && !stableZip && !stableCity) {
+        const fallbackLoc = an.lieu_de_vie || '';
+        if (fallbackLoc && fallbackLoc !== 'Non spécifié') {
+          stableName = fallbackLoc;
+          const parsed = parseAddress(fallbackLoc);
+          stableAddress = parsed.address;
+          stableZip = parsed.zip;
+          stableCity = parsed.city;
+        }
+      }
+      
+      // Si stable_address est configuré mais pas zip/city (ancien format)
+      if (stableAddress && !stableZip && !stableCity) {
+        const parsed = parseAddress(stableAddress);
+        stableAddress = parsed.address;
+        stableZip = parsed.zip;
+        stableCity = parsed.city;
+      }
+      
+      stableName = stableName || 'Domicile / Pré privé';
+      stableCity = stableCity || 'Ville non spécifiée';
+      
+      const deptName = getDepartmentDisplay(stableZip);
+      
+      if (!depts[deptName]) {
+        depts[deptName] = {};
+      }
+      if (!depts[deptName][stableCity]) {
+        depts[deptName][stableCity] = {};
+      }
+      if (!depts[deptName][stableCity][stableName]) {
+        depts[deptName][stableCity][stableName] = {
+          address: stableAddress,
+          zip: stableZip,
+          distance: stableDistance,
+          animals: []
+        };
+      }
+      
+      depts[deptName][stableCity][stableName].animals.push({ animal: an, client });
+    });
+
+    const sortedDeptKeys = Object.keys(depts).sort((a, b) => {
+      if (a === 'Département non spécifié') return 1;
+      if (b === 'Département non spécifié') return -1;
+      return a.localeCompare(b, 'fr');
+    });
+    
+    sortedDeptKeys.forEach(deptKey => {
+      const deptBox = document.createElement('div');
+      deptBox.className = 'tournee-dept-box';
+      
+      const citiesCount = Object.keys(depts[deptKey]).length;
+      
+      deptBox.innerHTML = `
+        <div class="tournee-dept-header">
+          <span>🗺️ &nbsp; ${deptKey}</span>
+          <span class="tournee-count-badge">${citiesCount} ville(s)</span>
+        </div>
+        <div class="tournee-dept-content"></div>
+      `;
+      
+      const deptContent = deptBox.querySelector('.tournee-dept-content');
+      
+      const sortedCities = Object.keys(depts[deptKey]).sort((a, b) => {
+        if (a === 'Ville non spécifiée') return 1;
+        if (b === 'Ville non spécifiée') return -1;
+        return a.localeCompare(b, 'fr');
+      });
+      
+      sortedCities.forEach(cityName => {
+        const cityBox = document.createElement('div');
+        cityBox.className = 'tournee-city-box';
+        
+        cityBox.innerHTML = `
+          <div class="tournee-city-header">
+            <span>🏙️ &nbsp; ${cityName}</span>
+          </div>
+          <div class="tournee-city-content"></div>
+        `;
+        
+        const cityContent = cityBox.querySelector('.tournee-city-content');
+        
+        const sortedStables = Object.keys(depts[deptKey][cityName]).sort((a, b) => {
+          if (a === 'Domicile / Pré privé') return 1;
+          if (b === 'Domicile / Pré privé') return -1;
+          if (a === 'Non spécifié') return 1;
+          if (b === 'Non spécifié') return -1;
+          return a.localeCompare(b, 'fr');
+        });
+        
+        sortedStables.forEach(stableName => {
+          const stableData = depts[deptKey][cityName][stableName];
+          const stableBox = document.createElement('div');
+          stableBox.className = 'tournee-stable-box';
+          
+          const metaParts = [];
+          if (stableData.address) metaParts.push(stableData.address);
+          if (stableData.zip) metaParts.push(stableData.zip);
+          const addrStr = metaParts.join(', ');
+          const distStr = stableData.distance ? `${stableData.distance} km` : '';
+          let metaStr = '';
+          if (addrStr && distStr) {
+            metaStr = `${addrStr} &bull; ${distStr}`;
+          } else {
+            metaStr = addrStr || distStr || '';
+          }
+          
+          stableBox.innerHTML = `
+            <div class="tournee-stable-header">
+              <span class="stable-name-icon">📍 &nbsp; ${stableName}</span>
+              <span class="stable-meta-info">${metaStr}</span>
+            </div>
+            <div class="tournee-animals-grid"></div>
+          `;
+          
+          const grid = stableBox.querySelector('.tournee-animals-grid');
+          stableData.animals.forEach(item => {
+            const aCard = document.createElement('div');
+            aCard.className = 'tournee-animal-card';
+            
+            const ownerName = item.client ? `${item.client.prenom} ${item.client.nom}` : 'Propriétaire inconnu';
+            
+            aCard.innerHTML = `
+              <div class="tournee-animal-name">${item.animal.nom}</div>
+              <div class="tournee-animal-meta">${item.animal.espece} &bull; ${item.animal.race || '-'}</div>
+              <div class="tournee-animal-meta" style="color:var(--color-primary); font-weight:600; margin-top:4px;">Proprio : ${ownerName}</div>
+            `;
+            
+            aCard.addEventListener('click', () => {
+              window.location.hash = `animals/${item.animal.id}`;
+            });
+            grid.appendChild(aCard);
+          });
+          
+          cityContent.appendChild(stableBox);
+        });
+        
+        cityBox.appendChild(cityContent);
+        deptContent.appendChild(cityBox);
+      });
+      
+      container.appendChild(deptBox);
+    });
+  } else {
+    // 2. Grouper les animaux par Client
+    for (const c of clients) {
+      const clientAnimals = filteredAnimals.filter(an => an.client_id === c.id);
+      if (clientAnimals.length === 0) continue;
+
+      const clientCard = document.createElement('div');
+      clientCard.className = 'tournee-card';
+      
+      clientCard.innerHTML = `
+        <div class="tournee-card-header">${c.prenom} ${c.nom.toUpperCase()}</div>
+        <div class="tournee-location-box" style="padding:15px;">
+          <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">
+            Adresse : ${c.adresse || '-'} &bull; Tel : ${c.telephone}
+          </div>
+          <div class="tournee-animals-grid"></div>
+        </div>
+      `;
+
+      const grid = clientCard.querySelector('.tournee-animals-grid');
+      for (const an of clientAnimals) {
+        const aCard = document.createElement('div');
+        aCard.className = 'tournee-animal-card';
+        
+        aCard.innerHTML = `
+          <div class="tournee-animal-name">${an.nom}</div>
+          <div class="tournee-animal-meta">${an.espece} &bull; ${an.race || '-'}</div>
+          <div class="tournee-animal-meta" style="color:var(--color-secondary); font-weight:600; margin-top:4px;">Lieu : ${an.stable_name || an.lieu_de_vie || 'Non spécifié'}</div>
+        `;
+
+        aCard.addEventListener('click', () => {
+          window.location.hash = `animals/${an.id}`;
+        });
+        grid.appendChild(aCard);
+      }
+
+      container.appendChild(clientCard);
+    }
+  }
+
+  // Populate the Leaflet Map
+  if (toursMap) {
+    // Clear existing markers
+    toursMarkers.forEach(m => toursMap.removeLayer(m));
+    toursMarkers = [];
+
+    // Group animals by unique location for map markers
+    const locations = {};
+    filteredAnimals.forEach(an => {
+      let stableName = (an.stable_name || '').trim();
+      let stableAddress = (an.stable_address || '').trim();
+      let stableZip = (an.stable_zip || '').trim();
+      let stableCity = (an.stable_city || '').trim();
+      let stableDistance = an.stable_distance || 0;
+
+      // Fallback
+      if (!stableName && !stableAddress && !stableZip && !stableCity) {
+        const fallbackLoc = an.lieu_de_vie || '';
+        if (fallbackLoc && fallbackLoc !== 'Non spécifié') {
+          stableName = fallbackLoc;
+          const parsed = parseAddress(fallbackLoc);
+          stableAddress = parsed.address;
+          stableZip = parsed.zip;
+          stableCity = parsed.city;
+        }
+      }
+      if (stableAddress && !stableZip && !stableCity) {
+        const parsed = parseAddress(stableAddress);
+        stableAddress = parsed.address;
+        stableZip = parsed.zip;
+        stableCity = parsed.city;
+      }
+
+      stableName = stableName || 'Domicile / Pré privé';
+      stableCity = stableCity || 'Ville non spécifiée';
+      
+      const key = `${stableName} | ${stableAddress} | ${stableZip} | ${stableCity}`;
+      if (!locations[key]) {
+        locations[key] = {
+          name: stableName,
+          address: stableAddress,
+          zip: stableZip,
+          city: stableCity,
+          distance: stableDistance,
+          animals: []
+        };
+      }
+      const client = clients.find(cl => cl.id === an.client_id);
+      locations[key].animals.push({ animal: an, client });
+    });
+
+    const markersCoords = [];
+
+    for (const key of Object.keys(locations)) {
+      const loc = locations[key];
+      const coords = await getCoordsForLocation(loc);
+      markersCoords.push(coords);
+
+      const animalsList = loc.animals.map(item => {
+        const emojiMap = {
+          'cheval': '🐴',
+          'chien': '🐕',
+          'chat': '🐱'
+        };
+        const emoji = emojiMap[item.animal.espece.toLowerCase()] || '🐾';
+        const ownerName = item.client ? `${item.client.prenom} ${item.client.nom}` : '-';
+        return `<li style="margin: 4px 0; font-size: 0.85rem; color: #1e293b;">
+          <span>${emoji}</span> <strong>${item.animal.nom}</strong> (Propriétaire : ${ownerName})
+        </li>`;
+      }).join('');
+
+      const distText = loc.distance ? ` &bull; ${loc.distance} km` : '';
+      const popupHtml = `
+        <div style="font-family: 'Outfit', sans-serif; color: #1e293b; padding: 4px; min-width: 200px;">
+          <h4 style="margin: 0 0 4px 0; font-size: 0.95rem; font-weight: 600; color: #0f172a;">${loc.name}</h4>
+          <p style="margin: 0 0 8px 0; font-size: 0.8rem; color: #64748b;">${loc.address ? loc.address + ', ' : ''}${loc.zip} ${loc.city}${distText}</p>
+          <div style="border-top: 1px solid #e2e8f0; padding-top: 6px;">
+            <strong style="font-size: 0.8rem; color: #334155;">Animaux (${loc.animals.length}) :</strong>
+            <ul style="margin: 4px 0 0 0; padding-left: 15px; list-style-type: disc;">
+              ${animalsList}
+            </ul>
+          </div>
+        </div>
+      `;
+
+      const marker = L.marker(coords).addTo(toursMap).bindPopup(popupHtml);
+      toursMarkers.push(marker);
+    }
+
+    const allBoundsCoords = [...markersCoords, PRACTITIONER_HOME.coords];
+
+    if (mapContainer && mapContainer.style.display !== 'none') {
+      setTimeout(() => {
+        toursMap.invalidateSize();
+        const bounds = L.latLngBounds(allBoundsCoords);
+        toursMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
+      }, 100);
+    }
+  }
+}
+
+// Configurer le listener de changement de filtre Tournée
+const tourneeGroupingSelect = document.getElementById('tournee-grouping-mode');
+if (tourneeGroupingSelect) {
+  tourneeGroupingSelect.addEventListener('change', renderTournee);
+}
+
+// --- HELPERS D'ÉCHAPPEMENT ET PROTOCOLES ---
+function escapeHtml(text) {
+  if (text == null) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatMultilineText(text) {
+  if (!text) return '';
+  return escapeHtml(text).replace(/\r?\n/g, '<br>');
+}
+
+function getActiveProtocolsList(session) {
+  if (!session) return [];
+  if (session.isExternal || session.type_evenement === 'externe') {
+    return [session.profession || 'Séance externe'];
+  }
+  let protos = session.protocoles_realises;
+  if (typeof protos === 'string') {
+    try { protos = JSON.parse(protos); } catch (e) { protos = {}; }
+  }
+  protos = protos || {};
+  const activeProtocols = [];
+  if (protos.shiatsu && protos.shiatsu.checked) activeProtocols.push('Shiatsu');
+  if ((protos.manuelles && protos.manuelles.checked) || (protos.tensegrite && protos.tensegrite.checked)) activeProtocols.push('Techniques manuelles');
+  if (protos.cranio && protos.cranio.checked) activeProtocols.push('Cranio-Sacrée');
+  if (protos.kinesiologie && protos.kinesiologie.checked) activeProtocols.push('Kinésiologie');
+  if (protos.aura && protos.aura.checked) activeProtocols.push('Aura');
+
+  // Si aucun protocole n'est explicité dans l'objet, déduire depuis resume_client_genere si présent
+  if (activeProtocols.length === 0 && session.resume_client_genere) {
+    const raw = session.resume_client_genere;
+    if (/\bshiatsu\b/i.test(raw)) activeProtocols.push('Shiatsu');
+    if (/manuelles/i.test(raw) || /tens[eé]grit[eé]/i.test(raw)) activeProtocols.push('Techniques manuelles');
+    if (/cranio/i.test(raw)) activeProtocols.push('Cranio-Sacrée');
+    if (/kin[eé]siologie/i.test(raw)) activeProtocols.push('Kinésiologie');
+    if (/\baura\b/i.test(raw)) activeProtocols.push('Aura');
+  }
+
+  return activeProtocols;
+}
+
+// --- RENDU : LISTE DES SEANCES ---
+async function renderSessionsList() {
+  const sessions = await getAll('sessions');
+  const animals = await getAll('animals');
+  const clients = await getAll('clients');
+
+  const searchInput = document.getElementById('session-search-input');
+  if (searchInput && !searchInput.dataset.listener) {
+    searchInput.dataset.listener = 'true';
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderSessionsList();
+    });
+  }
+  const filterVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+  const tbody = document.getElementById('sessions-table-body');
+  tbody.innerHTML = '';
+
+  // Trier par date descendante (plus récentes d'abord)
+  const ownSessions = sessions.filter(s => !s.isExternal);
+  ownSessions.sort((a, b) => new Date(b.date_seance) - new Date(a.date_seance));
+
+  const filtered = ownSessions.filter(s => {
+    if (!filterVal) return true;
+    
+    const animal = animals.find(an => an.id === s.animal_id);
+    const client = clients.find(cl => cl.id === s.client_id);
+    
+    const animalName = animal ? animal.nom.toLowerCase() : '';
+    const ownerName = client ? `${client.prenom} ${client.nom}`.toLowerCase() : '';
+    const motifText = s.motif ? s.motif.toLowerCase() : '';
+    const protosText = getActiveProtocolsList(s).join(' ').toLowerCase();
+    
+    return animalName.includes(filterVal) || ownerName.includes(filterVal) || motifText.includes(filterVal) || protosText.includes(filterVal);
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Aucune séance trouvée.</td></tr>';
+  } else {
+    for (const s of filtered) {
+      const animal = animals.find(an => an.id === s.animal_id);
+      const client = clients.find(cl => cl.id === s.client_id);
+      
+      const animalName = animal ? animal.nom : 'Animal supprimé';
+      const ownerName = client ? `${client.prenom} ${client.nom}` : '-';
+
+      const activeProtocols = getActiveProtocolsList(s);
+      const resumePreview = activeProtocols.length > 0 
+        ? escapeHtml(activeProtocols.join(', ')) 
+        : (s.resume_client_genere ? 'Séance réalisée' : '<span class="text-muted" style="font-style:italic;">Aucun protocole</span>');
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${formatDate(s.date_seance)}</strong></td>
+        <td>${escapeHtml(animalName)}</td>
+        <td>${escapeHtml(ownerName)}</td>
+        <td style="white-space: pre-line;">${escapeHtml(s.motif || '-')}</td>
+        <td class="text-sub" style="font-size: 0.85rem; font-weight: 500;">${resumePreview}</td>
+        <td>${s.n_seance_annee || 1}</td>
+        <td class="actions-column">
+          <button class="btn btn-secondary btn-small btn-view-session" data-id="${s.id}">Consulter</button>
+        </td>
+      `;
+
+      tr.addEventListener('click', () => { window.location.hash = `sessions/${s.id}`; });
+      tr.querySelector('.btn-view-session').addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.location.hash = `sessions/${s.id}`;
+      });
+
+      tbody.appendChild(tr);
+    }
+  }
+}
+
+// --- RENDU : COMPTE-RENDU (DÉTAILS SÉANCE) ---
+
+function formatTensegriteReportData(t, isClientSummary = false) {
+  if (!t) return '';
+  
+  const catStrings = [];
+
+  function formatDetailedCategory(catData, label, subsDef) {
+    if (!catData) return null;
+    const activeSubs = [];
+    for (const subKey in subsDef) {
+      const val = catData[subKey];
+      if (val === 'Moyen' || val === 'Élevé') {
+        activeSubs.push(`${subsDef[subKey]} (${val})`);
+      }
+    }
+    if (activeSubs.length > 0) {
+      return `• ${label} : ${activeSubs.join(', ')}`;
+    }
+    return null;
+  }
+
+  // 1. FTM
+  if (t.ftm) {
+    if (isClientSummary) {
+      const override = t.ftm.override || 'Faible';
+      if (override === 'Moyen' || override === 'Élevé') {
+        catStrings.push(`• FTM (${override})`);
+      }
+    } else {
+      const ftmStr = formatDetailedCategory(t.ftm, 'FTM', {
+        queue: 'Queue',
+        oeil_droit: 'Œil Droit',
+        oeil_gauche: 'Œil Gauche',
+        energetique: 'Énergétique'
+      });
+      if (ftmStr) catStrings.push(ftmStr);
+    }
+  }
+
+  // 2. Torsion Physiologique
+  if (t.torsion) {
+    if (isClientSummary) {
+      const override = t.torsion.override || 'Faible';
+      if (override === 'Moyen' || override === 'Élevé') {
+        catStrings.push(`• Torsion Physiologique (${override})`);
+      }
+    } else {
+      const torsionStr = formatDetailedCategory(t.torsion, 'Torsion Physiologique', {
+        hanche_droite: 'Hanche Droite',
+        hanche_gauche: 'Hanche Gauche',
+        occiput: 'Occiput'
+      });
+      if (torsionStr) catStrings.push(torsionStr);
+    }
+  }
+
+  // 3. Diaphragmes
+  const diaphragmeStr = formatDetailedCategory(t.diaphragme, 'Diaphragmes', {
+    pelvien: 'Pelvien',
+    thoraco_lombaire: 'Thoraco-lombaire',
+    cervico_thoracique: 'Cervico-thoracique',
+    c0_c1: 'C0-C1'
+  });
+  if (diaphragmeStr) catStrings.push(diaphragmeStr);
+
+  // 4. Loges
+  const logeStr = formatDetailedCategory(t.loge, 'Loges', {
+    digestive: 'Digestive',
+    thoracique: 'Thoracique',
+    gorge: 'Gorge',
+    cervelet: 'Cervelet'
+  });
+  if (logeStr) catStrings.push(logeStr);
+
+  return catStrings.join('\n');
+}
+
+// Rendu détaillé CR (réservé au praticien)
+function renderDetailedCR(session) {
+  let html = `<h3 style="margin-top: 0; color: var(--color-secondary); font-size:1.15rem; border-bottom:1px solid var(--glass-border); padding-bottom:5px;">CR Métier Détaillé (Espace Praticienne)</h3>`;
+  
+  // Motif de consultation (dans le corps du CR interne juste avant la section 1)
+  if (session.motif && session.motif.trim()) {
+    html += `<div style="margin-bottom: 20px;"><strong>Motif de consultation :</strong><p style="white-space: pre-line; margin-top:5px; background:rgba(255,255,255,0.02); padding:10px; border-radius:4px; border:1px solid var(--glass-border); font-size:0.95rem; color:#fff;">${session.motif}</p></div>`;
+  }
+
+  // 1. Notes d'observation de début de séance
+  if (session.notes_observations) {
+    html += `<div style="margin-bottom: 20px;"><strong>1. Notes d'observation de début de séance :</strong><p style="white-space: pre-line; margin-top:5px; background:rgba(255,255,255,0.02); padding:10px; border-radius:4px; border:1px solid var(--glass-border);">${session.notes_observations}</p></div>`;
+  } else {
+    html += `<div style="margin-bottom: 20px;"><strong>1. Notes d'observation de début de séance :</strong><p class="text-muted" style="margin-top:5px; font-style:italic;">Aucune note d'observation saisie.</p></div>`;
+  }
+
+  // 2. Protocoles réalisés (avec détails techniques Shiatsu abréviations, Tenségrité complet, Cranio-Sacrée, Kinésio, Aura, etc., et le schéma anatomique annoté)
+  const p = session.protocoles_realises || {};
+  let protocolsListHtml = '';
+
+  // Shiatsu
+  if (p.shiatsu && p.shiatsu.checked) {
+    const items = [];
+    const ys = p.shiatsu.yin || {};
+    const ygs = p.shiatsu.yang || {};
+    const v = p.shiatsu.vaisseaux || {};
+
+    if (ys.foie) items.push('F<sup>2</sup>');
+    if (ys.maitre_coeur) items.push('MC<sup>2</sup>');
+    if (ys.coeur) items.push('C<sup>3</sup>');
+    if (ys.rate) items.push('Rte<sup>1</sup>');
+    if (ys.poumon) items.push('P<sup>1</sup>');
+    if (ys.reins) items.push('Rein<sup>3</sup>');
+
+    if (ygs.vesicule) items.push('VB<sup>2</sup>');
+    if (ygs.triple) items.push('TR<sup>2</sup>');
+    if (ygs.grele) items.push('IG<sup>1</sup>');
+    if (ygs.estomac) items.push('E<sup>3</sup>');
+    if (ygs.gros_intestin) items.push('GI<sup>3</sup>');
+    if (ygs.vessie) items.push('V<sup>1</sup>');
+
+    if (v.gouverneur) items.push('VG');
+    if (v.conception) items.push('VC');
+
+    protocolsListHtml += `<div style="padding:10px; border:1px solid var(--glass-border); border-radius:4px; background:rgba(255,255,255,0.01);">
+      <strong style="color:var(--color-primary)">Shiatsu</strong>
+      <p style="margin:5px 0 0 0; font-size:0.9rem;">
+        ${items.join(', ') || 'aucun'}
+      </p>
+      ${p.shiatsu.precisions ? `<p style="margin:4px 0 0 0; font-size:0.85rem; font-style:italic;">Précisions : ${p.shiatsu.precisions}</p>` : ''}
+    </div>`;
+  }
+  
+  // Manual Tech
+  if (p.manuelles && p.manuelles.checked) {
+    protocolsListHtml += `<div style="padding:10px; border:1px solid var(--glass-border); border-radius:4px; background:rgba(255,255,255,0.01);">
+      <strong style="color:var(--color-primary)">Techniques manuelles</strong>
+      <p style="margin:5px 0 0 0; font-size:0.9rem; white-space:pre-line;">${p.manuelles.texte || 'Aucune observation saisie.'}</p>
+    </div>`;
+  }
+  
+  // Tenségrité
+  if (p.tensegrite && p.tensegrite.checked) {
+    const rawTensegriteStr = formatTensegriteReportData(p.tensegrite);
+    const tensegriteHtml = rawTensegriteStr 
+      ? rawTensegriteStr.replace(/\n/g, '<br>') 
+      : '• Aucune tension majeure';
+
+    protocolsListHtml += `<div style="padding:10px; border:1px solid var(--glass-border); border-radius:4px; background:rgba(255,255,255,0.01);">
+      <strong style="color:var(--color-primary)">Tenségrité</strong>
+      <p style="margin:5px 0 0 0; font-size:0.9rem; font-weight:bold; color:var(--text-main);">item et zones travaillés :</p>
+      <p style="margin:3px 0 0 0; font-size:0.9rem; line-height:1.4;">
+        ${tensegriteHtml}
+      </p>
+      ${p.tensegrite.helices ? `<p style="margin:4px 0 0 0; font-size:0.85rem;"><strong>Hélices :</strong> ${p.tensegrite.helices}</p>` : ''}
+      ${p.tensegrite.precisions ? `<p style="margin:4px 0 0 0; font-size:0.85rem; font-style:italic;">Précisions : ${p.tensegrite.precisions}</p>` : ''}
+    </div>`;
+  }
+
+  // Cranio
+  if (p.cranio && p.cranio.checked) {
+    const lines = [];
+
+    if (p.cranio.ambiance) {
+      lines.push(`• Ambiance émotionnelle : ${p.cranio.ambiance}`);
+    }
+
+    const adaptatifList = [];
+    if (p.cranio.adaptatif) {
+      if (p.cranio.adaptatif.sacro) adaptatifList.push("Sacro-iliaque");
+      if (p.cranio.adaptatif.rre) adaptatifList.push("Os du crâne");
+      if (p.cranio.adaptatif.occiput) adaptatifList.push("Occiput");
+      if (p.cranio.adaptatif.couple) adaptatifList.push("Couple scapho-cuboïdien");
+      if (p.cranio.adaptatif.strains) adaptatifList.push("sphénoïde");
+      if (p.cranio.adaptatif.grosse_art) adaptatifList.push("Grosse articulation");
+    }
+    if (adaptatifList.length > 0) {
+      lines.push(`• Adaptatif : ${adaptatifList.join(', ')}`);
+    }
+
+    const pelvienneList = [];
+    if (p.cranio.somatique) {
+      if (p.cranio.somatique.iliaque_ensemble) pelvienneList.push("Iliaques ensemble");
+      if (p.cranio.somatique.coccygienne) pelvienneList.push("Coccygienne");
+      if (p.cranio.somatique.ixions) pelvienneList.push("Ixions");
+      if (p.cranio.somatique.pubis) pelvienneList.push("Pubis");
+      if (p.cranio.somatique.iliaque_indep) pelvienneList.push("Iliaques indép.");
+      if (p.cranio.somatique.sacrum_liaison) pelvienneList.push("Liaison Iliaque-Sacrum");
+    }
+    if (pelvienneList.length > 0) {
+      lines.push(`• Ceinture pelvienne : ${pelvienneList.join(', ')}`);
+    }
+
+    const autresList = [];
+    if (p.cranio.somatique) {
+      if (p.cranio.somatique.vertebres) autresList.push("Vertèbres");
+      if (p.cranio.somatique.scapulaire) autresList.push("Ceinture scapulaire");
+      if (p.cranio.somatique.ant_complet) autresList.push("Membres ant.");
+      if (p.cranio.somatique.post_complet) autresList.push("Membres post.");
+      if (p.cranio.somatique.genoux) autresList.push("Genoux");
+      if (p.cranio.somatique.jarrets) autresList.push("Jarrets");
+      if (p.cranio.somatique.visceres) {
+        autresList.push("Viscères" + (p.cranio.somatique.visceres_text ? ` (${p.cranio.somatique.visceres_text})` : ''));
+      }
+    }
+    if (autresList.length > 0) {
+      lines.push(`• Autres structures : ${autresList.join(', ')}`);
+    }
+
+    const cranioHtml = lines.length > 0 
+      ? lines.join('<br>') 
+      : '• Aucune zone spécifique';
+
+    protocolsListHtml += `<div style="padding:10px; border:1px solid var(--glass-border); border-radius:4px; background:rgba(255,255,255,0.01);">
+      <strong style="color:var(--color-primary)">Cranio-Sacrée</strong>
+      <p style="margin:5px 0 0 0; font-size:0.9rem; line-height:1.4;">
+        ${cranioHtml}
+      </p>
+      ${p.cranio.precisions ? `<p style="margin:4px 0 0 0; font-size:0.85rem; font-style:italic;">Précisions : ${p.cranio.precisions}</p>` : ''}
+    </div>`;
+  }
+  
+  // Kinésio
+  if (p.kinesiologie && p.kinesiologie.checked) {
+    const partsHtml = [];
+    
+    if (p.kinesiologie.problematique) {
+      partsHtml.push(`<p style="margin:15px 0 0 0; font-size:0.9rem; white-space:pre-line;"><strong><u>Problématique travaillée :</u></strong>\n${p.kinesiologie.problematique}</p>`);
+    }
+    
+    if (p.kinesiologie.type === 'Émotions réactives') {
+      if (p.kinesiologie.emot_reactives) {
+        partsHtml.push(`<p style="margin:15px 0 0 0; font-size:0.9rem; white-space:pre-line;"><strong><u>Émotions réactives :</u></strong>\n${p.kinesiologie.emot_reactives}</p>`);
+      }
+      if (p.kinesiologie.emot_reactrice) {
+        partsHtml.push(`<p style="margin:15px 0 0 0; font-size:0.9rem; white-space:pre-line;"><strong><u>Émotions réactrices :</u></strong>\n${p.kinesiologie.emot_reactrice}</p>`);
+      }
+    }
+    
+    if (p.kinesiologie.type === 'Émotion d’urgence' || p.kinesiologie.type === "Émotion d'urgence") {
+      if (p.kinesiologie.emot_liberee) {
+        partsHtml.push(`<p style="margin:15px 0 0 0; font-size:0.9rem; white-space:pre-line;"><strong><u>Émotion d'urgence libérée :</u></strong>\n${p.kinesiologie.emot_liberee}</p>`);
+      }
+    }
+    
+    if (p.kinesiologie.type !== 'Émotions réactives' && p.kinesiologie.type !== 'Émotion d’urgence' && p.kinesiologie.type !== "Émotion d'urgence" && p.kinesiologie.syntho) {
+      partsHtml.push(`<p style="margin:15px 0 0 0; font-size:0.9rem; white-space:pre-line;"><strong><u>Syntonisation :</u></strong>\n${p.kinesiologie.syntho}</p>`);
+    }
+    
+    if (p.kinesiologie.objectif) {
+      partsHtml.push(`<p style="margin:15px 0 0 0; font-size:0.9rem; white-space:pre-line;"><strong><u>Objectif :</u></strong>\n${p.kinesiologie.objectif}</p>`);
+    }
+    
+    if (p.kinesiologie.ldt) {
+      partsHtml.push(`<p style="margin:15px 0 0 0; font-size:0.9rem; white-space:pre-line;"><strong><u>Ligne de Temps (LDT) :</u></strong>\n${p.kinesiologie.ldt}</p>`);
+    }
+    
+    // CEN
+    partsHtml.push(`<p style="margin:15px 0 0 0; font-size:0.9rem;"><strong><u>CEN :</u></strong> de ${p.kinesiologie.cen_debut || 0}% à ${p.kinesiologie.cen_fin || 0}%</p>`);
+    
+    if (p.kinesiologie.precisions) {
+      partsHtml.push(`<p style="margin:15px 0 0 0; font-size:0.85rem; font-style:italic; white-space:pre-line;"><strong><u>Précisions Kinésiologie :</u></strong>\n${p.kinesiologie.precisions}</p>`);
+    }
+    
+    protocolsListHtml += `<div style="padding:10px; border:1px solid var(--glass-border); border-radius:4px; background:rgba(255,255,255,0.01);">
+      <strong style="color:var(--color-primary)">Kinésiologie (${p.kinesiologie.type})</strong>
+      ${partsHtml.join('')}
+    </div>`;
+  }
+  
+  // Aura
+  if (p.aura && p.aura.checked) {
+    const list = [];
+    if (p.aura.recentrage) list.push("Recentrage de l'aura");
+    if (p.aura.liens) list.push("Section des liens énergétiques");
+    if (p.aura.vidange) list.push("Vidange des énergies usagées");
+    
+    // Filet
+    if (p.aura.filet) {
+      const fList = [];
+      if (p.aura.filet_options) {
+        if (p.aura.filet_options.energies) fList.push('énergies négatives');
+        if (p.aura.filet_options.emotions) fList.push('émotions négatives');
+        if (p.aura.filet_options.parasites) fList.push('parasites');
+        if (p.aura.filet_options.entites) fList.push('petites entités');
+        if (p.aura.filet_options.sorts) fList.push('sorts');
+        if (p.aura.filet_options.incorporations) fList.push('incorporations');
+      }
+      list.push("Technique du filet" + (fList.length > 0 ? ` [${fList.join(', ')}]` : ''));
+    }
+    
+    if (p.aura.fleches) list.push("Élimination des flèches" + (p.aura.fleches_loc ? " : " + p.aura.fleches_loc : ""));
+    if (p.aura.masses) list.push("Élimination des masses" + (p.aura.masses_loc ? " : " + p.aura.masses_loc : ""));
+    if (p.aura.recharge) list.push("Recharge énergétique & comblement");
+    if (p.aura.chakras) list.push("Régulation des chakras");
+    if (p.aura.circulation) list.push("Relance de la circulation générale");
+    if (p.aura.mouvement) list.push("Relance du mouvement primordial");
+
+    // Locaux / Soins spécifiques
+    if (p.aura.local_filament) list.push("Filament incandescent");
+    if (p.aura.local_polarites) list.push("Équilibre polarités");
+    if (p.aura.local_recharge) list.push("Recharge locale");
+    if (p.aura.local_complement) {
+      const cTxt = p.aura.local_complement_text ? p.aura.local_complement_text : '';
+      list.push("Technique complémentaire" + (cTxt ? ` (${cTxt})` : ''));
+    }
+    const sLoc = p.aura.soins_loc || p.aura.local_complement_loc || '';
+    if (sLoc) {
+      list.push(`Localisation soins spécifiques : ${sLoc}`);
+    }
+    if (p.aura.repolarisation) list.push("Repolarisation");
+
+    const stepsHtml = list.map(item => `• ${item}`).join('<br>');
+
+    protocolsListHtml += `<div style="padding:10px; border:1px solid var(--glass-border); border-radius:4px; background:rgba(255,255,255,0.01);">
+      <strong style="color:var(--color-primary)">Aura</strong>
+      <p style="margin:5px 0; font-size:0.9rem; line-height:1.45;">
+        ${stepsHtml || 'Aucune étape spécifique'}
+      </p>
+      ${p.aura.precisions ? `<p style="margin:8px 0 0 0; font-size:0.85rem; font-style:italic; white-space:pre-line;">Précisions : ${p.aura.precisions}</p>` : ''}
+    </div>`;
+  }
+  
+  // Build the Protocols section container
+  html += `<div style="margin-bottom: 20px;"><strong>2. Protocoles réalisés :</strong>`;
+  if (protocolsListHtml) {
+    html += `<div style="display:flex; flex-direction:column; gap:12px; margin-top:8px;">${protocolsListHtml}</div>`;
+  } else {
+    html += `<p class="text-muted" style="margin-top:5px; font-style:italic;">Aucun protocole réalisé lors de cette séance.</p>`;
+  }
+
+  // Schema inside the Protocols section
+  if (session.canvas_annotation_image_blob) {
+    html += `
+      <div class="schema-section planche-anatomique" style="margin-top: 15px; text-align: center; page-break-inside: avoid !important; break-inside: avoid !important; display: block;">
+        <strong style="display:block; margin-bottom:8px; text-align:left;">Schéma d'annotations de la séance :</strong>
+        <div class="session-canvas-preview" style="border: 1px solid var(--glass-border); border-radius: 8px; padding: 10px; background: rgba(0, 0, 0, 0.2); max-width: 500px; margin: 0 auto; page-break-inside: avoid !important; break-inside: avoid !important; display: block;">
+          <img src="${session.canvas_annotation_image_blob}" alt="Schéma d'annotations" style="max-width: 100%; height: auto; border-radius: 4px; display: block; margin: 0 auto; page-break-inside: avoid !important; break-inside: avoid !important;">
+        </div>
+      </div>
+    `;
+  }
+  html += `</div>`;
+
+  // 3. Notes cliniques privées / observations
+  if (session.cr_personnel) {
+    html += `<div style="margin-bottom: 20px;"><strong>3. Notes cliniques privées / observations :</strong><p style="white-space: pre-line; margin-top:5px; background:rgba(255,255,255,0.02); padding:10px; border-radius:4px; border:1px solid var(--glass-border);">${session.cr_personnel}</p></div>`;
+  } else {
+    html += `<div style="margin-bottom: 20px;"><strong>3. Notes cliniques privées / observations :</strong><p class="text-muted" style="margin-top:5px; font-style:italic;">Aucune note clinique privée saisie.</p></div>`;
+  }
+
+  // 4. Précisions générales de la séance (champ de précisions globales)
+  if (session.precisions) {
+    html += `<div style="margin-bottom: 20px;"><strong>4. Précisions générales de la séance :</strong><p style="white-space: pre-line; margin-top:5px; background:rgba(255,255,255,0.02); padding:10px; border-radius:4px; border:1px solid var(--glass-border);">${session.precisions}</p></div>`;
+  } else {
+    html += `<div style="margin-bottom: 20px;"><strong>4. Précisions générales de la séance :</strong><p class="text-muted" style="margin-top:5px; font-style:italic;">Aucune précision générale saisie.</p></div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+// Modal questionnaire de suivi
+function openFollowupQDialog(session) {
+  const dialog = document.getElementById('dialog-followup-q');
+  const form = document.getElementById('dialog-followup-q-form');
+  form.reset();
+
+  buildQuestionnaireInputs('q-followup-dialog-container', session.q_3_semaines);
+
+  const cancels = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancels.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const q3Data = collectQuestionnaireData('q-followup-dialog-container');
+    session.q_3_semaines = q3Data;
+    
+    await update('sessions', session);
+    try { await deletePdfCache(`cr_pdf_${session.id}`); } catch (_) {}
+    showToast('Questionnaire de suivi enregistré avec succès.');
+    dialog.close();
+    await renderSessionDetails(session.id);
+  };
+
+  dialog.showModal();
+}
+
+function interpretMarkdownToHtml(text) {
+  if (!text) return '';
+  return text
+    .replace(/(?:\r?\n)+\s*Précisions\s*:[\s\S]*$/i, '') // Supprimer bloc Précisions dupliqué
+    .replace(/\s*-{3,}\s*/g, '<br><br>') // Supprimer tous les séparateurs ---
+    .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>') // Convertir **texte** en <strong>texte</strong>
+    .replace(/\*([^*]+?)\*/g, '<em>$1</em>') // Convertir *texte* en <em>texte</em>
+    .replace(/\r?\n/g, '<br>')
+    .replace(/(?:<br\s*\/?>\s*){3,}/g, '<br><br>') // Normaliser les sauts de lignes multiples
+    .trim();
+}
+
+/**
+ * Adapte et normalise le résumé généré pour les clients (carte de séance et PDF) :
+ * - Masque le mot-clé Tenségrité et fusionne ses éléments dans Techniques manuelles
+ * - Suffixe les termes d'Aura avec le terme "énergétique" (masses, flèches, circulation générale, polarités)
+ */
+function adaptResumeForClient(text) {
+  if (!text) return '';
+  let res = text;
+
+  // Si le mot-clé Tenségrité subsiste dans le texte
+  if (/tens[eé]grit[eé]/i.test(res)) {
+    // 1. Transformer les éléments Tenségrité vers leurs intitulés clients
+    res = res.replace(/•?\s*FTM\s*(?:\([^)]*\))?/gi, 'système nerveux');
+    res = res.replace(/•?\s*Torsion Physiologique\s*\(\s*Élevé\s*\)/gi, 'bassin +');
+    res = res.replace(/•?\s*Torsion Physiologique\s*(?:\([^)]*\))?/gi, 'bassin');
+    res = res.replace(/•?\s*Torsion physio(?:\s*hanche)?/gi, 'bassin');
+    res = res.replace(/•?\s*Hanche Droite\s*\(\s*Élevé\s*\)/gi, 'hanche D +');
+    res = res.replace(/•?\s*Hanche Droite(?:\s*\([^)]*\))?/gi, 'hanche D');
+    res = res.replace(/•?\s*Hanche Gauche\s*\(\s*Élevé\s*\)/gi, 'hanche G +');
+    res = res.replace(/•?\s*Hanche Gauche(?:\s*\([^)]*\))?/gi, 'hanche G');
+    res = res.replace(/•?\s*Diaphragmes\s*:\s*([^,\n\r]+(?:,\s*[^,\n\r]+)*)/gi, (match, p1) => {
+      const items = p1.split(',').map(s => s.trim().replace(/\s*\([^)]*\)/, '')).map(s => {
+        if (/pelvien/i.test(s)) return 'pelvien';
+        if (/thoraco/i.test(s)) return 'thoraco-lombaire';
+        if (/cervico/i.test(s)) return 'cervico-thoracique';
+        if (/c0-c1/i.test(s)) return 'C0-C1';
+        return s;
+      });
+      return `Diaphragmes : ${items.join(', ')}`;
+    });
+    res = res.replace(/•?\s*Loges\s*:\s*([^,\n\r]+(?:,\s*[^,\n\r]+)*)/gi, (match, p1) => {
+      const items = p1.split(',').map(s => s.trim().replace(/\s*\([^)]*\)/, '')).map(s => {
+        if (/digestive|visc[eé]rale/i.test(s)) return 'viscérale';
+        if (/thoracique/i.test(s)) return 'thoracique';
+        if (/gorge/i.test(s)) return 'gorge';
+        if (/cervelet/i.test(s)) return 'cervelet';
+        return s;
+      });
+      return `Loges : ${items.join(', ')}`;
+    });
+    res = res.replace(/•?\s*Aucune tension majeure/gi, '');
+    res = res.replace(/Hélices\s*:\s*/gi, '');
+
+    // Remplacer le titre **Tenségrité** par **Techniques manuelles - zones travaillées :** ou fusionner
+    if (res.includes('**Techniques manuelles')) {
+      res = res.replace(/\*\*Tenségrité\*\*\s*(?:\r?\n)*(?:item et zones travaillés\s*:)?/gi, '');
+    } else {
+      res = res.replace(/\*\*Tenségrité\*\*\s*(?:\r?\n)*(?:item et zones travaillés\s*:)?/gi, '**Techniques manuelles - zones travaillées :**\n');
+    }
+  }
+
+  // Factoriser les diaphragmes individuels si présents
+  if (/diaphragme (?:pelvien|thoraco-lombaire|cervico-thoracique|C0-C1)/i.test(res)) {
+    const dMatches = [];
+    if (/diaphragme pelvien/i.test(res)) dMatches.push('pelvien');
+    if (/diaphragme thoraco-lombaire/i.test(res)) dMatches.push('thoraco-lombaire');
+    if (/diaphragme cervico-thoracique/i.test(res)) dMatches.push('cervico-thoracique');
+    if (/diaphragme C0-C1/i.test(res)) dMatches.push('C0-C1');
+    if (dMatches.length > 0) {
+      res = res.replace(/•?\s*diaphragme (?:pelvien|thoraco-lombaire|cervico-thoracique|C0-C1)\s*(?:\r?\n)?/gi, '');
+      res = res.replace(/(\*\*Techniques manuelles - zones travaillées :\*\*\s*\n)/i, `$1Diaphragmes : ${dMatches.join(', ')}\n`);
+    }
+  }
+
+  // Factoriser les loges individuelles si présentes
+  if (/loge (?:viscérale|thoracique|(?:de la )?gorge|du cervelet)/i.test(res)) {
+    const lMatches = [];
+    if (/loge viscérale/i.test(res)) lMatches.push('viscérale');
+    if (/loge thoracique/i.test(res)) lMatches.push('thoracique');
+    if (/loge (?:de la )?gorge/i.test(res)) lMatches.push('gorge');
+    if (/loge du cervelet/i.test(res)) lMatches.push('cervelet');
+    if (lMatches.length > 0) {
+      res = res.replace(/•?\s*loge (?:viscérale|thoracique|(?:de la )?gorge|du cervelet)\s*(?:\r?\n)?/gi, '');
+      res = res.replace(/(\*\*Techniques manuelles - zones travaillées :\*\*\s*\n)/i, `$1Loges : ${lMatches.join(', ')}\n`);
+    }
+  }
+
+  // Remplacer l'ancien en-tête simple par "Techniques manuelles - zones travaillées :" suivi d'un saut de ligne
+  res = res.replace(/\*\*Techniques manuelles\*\*\s*(?:\r?\n)+\s*Zones travaillées\s*:\s*/gi, '**Techniques manuelles - zones travaillées :**\n');
+  res = res.replace(/\*\*Techniques manuelles\*\*(?!\s*-\s*zones)/gi, '**Techniques manuelles - zones travaillées :**\n');
+
+  // Aura : suffixer par "énergétique"
+  res = res.replace(/Élimination des masses(?!\s*énergétiques)/gi, 'Élimination des masses énergétiques');
+  res = res.replace(/Élimination des flèches(?!\s*énergétiques)/gi, 'Élimination des flèches énergétiques');
+  res = res.replace(/Relance(?: de la)? circulation(?: générale)?(?!\s*énergétique)/gi, 'Relance de la circulation générale énergétique');
+  res = res.replace(/Équilibre(?: des)? polarités(?!\s*énergétiques)/gi, 'Équilibre des polarités énergétiques');
+  res = res.replace(/Repolarisation(?!\s*énergétique)/gi, 'Repolarisation énergétique');
+
+  return res;
+}
+
+function formatTimelineSummary(text) {
+  if (!text) return 'Aucun résumé client rédigé.';
+  const adapted = adaptResumeForClient(text);
+  return adapted
+    .replace(/(?:\r?\n)+\s*Précisions\s*:[\s\S]*$/i, '') // Supprimer bloc Précisions dupliqué
+    .replace(/\s*-{3,}\s*/g, '\n\n') // Supprimer tous les séparateurs ---
+    .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>') // Convertir **texte** en <strong>texte</strong>
+    .replace(/\*([^*]+?)\*/g, '<em>$1</em>') // Convertir *texte* en <em>texte</em>
+    .replace(/(?:\r?\n){3,}/g, '\n\n') // Normaliser les sauts de lignes multiples
+    .trim();
+}
+
+async function renderSessionDetails(sessionId) {
+  const session = await getById('sessions', sessionId);
+  if (!session) {
+    showToast('Séance introuvable.', 'error');
+    window.location.hash = 'sessions';
+    return;
+  }
+
+  const animal = await getById('animals', session.animal_id);
+  const client = await getById('clients', session.client_id);
+
+  // En-tête contextuel de la vue session
+  const mainTitleEl = document.getElementById('session-detail-main-title');
+  if (mainTitleEl) {
+    mainTitleEl.textContent = `Compte-rendu — ${animal ? animal.nom : 'Animal'}`;
+  }
+  const subtitleEl = document.getElementById('session-detail-subtitle');
+  if (subtitleEl) {
+    const dateStr = formatDate(session.date_seance);
+    const ownerStr = client ? ` • Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
+    subtitleEl.textContent = `Séance du ${dateStr}${ownerStr}`;
+  }
+
+  const sessionDateEl = document.getElementById('print-session-date');
+  if (sessionDateEl) {
+    sessionDateEl.textContent = `Séance du : ${formatDate(session.date_seance)}`;
+  }
+  
+  if (client) {
+    const clientNameEl = document.getElementById('print-client-name');
+    if (clientNameEl) clientNameEl.textContent = `${client.prenom} ${client.nom.toUpperCase()}`;
+    const clientContactEl = document.getElementById('print-client-contact');
+    if (clientContactEl) clientContactEl.innerHTML = `Tél : ${client.telephone} &bull; E-mail : ${client.email || '-'}`;
+  }
+  
+  if (animal) {
+    const animalNameEl = document.getElementById('print-animal-name');
+    if (animalNameEl) animalNameEl.textContent = animal.nom;
+    const animalIdentEl = document.getElementById('print-animal-identity');
+    if (animalIdentEl) animalIdentEl.innerHTML = `${animal.espece} &bull; ${animal.race || '-'} ${animal.robe ? '('+animal.robe+')' : ''}`;
+    const animalDetailsEl = document.getElementById('print-animal-details');
+    if (animalDetailsEl) animalDetailsEl.innerHTML = `Sexe : ${animal.sexe || '-'} &bull; Âge : ${calculateAge(animal.date_naissance_ou_age)}`;
+    const animalLivingEl = document.getElementById('print-animal-living');
+    if (animalLivingEl) animalLivingEl.textContent = `Lieu de vie : ${animal.stable_name || animal.lieu_de_vie || '-'}`;
+  }
+
+  const printObjEl = document.getElementById('print-session-objective');
+  if (printObjEl) {
+    printObjEl.innerHTML = formatMultilineText(session.motif || '-');
+  }
+  const printResumeEl = document.getElementById('print-session-resume-content');
+  if (printResumeEl) {
+    printResumeEl.innerHTML = interpretMarkdownToHtml(adaptResumeForClient(session.resume_client_genere || 'Aucun résumé rédigé.'));
+  }
+  const printGenDateEl = document.getElementById('print-generation-date');
+  if (printGenDateEl) {
+    printGenDateEl.textContent = new Date().toLocaleDateString('fr-FR');
+  }
+
+  // Précisions générales de la séance (si renseignées)
+  const precisionsSection = document.getElementById('print-section-precisions');
+  const precisionsContent = document.getElementById('print-session-precisions-content');
+  if (precisionsContent) {
+    if (session.precisions && session.precisions.trim()) {
+      precisionsContent.innerHTML = formatMultilineText(session.precisions);
+      if (precisionsSection) precisionsSection.style.display = 'block';
+    } else {
+      precisionsContent.innerHTML = '';
+      if (precisionsSection) precisionsSection.style.display = 'none';
+    }
+  }
+
+  // Canvas d'annotation image
+  const imgSection = document.getElementById('print-section-canvas');
+  const imgElement = document.getElementById('print-session-canvas-img');
+  if (imgElement && imgSection) {
+    if (session.canvas_annotation_image_blob) {
+      imgElement.src = session.canvas_annotation_image_blob;
+      imgSection.style.display = 'block';
+    } else {
+      imgSection.style.display = 'none';
+    }
+  }
+
+  // --- RENDU DE L'HISTORIQUE DE L'ANIMAL ---
+  const fromAnimal = previousRoute && previousRoute.startsWith('animals/');
+  const historySection = document.getElementById('print-section-history');
+  if (historySection) {
+    historySection.style.display = fromAnimal ? 'none' : 'block';
+  }
+
+  try {
+    const animalSessions = await getByIndex('sessions', 'animal_id', session.animal_id);
+    animalSessions.sort((a, b) => new Date(b.date_seance) - new Date(a.date_seance));
+    
+    let historyHtml = '<table class="print-history-table" style="width:100%; border-collapse:collapse; margin-top:10px;"><thead><tr style="border-bottom:1px solid #cbd5e1; text-align:left; font-size:0.85rem;"><th style="padding:6px 0;">Date</th><th style="padding:6px 0;">Motif</th><th style="padding:6px 0;">Résumé / Protocoles</th></tr></thead><tbody>';
+    animalSessions.forEach(s => {
+      const protos = getActiveProtocolsList(s);
+      const resumePreview = protos.length > 0 
+        ? escapeHtml(protos.join(', ')) 
+        : (s.resume_client_genere ? 'Séance réalisée' : 'Aucun protocole');
+      const isCurrent = s.id === session.id;
+      historyHtml += `<tr style="border-bottom:1px solid #e2e8f0; font-size:0.8rem; ${isCurrent ? 'font-weight:bold; background-color:rgba(255,255,255,0.05);' : ''}">
+        <td style="padding:6px 0;">${formatDate(s.date_seance)} ${isCurrent ? '(Séance actuelle)' : ''}</td>
+        <td style="padding:6px 0; white-space:pre-line;">${escapeHtml(s.motif || '-')}</td>
+        <td style="padding:6px 0; color:var(--text-sub);">${resumePreview}</td>
+      </tr>`;
+    });
+    historyHtml += '</tbody></table>';
+    const historyListEl = document.getElementById('print-session-history-list');
+    if (historyListEl) {
+      historyListEl.innerHTML = historyHtml;
+    }
+  } catch (errHist) {
+    console.error('Erreur chargement historique séance:', errHist);
+  }
+
+  // --- BOUTONS PRATICIEN ---
+  // Toggling CR détaillé
+  const toggleCrBtn = document.getElementById('btn-toggle-cr-detaille');
+  const crDetailleContent = document.getElementById('practitioner-cr-detaille-content');
+  if (toggleCrBtn && crDetailleContent) {
+    try {
+      // Show detailed CR by default
+      crDetailleContent.innerHTML = renderDetailedCR(session);
+      crDetailleContent.style.display = 'block';
+      toggleCrBtn.textContent = 'Masquer le CR métier (détaillé)';
+    } catch (errCr) {
+      console.error('Erreur affichage CR détaillé:', errCr);
+      crDetailleContent.innerHTML = '<p class="text-danger">Erreur lors de l\'affichage du CR détaillé.</p>';
+      crDetailleContent.style.display = 'block';
+    }
+    
+    toggleCrBtn.onclick = () => {
+      if (crDetailleContent.style.display === 'none') {
+        try {
+          crDetailleContent.innerHTML = renderDetailedCR(session);
+        } catch (errCr) {
+          console.error('Erreur affichage CR détaillé:', errCr);
+        }
+        crDetailleContent.style.display = 'block';
+        toggleCrBtn.textContent = 'Masquer le CR métier (détaillé)';
+      } else {
+        crDetailleContent.style.display = 'none';
+        toggleCrBtn.textContent = 'Afficher le CR métier (détaillé)';
+      }
+    };
+  }
+
+  // Completing follow-up Q
+  const completeFollowupBtn = document.getElementById('btn-complete-followup-q');
+  if (completeFollowupBtn) {
+    completeFollowupBtn.onclick = () => {
+      openFollowupQDialog(session);
+    };
+  }
+
+  // Redirection back button
+  const backToAnimalBtn = document.getElementById('btn-back-to-animal-from-session');
+  if (backToAnimalBtn) {
+    backToAnimalBtn.onclick = () => {
+      window.location.hash = `animals/${session.animal_id}`;
+    };
+  }
+
+  const backToSessionsListBtn = document.getElementById('btn-back-to-sessions-list');
+  if (backToSessionsListBtn) {
+    backToSessionsListBtn.onclick = () => {
+      window.location.hash = 'sessions';
+    };
+  }
+
+  // Modifier la séance
+  const editSessionBtn = document.getElementById('btn-edit-session-detail');
+  if (editSessionBtn) {
+    editSessionBtn.onclick = () => {
+      window.location.hash = `session-editor/${session.id}`;
+    };
+  }
+
+  // Voir le PDF via la modale A4 officielle
+  const printBtn = document.getElementById('btn-print-session');
+  if (printBtn) {
+    printBtn.onclick = (e) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (printBtn.disabled || isPdfGenerating || isPortalSessionModalOpening) {
+        return;
+      }
+      printBtn.disabled = true;
+      setTimeout(() => { printBtn.disabled = false; }, 2000);
+      const preOpenedTab = prepareMobileTabIfNeeded();
+      openPortalSessionModal(session, animal, { preOpenedTab });
+    };
+  }
+}
+
+// --- QUESTIONNAIRE GENERATOR HELPER ---
+function buildQuestionnaireInputs(containerId, data = null, compareData = null) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+
+  const isFollowup = containerId === 'q-3-semaines-container' || containerId === 'q-followup-dialog-container';
+
+  QUESTIONNAIRE_CRITERES.forEach((critere, idx) => {
+    const safeId = critere.replace(/[^a-zA-Z0-9]/g, '_');
+    
+    // Valeur par défaut
+    let currentNote = 10;
+    let currentPrecisions = '';
+    
+    if (data && data[critere]) {
+      currentNote = data[critere].note !== undefined ? data[critere].note : 10;
+      currentPrecisions = data[critere].precisions || '';
+    }
+
+    const card = document.createElement('div');
+    card.className = 'question-card';
+    if (critere === 'Autre') {
+      card.classList.add('full-width');
+    }
+    
+    // Rendu comparatif initial
+    let comparativeHtml = '';
+    if (isFollowup) {
+      let initNote = 10;
+      let initPrec = '';
+      
+      // Essayer d'abord de lire depuis le compareData (chargement depuis la base)
+      if (compareData && compareData[critere]) {
+        initNote = compareData[critere].note !== undefined ? compareData[critere].note : 10;
+        initPrec = compareData[critere].precisions || '';
+      } else {
+        // Sinon, essayer de lire en direct du DOM du formulaire d'avant séance
+        const avantSlider = document.getElementById(`slide-q-avant-seance-container-${safeId}`);
+        const avantPrec = document.getElementById(`prec-q-avant-seance-container-${safeId}`);
+        if (avantSlider) initNote = parseInt(avantSlider.value);
+        if (avantPrec) initPrec = avantPrec.value.trim();
+      }
+      
+      comparativeHtml = `
+        <div class="comparative-score-display" id="comp-${containerId}-${safeId}" style="color: #a78bfa; font-size: 0.85rem; margin-top: 5px; font-weight: 600; font-style: italic;">
+          ⏮️ Score initial : <strong id="comp-note-${containerId}-${safeId}">${initNote}/10</strong>${initPrec ? ' - <span id="comp-prec-' + containerId + '-' + safeId + '">' + initPrec + '</span>' : ''}
+        </div>
+      `;
+    }
+
+    card.innerHTML = `
+      <div class="question-header">
+        <span class="question-title">${critere}</span>
+        <span class="question-value-display" id="disp-${containerId}-${safeId}">${currentNote}</span>
+      </div>
+      <div class="question-slider-container">
+        <span style="font-size:0.75rem; color:var(--text-muted);">1</span>
+        <input type="range" class="question-slider" id="slide-${containerId}-${safeId}" min="1" max="10" value="${currentNote}">
+        <span style="font-size:0.75rem; color:var(--text-muted);">10</span>
+      </div>
+      <div class="question-precisions-container" id="prec-container-${containerId}-${safeId}">
+        <textarea id="prec-${containerId}-${safeId}" rows="2" placeholder="Précisez pourquoi la note est basse...">${currentPrecisions}</textarea>
+      </div>
+      ${comparativeHtml}
+    `;
+
+    const slider = card.querySelector('.question-slider');
+    const display = card.querySelector('.question-value-display');
+    const precContainer = card.querySelector('.question-precisions-container');
+
+    // Déterminer la visibilité initiale du champ précisions
+    const isAutre = critere === 'Autre';
+    if (isAutre || currentNote < 7) {
+      precContainer.style.display = 'block';
+    } else {
+      precContainer.style.display = 'none';
+    }
+
+    // Gérer les changements de valeur
+    slider.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value);
+      display.textContent = val;
+      if (isAutre || val < 7) {
+        precContainer.style.display = 'block';
+      } else {
+        precContainer.style.display = 'none';
+      }
+      
+      // Mettre à jour l'affichage comparatif en temps réel dans le questionnaire de suivi si on modifie le questionnaire d'avant séance
+      if (containerId === 'q-avant-seance-container') {
+        const targetIds = ['q-3-semaines-container', 'q-followup-dialog-container'];
+        targetIds.forEach(targetId => {
+          const compNote = document.getElementById(`comp-note-${targetId}-${safeId}`);
+          if (compNote) compNote.textContent = `${val}/10`;
+        });
+      }
+    });
+
+    // Mettre à jour la précision comparée en temps réel
+    if (containerId === 'q-avant-seance-container') {
+      const textarea = card.querySelector('textarea');
+      textarea.addEventListener('input', (e) => {
+        if (e && e.isComposing) return;
+        const val = e.target.value.trim();
+        const targetIds = ['q-3-semaines-container', 'q-followup-dialog-container'];
+        targetIds.forEach(targetId => {
+          const compPrec = document.getElementById(`comp-prec-${targetId}-${safeId}`);
+          if (compPrec) {
+            compPrec.textContent = val;
+          } else {
+            // Reconstruire l'affichage si vide précédemment
+            const compDiv = document.getElementById(`comp-${targetId}-${safeId}`);
+            if (compDiv) {
+              const compNoteEl = document.getElementById(`comp-note-${targetId}-${safeId}`);
+              const noteText = compNoteEl ? compNoteEl.textContent : '10/10';
+              compDiv.innerHTML = `⏮️ Score initial : <strong id="comp-note-${targetId}-${safeId}">${noteText}</strong>${val ? ' - <span id="comp-prec-' + targetId + '-' + safeId + '">' + val + '</span>' : ''}`;
+            }
+          }
+        });
+      });
+    }
+
+    container.appendChild(card);
+  });
+}
+
+// Extraire les données saisies d'un questionnaire dans le DOM
+function collectQuestionnaireData(containerId) {
+  const result = {};
+  QUESTIONNAIRE_CRITERES.forEach(critere => {
+    const safeId = critere.replace(/[^a-zA-Z0-9]/g, '_');
+    const slider = document.getElementById(`slide-${containerId}-${safeId}`);
+    const precArea = document.getElementById(`prec-${containerId}-${safeId}`);
+    
+    if (slider) {
+      result[critere] = {
+        note: parseInt(slider.value),
+        precisions: precArea ? precArea.value : ''
+      };
+    }
+  });
+  return result;
+}
+
+let reminderItemIndex = 0;
+function addReminderRow(data = null) {
+  const container = document.getElementById('reminders-dynamic-list');
+  if (!container) return;
+  
+  const idx = reminderItemIndex++;
+  const row = document.createElement('div');
+  row.className = 'reminder-row-item glass-card';
+  row.style.padding = '15px';
+  row.style.position = 'relative';
+  row.style.marginBottom = '10px';
+  row.style.background = 'rgba(255, 255, 255, 0.02)';
+  row.style.border = '1px solid var(--glass-border)';
+  row.style.borderRadius = 'var(--border-radius-md)';
+  row.setAttribute('data-index', idx);
+  
+  // Pre-fill values
+  const dateVal = data ? (data.date_prevue || data.due_date || '') : '';
+  const delayVal = data ? (data.delay || '2m') : '2m';
+  const rawType = data ? (data.type_rappel || data.title || data.motif || '') : 'Prendre des nouvelles';
+  const notesVal = data ? (data.notes || data.description || data.note || '') : '';
+
+  let selectedType = 'Prendre des nouvelles';
+  let customTypeVal = '';
+
+  if (rawType === 'Prendre des nouvelles' || rawType === 'prendre_des_nouvelles') {
+    selectedType = 'Prendre des nouvelles';
+  } else if (rawType === 'Planifier un nouveau RDV' || rawType === 'prendre_rdv' || rawType === 'fixer_rdv') {
+    selectedType = 'Planifier un nouveau RDV';
+  } else if (rawType) {
+    selectedType = 'Autre';
+    customTypeVal = rawType;
+  }
+  
+  row.innerHTML = `
+    <button type="button" class="btn-remove-reminder-row" style="position: absolute; top: 10px; right: 10px; background: transparent; border: none; color: var(--color-danger); cursor: pointer;" title="Supprimer ce rappel">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    
+    <div class="form-grid-3" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px;">
+      <div class="form-group" style="margin-bottom: 0;">
+        <label style="font-size:0.85rem; font-weight:500;">Délai pré-programmé</label>
+        <select class="reminder-item-delay" data-index="${idx}" style="padding: 8px; font-size:0.85rem; width:100%;">
+          <option value="2w" ${delayVal === '2w' ? 'selected' : ''}>Dans 2 semaines</option>
+          <option value="3w" ${delayVal === '3w' ? 'selected' : ''}>Dans 3 semaines</option>
+          <option value="1m" ${delayVal === '1m' ? 'selected' : ''}>Dans 1 mois</option>
+          <option value="2m" ${delayVal === '2m' ? 'selected' : ''}>Dans 2 mois</option>
+          <option value="3m" ${delayVal === '3m' ? 'selected' : ''}>Dans 3 mois</option>
+          <option value="custom" ${delayVal === 'custom' ? 'selected' : ''}>Date personnalisée</option>
+        </select>
+      </div>
+      
+      <div class="form-group custom-date-field" style="margin-bottom: 0; display: ${delayVal === 'custom' ? 'block' : 'none'};">
+        <label style="font-size:0.85rem; font-weight:500;">Date prévue <span style="color:var(--color-danger)">*</span></label>
+        <input type="date" class="reminder-item-date" data-index="${idx}" value="${dateVal}" enterkeyhint="next" style="padding: 8px; font-size:0.85rem; width:100%;">
+      </div>
+      
+      <div class="form-group" style="margin-bottom: 0;">
+        <label style="font-size:0.85rem; font-weight:500;">Type de rappel</label>
+        <select class="reminder-item-type" data-index="${idx}" style="padding: 8px; font-size:0.85rem; width:100%;">
+          <option value="Prendre des nouvelles" ${selectedType === 'Prendre des nouvelles' ? 'selected' : ''}>Prendre des nouvelles</option>
+          <option value="Planifier un nouveau RDV" ${selectedType === 'Planifier un nouveau RDV' ? 'selected' : ''}>Planifier un nouveau RDV</option>
+          <option value="Autre" ${selectedType === 'Autre' ? 'selected' : ''}>Autre</option>
+        </select>
+        <div class="reminder-item-custom-type-group" style="margin-top: 8px; display: ${selectedType === 'Autre' ? 'block' : 'none'};">
+          <input type="text" class="reminder-item-custom-type" data-index="${idx}" value="${escapeHtml(customTypeVal)}" placeholder="Précisez le type de rappel..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next" style="padding: 8px; font-size:0.85rem; width:100%;">
+        </div>
+      </div>
+    </div>
+    
+    <div class="form-group" style="margin-top: 15px; margin-bottom: 0;">
+      <label style="font-size:0.85rem; font-weight:500;">Note de rappel</label>
+      <input type="text" class="reminder-item-notes" data-index="${idx}" value="${escapeHtml(notesVal)}" placeholder="Ex: Prendre des nouvelles du postérieur droit..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true" enterkeyhint="next" style="padding: 8px; font-size:0.85rem; width:100%;">
+    </div>
+  `;
+  
+  enhanceInputsForGboard(row);
+  
+  // Handle delay change
+  const delaySelect = row.querySelector('.reminder-item-delay');
+  const dateInput = row.querySelector('.reminder-item-date');
+  const customField = row.querySelector('.custom-date-field');
+  
+  const updateDateFromDelay = () => {
+    const delay = delaySelect.value;
+    const isCustom = delay === 'custom';
+    customField.style.display = isCustom ? 'block' : 'none';
+    
+    if (!isCustom) {
+      const sessionDate = document.getElementById('session-form-date').value || new Date().toISOString().split('T')[0];
+      const targetDate = calculateFutureDate(sessionDate, delay);
+      dateInput.value = targetDate;
+    }
+  };
+  
+  delaySelect.addEventListener('change', updateDateFromDelay);
+  
+  // Handle type change (toggle custom type text field)
+  const typeSelect = row.querySelector('.reminder-item-type');
+  const customTypeGroup = row.querySelector('.reminder-item-custom-type-group');
+  const customTypeInput = row.querySelector('.reminder-item-custom-type');
+  if (typeSelect) {
+    typeSelect.addEventListener('change', () => {
+      const isCustom = typeSelect.value === 'Autre';
+      if (customTypeGroup) customTypeGroup.style.display = isCustom ? 'block' : 'none';
+      if (isCustom && customTypeInput) {
+        customTypeInput.focus();
+      }
+    });
+  }
+  
+  // Set initial date if not custom and empty
+  if (!dateVal && delayVal !== 'custom') {
+    updateDateFromDelay();
+  }
+  
+  // Delete row listener
+  row.querySelector('.btn-remove-reminder-row').addEventListener('click', () => {
+    row.remove();
+  });
+  
+  container.appendChild(row);
+}
+
+// --- RENDU : EDITEUR DE SEANCE (CRÉER / ÉDITER) ---
+async function prepareSessionEditor(param) {
+  const form = document.getElementById('session-form');
+  form.reset();
+  syncCranioParentCheckboxes();
+
+  // Réinitialiser les accordions de protocoles
+  document.querySelectorAll('.protocol-checkbox').forEach(cb => {
+    cb.checked = false;
+    const body = cb.closest('.protocol-accordion').querySelector('.protocol-body');
+    if (body) body.style.display = 'none';
+  });
+
+  // Réinitialiser le bloc Questionnaire Avant Séance à l'état ouvert par défaut
+  const cardQAvant = document.getElementById('card-q-avant-seance');
+  if (cardQAvant) {
+    cardQAvant.classList.remove('is-collapsed');
+    const qHeader = cardQAvant.querySelector('.collapsible-header');
+    if (qHeader) qHeader.setAttribute('aria-expanded', 'true');
+  }
+
+  // Réinitialiser le calque transparent du Canvas et la vue zoom/pan
+  resetCanvasDrawingTools();
+  clearTransparentCanvas();
+  canvasUndoHistory = [];
+  resetCanvasView(false);
+  isCanvasModifiedInEditor = false;
+  userExplicitlyClearedCanvas = false;
+
+  currentSessionId = null;
+
+  // Déterminer s'il s'agit d'une édition de séance ou d'une nouvelle séance
+  let isEditing = false;
+  let targetSession = null;
+  let targetAnimalId = null;
+  let targetClientId = null;
+
+  if (param) {
+    if (typeof param === 'string' && param.startsWith('animal-')) {
+      targetAnimalId = Number(param.replace('animal-', ''));
+    } else if (typeof param === 'string' && param.startsWith('client-')) {
+      targetClientId = Number(param.replace('client-', ''));
+    } else {
+      const numParam = Number(param);
+      if (!isNaN(numParam) && numParam > 0) {
+        const ses = await getById('sessions', numParam);
+        if (ses) {
+          isEditing = true;
+          targetSession = ses;
+          targetAnimalId = ses.animal_id || ses.animalId;
+          currentSessionId = ses.id;
+        } else {
+          const an = await getById('animals', numParam);
+          if (an) {
+            targetAnimalId = an.id;
+          } else {
+            const cl = await getById('clients', numParam);
+            if (cl) {
+              targetClientId = cl.id;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Déduction contextuelle si aucun paramètre explicite n'a été fourni
+  if (!targetAnimalId && !targetClientId) {
+    if (previousRoute && previousRoute.startsWith('animals/')) {
+      const pAnimalId = Number(previousRoute.replace('animals/', ''));
+      if (pAnimalId) targetAnimalId = pAnimalId;
+    } else if (previousRoute && previousRoute.startsWith('clients/')) {
+      const pClientId = Number(previousRoute.replace('clients/', ''));
+      if (pClientId) targetClientId = pClientId;
+    } else if (typeof currentAnimalId !== 'undefined' && currentAnimalId && previousRoute === 'animals') {
+      targetAnimalId = currentAnimalId;
+    } else if (typeof currentClientId !== 'undefined' && currentClientId && previousRoute === 'clients') {
+      targetClientId = currentClientId;
+    }
+  }
+
+  const animals = await getAll('animals');
+  const clients = await getAll('clients');
+
+  // Si on a un targetAnimalId, identifier son client
+  if (targetAnimalId && !targetClientId) {
+    const directAnimal = animals.find(a => a.id === targetAnimalId);
+    if (directAnimal) {
+      targetClientId = directAnimal.client_id;
+    }
+  }
+
+  // 1. Filtrer les animaux sélectionnables : tous les actifs + l'animal de la séance (même s'il est archivé)
+  const selectableAnimals = animals.filter(an => {
+    if (!an) return false;
+    if (!an.archived_at) return true;
+    if (targetSession && (targetSession.animal_id === an.id || targetSession.animalId === an.id)) return true;
+    if (targetAnimalId && targetAnimalId === an.id) return true;
+    return false;
+  });
+
+  // 2. Si un client est ciblé mais pas d'animal spécifique, pré-sélectionner son animal unique s'il n'en a qu'un
+  if (targetClientId && !targetAnimalId) {
+    const clientAnimals = selectableAnimals.filter(an => an.client_id === targetClientId);
+    if (clientAnimals.length === 1) {
+      targetAnimalId = clientAnimals[0].id;
+    }
+  }
+
+  // Si l'utilisateur n'arrive d'aucun contexte et qu'il n'y a qu'un seul animal dans toute l'application
+  if (!targetAnimalId && selectableAnimals.length === 1) {
+    targetAnimalId = selectableAnimals[0].id;
+  }
+
+  // 3. Trier la liste des animaux : si un client est identifié, mettre ses animaux en priorité en haut de liste
+  selectableAnimals.sort((a, b) => {
+    if (targetClientId) {
+      const aBelongs = a.client_id === targetClientId;
+      const bBelongs = b.client_id === targetClientId;
+      if (aBelongs && !bBelongs) return -1;
+      if (!aBelongs && bBelongs) return 1;
+    }
+    return (a.nom || '').localeCompare(b.nom || '');
+  });
+
+  // 4. Remplir le sélecteur d'animaux
+  const animalSelect = document.getElementById('session-form-animal');
+  animalSelect.innerHTML = '<option value="">-- Choisir un animal... --</option>';
+  for (const an of selectableAnimals) {
+    const client = clients.find(c => c.id === an.client_id);
+    const ownerName = client ? `${client.prenom} ${client.nom}` : 'Propriétaire inconnu';
+    const opt = document.createElement('option');
+    opt.value = String(an.id);
+    opt.textContent = `${an.nom} (${an.espece} - Propriétaire : ${ownerName})${an.archived_at ? ' [Archivé]' : ''}`;
+    animalSelect.appendChild(opt);
+  }
+
+  // 5. Pré-sélectionner l'animal dans le DOM
+  if (targetAnimalId) {
+    animalSelect.value = String(targetAnimalId);
+  }
+
+  // Charger les rappels multiples
+  const remindersContainer = document.getElementById('reminders-dynamic-list');
+  if (remindersContainer) {
+    remindersContainer.innerHTML = '';
+  }
+  
+  // Date par défaut aujourd'hui
+  document.getElementById('session-form-date').value = new Date().toISOString().split('T')[0];
+
+  // --- LOGIQUE DE PRÉ-REMPLISSAGE INTELLIGENT < 2 MOIS ---
+  const updatePrefillBannerForAnimal = async (animalId) => {
+    const prefillContainer = document.getElementById('session-prefill-banner-container');
+    if (!prefillContainer) return;
+    prefillContainer.innerHTML = '';
+
+    if (isEditing || !animalId) return;
+
+    const allSessions = await getAll('sessions');
+    const animalSessions = allSessions.filter(s => Number(s.animal_id) === Number(animalId));
+    
+    if (animalSessions.length > 0) {
+      animalSessions.sort((a, b) => new Date(b.date_seance) - new Date(a.date_seance));
+      const lastSession = animalSessions[0];
+
+      const diffTime = new Date() - new Date(lastSession.date_seance);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays <= 60) {
+        const banner = document.createElement('div');
+        banner.className = 'prefill-banner';
+        banner.innerHTML = `
+          <span class="prefill-text">
+            💡 <strong>Séance récente détectée</strong> : Une séance a été réalisée il y a ${diffDays} jours (${formatDate(lastSession.date_seance)}).
+          </span>
+          <button type="button" class="btn btn-secondary btn-small" id="btn-trigger-prefill">Pré-remplir avec le suivi à 3 semaines</button>
+        `;
+
+        banner.querySelector('#btn-trigger-prefill').addEventListener('click', () => {
+          if (lastSession.q_3_semaines) {
+            buildQuestionnaireInputs('q-avant-seance-container', lastSession.q_3_semaines);
+            showToast('Questionnaire avant séance pré-rempli avec les scores à 3 semaines.');
+            banner.remove();
+          } else {
+            showToast('Le questionnaire à 3 semaines de la séance précédente est vide.', 'warning');
+          }
+        });
+
+        prefillContainer.appendChild(banner);
+      }
+    }
+  };
+
+  animalSelect.onchange = () => {
+    const currentVal = Number(animalSelect.value);
+    if (!isEditing) {
+      updatePrefillBannerForAnimal(currentVal);
+    }
+  };
+
+  if (!isEditing && targetAnimalId) {
+    await updatePrefillBannerForAnimal(targetAnimalId);
+  }
+
+  // Charger les structures des Questionnaires
+  if (isEditing) {
+    document.getElementById('session-editor-title').textContent = `Modifier la Séance`;
+    document.getElementById('session-form-id').value = targetSession.id;
+    document.getElementById('session-form-date').value = targetSession.date_seance;
+    document.getElementById('session-form-number').value = targetSession.n_seance_annee || 1;
+    document.getElementById('session-form-objective').value = targetSession.motif;
+    document.getElementById('session-form-notes-obs').value = targetSession.notes_observations || '';
+    document.getElementById('session-form-cr-practicienne').value = targetSession.cr_personnel || '';
+    document.getElementById('session-form-resume').value = targetSession.resume_client_genere || '';
+    document.getElementById('session-form-precisions').value = targetSession.precisions || '';
+
+    // Charger les Questionnaires
+    buildQuestionnaireInputs('q-avant-seance-container', targetSession.q_avant_seance);
+    
+    // Déterminer s'il faut afficher le questionnaire de suivi
+    const hasQ3 = targetSession.q_3_semaines && Object.values(targetSession.q_3_semaines).some(c => (c.note !== undefined && c.note < 10) || c.precisions);
+    if (hasQ3) {
+      document.getElementById('q-suivi-wrapper').style.display = 'block';
+      document.getElementById('container-add-followup-q').style.display = 'none';
+      buildQuestionnaireInputs('q-3-semaines-container', targetSession.q_3_semaines, targetSession.q_avant_seance);
+    } else {
+      document.getElementById('q-suivi-wrapper').style.display = 'none';
+      document.getElementById('container-add-followup-q').style.display = 'block';
+      buildQuestionnaireInputs('q-3-semaines-container', null, targetSession.q_avant_seance);
+    }
+
+    // Charger les protocoles
+    const protos = targetSession.protocoles_realises || {};
+
+    // 1. Shiatsu
+    if (protos.shiatsu && protos.shiatsu.checked) {
+      document.getElementById('proto-shiatsu-enable').checked = true;
+      document.getElementById('protocol-shiatsu-acc').querySelector('.protocol-body').style.display = 'block';
+      
+      const ys = protos.shiatsu.yin || {};
+      const ygs = protos.shiatsu.yang || {};
+      
+      document.getElementById('meridian-reins').checked = !!ys.reins;
+      document.getElementById('meridian-foie').checked = !!ys.foie;
+      document.getElementById('meridian-coeur').checked = !!ys.coeur;
+      document.getElementById('meridian-maitre-coeur').checked = !!ys.maitre_coeur;
+      document.getElementById('meridian-rate').checked = !!ys.rate;
+      document.getElementById('meridian-poumon').checked = !!ys.poumon;
+
+      document.getElementById('meridian-vessie').checked = !!ygs.vessie;
+      document.getElementById('meridian-vesicule').checked = !!ygs.vesicule;
+      document.getElementById('meridian-grele').checked = !!ygs.grele;
+      document.getElementById('meridian-triple-rechauffeur').checked = !!ygs.triple;
+      document.getElementById('meridian-estomac').checked = !!ygs.estomac;
+      document.getElementById('meridian-gros-intestin').checked = !!ygs.gros_intestin;
+
+      const v = protos.shiatsu.vaisseaux || {};
+      document.getElementById('mv-gouverneur').checked = !!v.gouverneur;
+      document.getElementById('mv-conception').checked = !!v.conception;
+
+    }
+
+    // 2. Techniques Manuelles
+    if (protos.manuelles && protos.manuelles.checked) {
+      document.getElementById('proto-manuelles-enable').checked = true;
+      document.getElementById('protocol-manuelles-acc').querySelector('.protocol-body').style.display = 'block';
+      document.getElementById('proto-manuelles-texte').value = protos.manuelles.texte || '';
+    }
+
+    // 3. Tenségrité
+    if (protos.tensegrite && protos.tensegrite.checked) {
+      document.getElementById('proto-tensegrite-enable').checked = true;
+      document.getElementById('protocol-tensegrite-acc').querySelector('.protocol-body').style.display = 'block';
+      
+      // Charger les intensités
+      const ftm = protos.tensegrite.ftm || {};
+      const torsion = protos.tensegrite.torsion || {};
+      const diaphragme = protos.tensegrite.diaphragme || {};
+      const loge = protos.tensegrite.loge || {};
+
+      // FTM
+      setSelectedValue('override-ftm', ftm.override);
+      setSelectedValue('select[data-sub="queue"]', ftm.queue);
+      setSelectedValue('select[data-sub="oeil_droit"]', ftm.oeil_droit);
+      setSelectedValue('select[data-sub="oeil_gauche"]', ftm.oeil_gauche);
+      setSelectedValue('select[data-sub="energetique"]', ftm.energetique);
+
+      // Torsion
+      setSelectedValue('override-torsion', torsion.override);
+      setSelectedValue('select[data-sub="hanche_droite"]', torsion.hanche_droite);
+      setSelectedValue('select[data-sub="hanche_gauche"]', torsion.hanche_gauche);
+      setSelectedValue('select[data-sub="occiput"]', torsion.occiput);
+
+      // Diaphragme
+      setSelectedValue('override-diaphragme', diaphragme.override);
+      setSelectedValue('select[data-sub="pelvien"]', diaphragme.pelvien);
+      setSelectedValue('select[data-sub="thoraco_lombaire"]', diaphragme.thoraco_lombaire);
+      setSelectedValue('select[data-sub="cervico_thoracique"]', diaphragme.cervico_thoracique);
+      setSelectedValue('select[data-sub="c0_c1"]', diaphragme.c0_c1);
+
+      // Loge
+      setSelectedValue('override-loge', loge.override);
+      setSelectedValue('select[data-sub="digestive"]', loge.digestive);
+      setSelectedValue('select[data-sub="thoracique"]', loge.thoracique);
+      setSelectedValue('select[data-sub="gorge"]', loge.gorge);
+      setSelectedValue('select[data-sub="cervelet"]', loge.cervelet);
+
+      document.getElementById('proto-tensegrite-helices').value = protos.tensegrite.helices || '';
+
+      updateTensegriteTitles(); // recalcule la moyenne calculée à côté
+    }
+
+    // 4. Cranio-Sacrée
+    if (protos.cranio && protos.cranio.checked) {
+      document.getElementById('proto-cranio-enable').checked = true;
+      document.getElementById('protocol-cranio-acc').querySelector('.protocol-body').style.display = 'block';
+      
+      document.getElementById('proto-cranio-ambiance').value = protos.cranio.ambiance || '';
+
+      const adapt = protos.cranio.adaptatif || {};
+      document.getElementById('cranio-sacro').checked = !!adapt.sacro;
+      document.getElementById('cranio-rre').checked = !!adapt.rre;
+      document.getElementById('cranio-occiput').checked = !!adapt.occiput;
+      document.getElementById('cranio-couple').checked = !!adapt.couple;
+      document.getElementById('cranio-strains').checked = !!adapt.strains;
+      document.getElementById('cranio-grosse-art').checked = !!adapt.grosse_art;
+
+      const som = protos.cranio.somatique || {};
+      document.getElementById('cranio-iliaque-ensemble').checked = !!som.iliaque_ensemble;
+      document.getElementById('cranio-coccygienne').checked = !!som.coccygienne;
+      document.getElementById('cranio-ixions').checked = !!som.ixions;
+      document.getElementById('cranio-pubis').checked = !!som.pubis;
+      document.getElementById('cranio-iliaque-indep').checked = !!som.iliaque_indep;
+      document.getElementById('cranio-sacrum-liaison').checked = !!som.sacrum_liaison;
+
+      document.getElementById('cranio-vertebres').checked = !!som.vertebres;
+      document.getElementById('cranio-scapulaire').checked = !!som.scapulaire;
+      document.getElementById('cranio-ant-complet').checked = !!som.ant_complet;
+      document.getElementById('cranio-post-complet').checked = !!som.post_complet;
+      document.getElementById('cranio-genoux').checked = !!som.genoux;
+      document.getElementById('cranio-jarrets').checked = !!som.jarrets;
+
+      document.getElementById('cranio-visceres').checked = !!som.visceres;
+      document.getElementById('cranio-visceres-text').value = som.visceres_text || '';
+
+      syncCranioParentCheckboxes();
+    }
+
+    // 5. Kinésiologie
+    if (protos.kinesiologie && protos.kinesiologie.checked) {
+      document.getElementById('proto-kinesiologie-enable').checked = true;
+      document.getElementById('protocol-kinesiologie-acc').querySelector('.protocol-body').style.display = 'block';
+      
+      const type = protos.kinesiologie.type || 'Classique';
+      document.getElementById('proto-kinesiologie-type').value = type;
+      handleKinesioTypeChange(type);
+
+      document.getElementById('kinesio-reactives').value = protos.kinesiologie.emot_reactives || '';
+      document.getElementById('kinesio-reactrice').value = protos.kinesiologie.emot_reactrice || '';
+      document.getElementById('kinesio-liberee').value = protos.kinesiologie.emot_liberee || '';
+      document.getElementById('kinesio-problematique').value = protos.kinesiologie.problematique || '';
+      document.getElementById('kinesio-syntho').value = protos.kinesiologie.syntho || '';
+      document.getElementById('kinesio-objectif').value = protos.kinesiologie.objectif || '';
+      document.getElementById('kinesio-cen-debut').value = protos.kinesiologie.cen_debut !== undefined ? protos.kinesiologie.cen_debut : 100;
+      document.getElementById('kinesio-cen-fin').value = protos.kinesiologie.cen_fin !== undefined ? protos.kinesiologie.cen_fin : 0;
+      document.getElementById('kinesio-ldt').value = protos.kinesiologie.ldt || '';
+    }
+
+    // 6. Aura
+    if (protos.aura && protos.aura.checked) {
+      document.getElementById('proto-aura-enable').checked = true;
+      document.getElementById('protocol-aura-acc').querySelector('.protocol-body').style.display = 'block';
+      
+      document.getElementById('aura-recentrage').checked = !!protos.aura.recentrage;
+      document.getElementById('aura-liens').checked = !!protos.aura.liens;
+      document.getElementById('aura-vidange').checked = !!protos.aura.vidange;
+      document.getElementById('aura-fleches').checked = !!protos.aura.fleches;
+      document.getElementById('aura-fleches-loc').value = protos.aura.fleches_loc || '';
+      document.getElementById('panel-aura-fleches-loc').style.display = !!protos.aura.fleches ? 'block' : 'none';
+
+      document.getElementById('aura-masses').checked = !!protos.aura.masses;
+      document.getElementById('aura-masses-loc').value = protos.aura.masses_loc || '';
+      document.getElementById('panel-aura-masses-loc').style.display = !!protos.aura.masses ? 'block' : 'none';
+      document.getElementById('aura-recharge').checked = !!protos.aura.recharge;
+      document.getElementById('aura-chakras').checked = !!protos.aura.chakras;
+      document.getElementById('aura-circulation').checked = !!protos.aura.circulation;
+      document.getElementById('aura-mouvement').checked = !!protos.aura.mouvement;
+      document.getElementById('aura-repolarisation').checked = !!protos.aura.repolarisation;
+
+      document.getElementById('aura-filet').checked = !!protos.aura.filet;
+      document.getElementById('panel-filet-options').style.display = !!protos.aura.filet ? 'block' : 'none';
+      const filetOpts = protos.aura.filet_options || {};
+      document.getElementById('filet-energies').checked = !!filetOpts.energies;
+      document.getElementById('filet-emotions').checked = !!filetOpts.emotions;
+      document.getElementById('filet-parasites').checked = !!filetOpts.parasites;
+      document.getElementById('filet-entites').checked = !!filetOpts.entites;
+      document.getElementById('filet-sorts').checked = !!filetOpts.sorts;
+      document.getElementById('filet-incorporations').checked = !!filetOpts.incorporations;
+
+      document.getElementById('aura-local-filament').checked = !!protos.aura.local_filament;
+      document.getElementById('aura-local-polarites').checked = !!protos.aura.local_polarites;
+      document.getElementById('aura-local-recharge').checked = !!protos.aura.local_recharge;
+      document.getElementById('aura-local-complement').checked = !!protos.aura.local_complement;
+      document.getElementById('aura-local-complement-text').value = protos.aura.local_complement_text || '';
+      document.getElementById('aura-soins-loc').value = protos.aura.soins_loc || protos.aura.local_complement_loc || '';
+    }
+
+    // Charger les rappels associés à cette séance
+    const sessionReminders = await getByIndex('reminders', 'session_id', targetSession.id);
+    if (sessionReminders && sessionReminders.length > 0) {
+      sessionReminders.forEach(r => addReminderRow(r));
+    }
+
+    // Charger et restaurer le schéma d'annotations du Canvas (v1.7.2)
+    await restoreSessionCanvas(targetSession);
+  } else {
+    await restoreSessionCanvas(null);
+    document.getElementById('session-editor-title').textContent = `Nouvelle Séance`;
+    document.getElementById('session-form-id').value = '';
+    document.getElementById('session-form-notes-obs').value = '';
+    document.getElementById('session-form-precisions').value = '';
+    
+    // Créer des questionnaires vides
+    buildQuestionnaireInputs('q-avant-seance-container');
+    document.getElementById('q-suivi-wrapper').style.display = 'none';
+    document.getElementById('container-add-followup-q').style.display = 'block';
+    buildQuestionnaireInputs('q-3-semaines-container');
+    document.getElementById('panel-filet-options').style.display = 'none';
+    document.getElementById('panel-aura-fleches-loc').style.display = 'none';
+    document.getElementById('panel-aura-masses-loc').style.display = 'none';
+    document.getElementById('aura-local-complement-text').value = '';
+    document.getElementById('aura-soins-loc').value = '';
+    
+    // Kinésio commun et type par défaut
+    document.getElementById('proto-kinesiologie-type').value = 'Classique';
+    handleKinesioTypeChange('Classique');
+
+    // Recalculer les titres de Tenségrité pour afficher [Moyen] par défaut
+    updateTensegriteTitles();
+  }
+}
+window.prepareSessionEditor = prepareSessionEditor;
+
+function setSelectedValue(selector, value) {
+  const el = document.querySelector(selector);
+  if (el && value) el.value = value;
+}
+
+// --- LOGIQUE ACCORDIONS PROTOCOLES ---
+function setupProtocolAccordionListeners() {
+  document.querySelectorAll('.protocol-checkbox').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const parent = cb.closest('.protocol-accordion');
+      const body = parent.querySelector('.protocol-body');
+      
+      if (cb.checked) {
+        body.style.display = 'block';
+      } else {
+        body.style.display = 'none';
+      }
+    });
+  });
+}
+
+// --- LOGIQUE BLOCS REPLIABLES (ACCORDÉONS / COLLAPSIBLE CARDS) ---
+function setupCollapsibleCardListeners() {
+  document.addEventListener('click', (e) => {
+    const header = e.target.closest('.collapsible-header');
+    if (!header) return;
+
+    // Ne pas déclencher le pliage si le clic provient d'un bouton d'action, d'un lien ou d'un champ
+    if (e.target.closest('button, a, input, select, textarea, .btn, .btn-small')) {
+      return;
+    }
+
+    const card = header.closest('.collapsible-card');
+    if (!card) return;
+
+    e.preventDefault();
+    card.classList.toggle('is-collapsed');
+    const isCollapsed = card.classList.contains('is-collapsed');
+    header.setAttribute('aria-expanded', String(!isCollapsed));
+  });
+}
+
+// --- LOGIQUE SIDEBAR COMPACTE ET RÉTRACTABLE (TABLETTE PORTRAIT & MOBILE <= 992px) ---
+function setupMobileSidebarListeners() {
+  const sidebar = document.querySelector('.sidebar');
+  const sidebarBrand = document.getElementById('sidebar-brand-toggle') || document.querySelector('.sidebar-brand');
+  const burgerBtn = document.getElementById('btn-header-burger');
+  const backdrop = document.getElementById('sidebar-backdrop');
+
+  if (!sidebar) return;
+
+  const toggleSidebar = (e) => {
+    if (window.innerWidth <= 992) {
+      if (e) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+      sidebar.classList.toggle('expanded');
+      const isExpanded = sidebar.classList.contains('expanded');
+      if (burgerBtn) burgerBtn.setAttribute('aria-expanded', String(isExpanded));
+      if (backdrop) backdrop.classList.toggle('active', isExpanded);
+    }
+  };
+
+  const closeSidebar = () => {
+    if (sidebar.classList.contains('expanded')) {
+      sidebar.classList.remove('expanded');
+      if (burgerBtn) burgerBtn.setAttribute('aria-expanded', 'false');
+      if (backdrop) backdrop.classList.remove('active');
+    }
+    // Retirer le focus de tout élément à l'intérieur de la sidebar pour couper :focus-within
+    if (document.activeElement && sidebar.contains(document.activeElement)) {
+      if (typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+    }
+  };
+
+  // 1. Bouton burger dans le header
+  if (burgerBtn) {
+    burgerBtn.addEventListener('click', (e) => {
+      toggleSidebar(e);
+    });
+  }
+
+  // 2. Clic / tap sur l'en-tête ou logo de la sidebar
+  if (sidebarBrand) {
+    sidebarBrand.addEventListener('click', (e) => {
+      if (window.innerWidth <= 992) {
+        toggleSidebar(e);
+      }
+    });
+
+    sidebarBrand.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && window.innerWidth <= 992) {
+        e.preventDefault();
+        toggleSidebar(e);
+      }
+    });
+  }
+
+  // 3. Clic sur le backdrop referme le volet
+  if (backdrop) {
+    backdrop.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeSidebar();
+    });
+  }
+
+  // 4. Clic en dehors de la sidebar referme le volet s'il est ouvert
+  document.addEventListener('click', (e) => {
+    if (window.innerWidth <= 992 && sidebar.classList.contains('expanded')) {
+      if (!sidebar.contains(e.target) && !e.target.closest('#btn-header-burger')) {
+        closeSidebar();
+      }
+    }
+  });
+
+  // 5. Clic sur un lien de navigation referme la sidebar sur mobile et retire le focus
+  sidebar.querySelectorAll('.nav-item, .nav-link, a').forEach(item => {
+    item.addEventListener('click', (e) => {
+      closeSidebar();
+      if (e.currentTarget && typeof e.currentTarget.blur === 'function') {
+        e.currentTarget.blur();
+      }
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+    });
+  });
+
+  // 6. Touche Échap pour refermer
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sidebar.classList.contains('expanded')) {
+      closeSidebar();
+    }
+  });
+}
+
+// --- SYNCHRONISATION PARENT/ENFANTS CRANIO-SACRÉE ---
+function syncCranioParentCheckboxes() {
+  const adaptatifSubIds = ['cranio-sacro', 'cranio-rre', 'cranio-occiput', 'cranio-couple', 'cranio-strains', 'cranio-grosse-art'];
+  const pelvienneSubIds = ['cranio-iliaque-ensemble', 'cranio-coccygienne', 'cranio-ixions', 'cranio-pubis', 'cranio-iliaque-indep', 'cranio-sacrum-liaison'];
+
+  const parentAdaptatif = document.getElementById('cranio-parent-adaptatif');
+  const parentPelvienne = document.getElementById('cranio-parent-pelvienne');
+
+  if (parentAdaptatif) {
+    const checkedCount = adaptatifSubIds.filter(id => {
+      const el = document.getElementById(id);
+      return el && el.checked;
+    }).length;
+    parentAdaptatif.checked = checkedCount > 0;
+  }
+
+  if (parentPelvienne) {
+    const checkedCount = pelvienneSubIds.filter(id => {
+      const el = document.getElementById(id);
+      return el && el.checked;
+    }).length;
+    parentPelvienne.checked = checkedCount > 0;
+  }
+}
+
+function setupCranioCheckboxListeners() {
+  const parentAdaptatif = document.getElementById('cranio-parent-adaptatif');
+  const parentPelvienne = document.getElementById('cranio-parent-pelvienne');
+
+  const adaptatifSubIds = ['cranio-sacro', 'cranio-rre', 'cranio-occiput', 'cranio-couple', 'cranio-strains', 'cranio-grosse-art'];
+  const pelvienneSubIds = ['cranio-iliaque-ensemble', 'cranio-coccygienne', 'cranio-ixions', 'cranio-pubis', 'cranio-iliaque-indep', 'cranio-sacrum-liaison'];
+
+  if (parentAdaptatif) {
+    parentAdaptatif.addEventListener('change', () => {
+      const isChecked = parentAdaptatif.checked;
+      adaptatifSubIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.checked = isChecked;
+      });
+    });
+  }
+
+  if (parentPelvienne) {
+    parentPelvienne.addEventListener('change', () => {
+      const isChecked = parentPelvienne.checked;
+      pelvienneSubIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.checked = isChecked;
+      });
+    });
+  }
+
+  [...adaptatifSubIds, ...pelvienneSubIds].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', () => {
+        syncCranioParentCheckboxes();
+      });
+    }
+  });
+}
+
+// --- FONCTIONS DE GESTION DU ZOOM ET PAN SUR LE CANVAS ---
+function applyCanvasTransform() {
+  const viewport = document.getElementById('canvas-viewport');
+  if (!viewport) return;
+  viewport.style.transform = `translate(${canvasPanX}px, ${canvasPanY}px) scale(${canvasScale})`;
+
+  const resetBtn = document.getElementById('btn-canvas-reset-zoom');
+  if (resetBtn) {
+    const isZoomedOrPanned = canvasScale !== 1.0 || Math.abs(canvasPanX) > 1 || Math.abs(canvasPanY) > 1;
+    resetBtn.classList.toggle('is-zoomed', isZoomedOrPanned);
+    resetBtn.innerHTML = `🔍 ${Math.round(canvasScale * 100)}%`;
+  }
+}
+
+function resetCanvasView(animate = true) {
+  canvasScale = 1.0;
+  canvasPanX = 0;
+  canvasPanY = 0;
+  isPinching = false;
+  activeCanvasPointers.clear();
+  prePinchDrawingSnapshot = null;
+
+  const viewport = document.getElementById('canvas-viewport');
+  if (viewport) {
+    if (animate) {
+      viewport.style.transition = 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)';
+      setTimeout(() => {
+        if (viewport) viewport.style.transition = '';
+      }, 250);
+    } else {
+      viewport.style.transition = '';
+    }
+  }
+  applyCanvasTransform();
+}
+
+function zoomCanvasAtPoint(clientX, clientY, zoomFactor) {
+  const container = document.getElementById('canvas-zoom-container') || (canvasElement && canvasElement.parentElement);
+  if (!container || !canvasElement) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const focalX = clientX - containerRect.left;
+  const focalY = clientY - containerRect.top;
+
+  const contentFocalX = (focalX - canvasPanX) / canvasScale;
+  const contentFocalY = (focalY - canvasPanY) / canvasScale;
+
+  const targetScale = Math.min(Math.max(canvasScale * zoomFactor, 1.0), 5.0);
+  if (targetScale === 1.0) {
+    canvasScale = 1.0;
+    canvasPanX = 0;
+    canvasPanY = 0;
+  } else {
+    canvasScale = targetScale;
+    let newPanX = focalX - contentFocalX * canvasScale;
+    let newPanY = focalY - contentFocalY * canvasScale;
+
+    const contW = containerRect.width;
+    const contH = containerRect.height;
+    const margin = 80;
+    const minPanX = contW * (1 - canvasScale) - margin;
+    const maxPanX = margin;
+    const minPanY = contH * (1 - canvasScale) - margin;
+    const maxPanY = margin;
+    canvasPanX = Math.min(Math.max(newPanX, minPanX), maxPanX);
+    canvasPanY = Math.min(Math.max(newPanY, minPanY), maxPanY);
+  }
+  applyCanvasTransform();
+}
+
+// --- LOGIQUE DU CANVAS D'ANNOTATION (DESSIN / GOMME / PINCH-TO-ZOOM) ---
+function setupCanvasListeners() {
+  canvasElement = document.getElementById('annotation-canvas');
+  if (!canvasElement) return;
+  
+  canvasCtx = canvasElement.getContext('2d', { willReadFrequently: true });
+  const container = document.getElementById('canvas-zoom-container') || canvasElement.parentElement;
+  
+  // Activer les événements unifiés PointerEvents (stylet, tactile multi-points, souris)
+  if (window.PointerEvent) {
+    const handlePointerDown = (e) => {
+      // Ignorer si clic sur le bouton de réinitialisation du zoom
+      if (e.target && e.target.closest && e.target.closest('#btn-canvas-reset-zoom')) return;
+
+      e.preventDefault();
+      try { canvasElement.setPointerCapture(e.pointerId); } catch (err) {}
+
+      activeCanvasPointers.set(e.pointerId, {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        pointerType: e.pointerType
+      });
+
+      if (activeCanvasPointers.size === 1) {
+        // 1 contact (doigt ou stylet pen) : mode DESSIN
+        if (!isPinching) {
+          // Sauvegarder l'état actuel de la toile pour pouvoir annuler un tracé parasite
+          // si un 2ème doigt se pose juste après pour pincer/zoomer
+          try {
+            prePinchDrawingSnapshot = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
+          } catch (err) {
+            prePinchDrawingSnapshot = null;
+          }
+          startDrawingEvent(e);
+        }
+      } else if (activeCanvasPointers.size >= 2) {
+        // 2 contacts ou plus : mode NAVIGATION (Pinch-to-zoom & Pan)
+        isPinching = true;
+
+        // Bloquer et annuler immédiatement tout tracé d'encre dès que 2 contacts sont détectés
+        if (isDrawing) {
+          isDrawing = false;
+          if (prePinchDrawingSnapshot) {
+            try {
+              canvasCtx.putImageData(prePinchDrawingSnapshot, 0, 0);
+            } catch (err) {}
+            prePinchDrawingSnapshot = null;
+          }
+        }
+
+        // Initialiser la géométrie du pincement
+        const pts = Array.from(activeCanvasPointers.values());
+        const p1 = pts[0];
+        const p2 = pts[1];
+        pinchStartDist = Math.hypot(p1.clientX - p2.clientX, p1.clientY - p2.clientY);
+        pinchStartScale = canvasScale;
+        pinchStartMidX = (p1.clientX + p2.clientX) / 2;
+        pinchStartMidY = (p1.clientY + p2.clientY) / 2;
+
+        const contRect = container.getBoundingClientRect();
+        const focalX = pinchStartMidX - contRect.left;
+        const focalY = pinchStartMidY - contRect.top;
+        pinchContentFocalX = (focalX - canvasPanX) / canvasScale;
+        pinchContentFocalY = (focalY - canvasPanY) / canvasScale;
+      }
+    };
+
+    const handlePointerMove = (e) => {
+      if (!activeCanvasPointers.has(e.pointerId)) return;
+      e.preventDefault();
+
+      activeCanvasPointers.set(e.pointerId, {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        pointerType: e.pointerType
+      });
+
+      if (activeCanvasPointers.size >= 2 || isPinching) {
+        // Mode NAVIGATION : pincement pour zoomer + glisser à deux doigts pour déplacer la vue
+        const pts = Array.from(activeCanvasPointers.values());
+        if (pts.length >= 2 && pinchStartDist > 0) {
+          const p1 = pts[0];
+          const p2 = pts[1];
+          const currDist = Math.hypot(p1.clientX - p2.clientX, p1.clientY - p2.clientY);
+          const currMidX = (p1.clientX + p2.clientX) / 2;
+          const currMidY = (p1.clientY + p2.clientY) / 2;
+
+          const scaleRatio = currDist / pinchStartDist;
+          const targetScale = Math.min(Math.max(pinchStartScale * scaleRatio, 1.0), 5.0);
+          canvasScale = targetScale;
+
+          const contRect = container.getBoundingClientRect();
+          const currFocalX = currMidX - contRect.left;
+          const currFocalY = currMidY - contRect.top;
+
+          let newPanX = currFocalX - pinchContentFocalX * canvasScale;
+          let newPanY = currFocalY - pinchContentFocalY * canvasScale;
+
+          if (canvasScale === 1.0) {
+            newPanX = 0;
+            newPanY = 0;
+          } else {
+            const contW = contRect.width;
+            const contH = contRect.height;
+            const margin = 80;
+            const minPanX = contW * (1 - canvasScale) - margin;
+            const maxPanX = margin;
+            const minPanY = contH * (1 - canvasScale) - margin;
+            const maxPanY = margin;
+            newPanX = Math.min(Math.max(newPanX, minPanX), maxPanX);
+            newPanY = Math.min(Math.max(newPanY, minPanY), maxPanY);
+          }
+
+          canvasPanX = newPanX;
+          canvasPanY = newPanY;
+          applyCanvasTransform();
+        }
+      } else if (activeCanvasPointers.size === 1 && isDrawing && !isPinching) {
+        // Mode DESSIN fluide et précis
+        drawEvent(e);
+      }
+    };
+
+    const handlePointerUp = (e) => {
+      try { canvasElement.releasePointerCapture(e.pointerId); } catch (err) {}
+      activeCanvasPointers.delete(e.pointerId);
+
+      if (activeCanvasPointers.size === 0) {
+        if (isDrawing) {
+          stopDrawingEvent();
+        }
+        isPinching = false;
+        prePinchDrawingSnapshot = null;
+      } else if (activeCanvasPointers.size === 1) {
+        // Un doigt levé mais un autre reste en contact : on reste en mode navigation, pas de reprise de dessin
+        isDrawing = false;
+      }
+    };
+
+    canvasElement.addEventListener('pointerdown', handlePointerDown);
+    canvasElement.addEventListener('pointermove', handlePointerMove);
+    canvasElement.addEventListener('pointerup', handlePointerUp);
+    canvasElement.addEventListener('pointercancel', handlePointerUp);
+    canvasElement.addEventListener('pointerleave', handlePointerUp);
+
+    window.addEventListener('pointerup', (e) => {
+      if (activeCanvasPointers.has(e.pointerId)) {
+        handlePointerUp(e);
+      }
+    });
+    window.addEventListener('pointercancel', (e) => {
+      if (activeCanvasPointers.has(e.pointerId)) {
+        handlePointerUp(e);
+      }
+    });
+  } else {
+    // Fallback pour anciens navigateurs sans PointerEvents
+    canvasElement.addEventListener('mousedown', startDrawingEvent);
+    canvasElement.addEventListener('mousemove', drawEvent);
+    canvasElement.addEventListener('mouseup', stopDrawingEvent);
+    canvasElement.addEventListener('mouseleave', stopDrawingEvent);
+    
+    canvasElement.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        startDrawingEvent(e);
+      }
+    }, { passive: false });
+    
+    canvasElement.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1 && isDrawing) {
+        drawEvent(e);
+      }
+    }, { passive: false });
+
+    canvasElement.addEventListener('touchend', stopDrawingEvent);
+  }
+
+  // Zoom à la molette / touchpad sur le conteneur
+  if (container) {
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+      zoomCanvasAtPoint(e.clientX, e.clientY, zoomFactor);
+    }, { passive: false });
+  }
+
+  // Bouton discret "Réinitialiser la vue (100%)"
+  const resetBtn = document.getElementById('btn-canvas-reset-zoom');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      resetCanvasView(true);
+    });
+  }
+
+  // Palette de couleur
+  const colorBtns = document.querySelectorAll('.color-btn');
+  colorBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      colorBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentDrawingColor = btn.getAttribute('data-color');
+      
+      // Désactiver le mode Gomme
+      const eraserBtn = document.getElementById('btn-canvas-eraser');
+      if (eraserBtn) eraserBtn.classList.remove('active');
+      canvasCtx.globalCompositeOperation = 'source-over';
+      
+      // Restaurer la taille du pinceau depuis le slider
+      const bSlider = document.getElementById('canvas-brush-size');
+      const bDisplay = document.getElementById('brush-size-display');
+      if (bSlider && bDisplay) {
+        currentBrushSize = parseInt(bSlider.value);
+        bDisplay.textContent = `${currentBrushSize}px`;
+      }
+    });
+  });
+
+  // Taille du pinceau
+  const brushSlider = document.getElementById('canvas-brush-size');
+  const brushSizeDisplay = document.getElementById('brush-size-display');
+  if (brushSlider && brushSizeDisplay) {
+    brushSlider.addEventListener('input', (e) => {
+      currentBrushSize = parseInt(e.target.value);
+      brushSizeDisplay.textContent = `${currentBrushSize}px`;
+    });
+  }
+
+  // Mode Gomme (Transparent)
+  const eraserBtn = document.getElementById('btn-canvas-eraser');
+  if (eraserBtn) {
+    eraserBtn.addEventListener('click', () => {
+      eraserBtn.classList.toggle('active');
+      const bSlider = document.getElementById('canvas-brush-size');
+      const bDisplay = document.getElementById('brush-size-display');
+      
+      if (eraserBtn.classList.contains('active')) {
+        canvasCtx.globalCompositeOperation = 'destination-out'; // efface le calque de dessin
+        // Set automatically to max brush size (20px)
+        if (bSlider && bDisplay) {
+          bSlider.value = 20;
+          currentBrushSize = 20;
+          bDisplay.textContent = '20px';
+        }
+      } else {
+        canvasCtx.globalCompositeOperation = 'source-over';
+        // Revert to 2px brush size
+        if (bSlider && bDisplay) {
+          bSlider.value = 2;
+          currentBrushSize = 2;
+          bDisplay.textContent = '2px';
+        }
+      }
+    });
+  }
+
+  // Clear Canvas
+  const clearBtn = document.getElementById('btn-canvas-clear');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      if (confirm('Voulez-vous effacer toutes les annotations ?')) {
+        clearTransparentCanvas();
+        canvasUndoHistory = []; // Reset history
+        saveCanvasState(); // Save first blank state
+        isCanvasModifiedInEditor = true;
+        userExplicitlyClearedCanvas = true;
+      }
+    });
+  }
+
+  // Undo Canvas
+  const undoBtn = document.getElementById('btn-canvas-undo');
+  if (undoBtn) {
+    undoBtn.addEventListener('click', () => {
+      isCanvasModifiedInEditor = true;
+      restoreCanvasState();
+    });
+  }
+}
+
+function hexToRgba(hex, alpha) {
+  hex = hex.replace('#', '');
+  if (hex.length === 3) {
+    hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+  }
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Calcul précis des coordonnées compensées de l'échelle du canvas (stylet / tactile / souris)
+function getCanvasCoordinates(e) {
+  if (!canvasElement) return { x: 0, y: 0 };
+  const rect = canvasElement.getBoundingClientRect();
+  const scaleX = rect.width ? (canvasElement.width / rect.width) : 1;
+  const scaleY = rect.height ? (canvasElement.height / rect.height) : 1;
+
+  let clientX = e.clientX;
+  let clientY = e.clientY;
+
+  // Prise en charge des événements tactiles directs touchstart / touchmove
+  if (clientX === undefined && e.touches && e.touches.length > 0) {
+    clientX = e.touches[0].clientX;
+    clientY = e.touches[0].clientY;
+  } else if (clientX === undefined && e.changedTouches && e.changedTouches.length > 0) {
+    clientX = e.changedTouches[0].clientX;
+    clientY = e.changedTouches[0].clientY;
+  }
+
+  return {
+    x: (clientX - rect.left) * scaleX,
+    y: (clientY - rect.top) * scaleY
+  };
+}
+
+function startDrawingEvent(e) {
+  isDrawing = true;
+  isCanvasModifiedInEditor = true;
+  const coords = getCanvasCoordinates(e);
+  lastX = coords.x;
+  lastY = coords.y;
+}
+
+function drawEvent(e) {
+  if (!isDrawing) return;
+  isCanvasModifiedInEditor = true;
+  const coords = getCanvasCoordinates(e);
+  const x = coords.x;
+  const y = coords.y;
+  
+  canvasCtx.beginPath();
+  canvasCtx.moveTo(lastX, lastY);
+  canvasCtx.lineTo(x, y);
+  
+  canvasCtx.lineWidth = currentBrushSize;
+  canvasCtx.lineCap = 'round';
+  canvasCtx.lineJoin = 'round';
+  
+  if (canvasCtx.globalCompositeOperation === 'destination-out') {
+    canvasCtx.strokeStyle = currentDrawingColor;
+    canvasCtx.globalAlpha = 1.0;
+  } else {
+    // Tracé rouge franc et couvrant (opacité >= 85% à 100%)
+    if (currentDrawingColor === '#dc2626' || currentDrawingColor === '#ef4444') {
+      canvasCtx.strokeStyle = 'rgba(220, 38, 38, 0.90)';
+      canvasCtx.globalAlpha = 1.0;
+    } else if (currentDrawingColor.startsWith('#')) {
+      canvasCtx.strokeStyle = hexToRgba(currentDrawingColor, 0.85);
+      canvasCtx.globalAlpha = 1.0;
+    } else {
+      canvasCtx.strokeStyle = currentDrawingColor;
+      canvasCtx.globalAlpha = 0.85;
+    }
+  }
+  
+  canvasCtx.stroke();
+  
+  lastX = x;
+  lastY = y;
+}
+
+function stopDrawingEvent() {
+  if (isDrawing) {
+    isDrawing = false;
+    isCanvasModifiedInEditor = true;
+    saveCanvasState();
+  }
+}
+
+function ensureCanvasContext() {
+  if (!canvasElement) {
+    canvasElement = document.getElementById('annotation-canvas');
+  }
+  if (canvasElement && !canvasCtx) {
+    canvasCtx = canvasElement.getContext('2d', { willReadFrequently: true });
+  }
+  return !!(canvasElement && canvasCtx);
+}
+
+function resetCanvasDrawingTools() {
+  ensureCanvasContext();
+  if (canvasCtx) {
+    canvasCtx.globalCompositeOperation = 'source-over';
+  }
+  currentDrawingColor = '#dc2626';
+  currentBrushSize = 2;
+  const colorBtns = document.querySelectorAll('.color-btn');
+  colorBtns.forEach(b => {
+    if (b.getAttribute('data-color') === '#dc2626') {
+      b.classList.add('active');
+    } else {
+      b.classList.remove('active');
+    }
+  });
+  const eraserBtn = document.getElementById('btn-canvas-eraser');
+  if (eraserBtn) eraserBtn.classList.remove('active');
+  const bSlider = document.getElementById('canvas-brush-size');
+  const bDisplay = document.getElementById('brush-size-display');
+  if (bSlider) bSlider.value = 2;
+  if (bDisplay) bDisplay.textContent = '2px';
+}
+
+function isCanvasBlank(canvas) {
+  if (!canvas || !canvas.width || !canvas.height) return true;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return true;
+  try {
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imgData.data;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] !== 0) return false;
+    }
+  } catch (err) {
+    console.warn("[Canvas] Erreur vérification isCanvasBlank:", err);
+    return false;
+  }
+  return true;
+}
+
+function renderDrawingDataToCanvas(ctx, data, width, height) {
+  if (!ctx || !data) return false;
+  
+  let parsed = null;
+  if (typeof data === 'object' && !(data instanceof Blob)) {
+    parsed = data;
+  } else if (typeof data === 'string' && (data.trim().startsWith('{') || data.trim().startsWith('['))) {
+    try {
+      parsed = JSON.parse(data.trim());
+    } catch (_) {
+      parsed = null;
+    }
+  }
+
+  if (parsed) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    
+    // Format tableau de points ou de traits
+    const strokes = Array.isArray(parsed) ? parsed : (parsed.strokes || parsed.lines || parsed.paths || null);
+    if (Array.isArray(strokes)) {
+      strokes.forEach(stroke => {
+        if (!stroke) return;
+        ctx.strokeStyle = stroke.color || stroke.strokeStyle || '#dc2626';
+        ctx.lineWidth = stroke.size || stroke.lineWidth || stroke.width || 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        if (Array.isArray(stroke.points) && stroke.points.length > 0) {
+          ctx.beginPath();
+          ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+          for (let i = 1; i < stroke.points.length; i++) {
+            ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+          }
+          ctx.stroke();
+        } else if (typeof stroke.x0 === 'number' && typeof stroke.y0 === 'number') {
+          ctx.beginPath();
+          ctx.moveTo(stroke.x0, stroke.y0);
+          ctx.lineTo(stroke.x1, stroke.y1);
+          ctx.stroke();
+        }
+      });
+      ctx.restore();
+      return true;
+    }
+    
+    // Format Fabric.js : { objects: [ ... ] }
+    if (parsed.objects && Array.isArray(parsed.objects)) {
+      parsed.objects.forEach(obj => {
+        if (!obj) return;
+        ctx.strokeStyle = obj.stroke || '#dc2626';
+        ctx.lineWidth = obj.strokeWidth || 2;
+        ctx.lineCap = obj.strokeLineCap || 'round';
+        ctx.lineJoin = obj.strokeLineJoin || 'round';
+        
+        if (obj.type === 'path' && Array.isArray(obj.path)) {
+          ctx.beginPath();
+          obj.path.forEach(seg => {
+            const cmd = seg[0];
+            if (cmd === 'M') ctx.moveTo(seg[1], seg[2]);
+            else if (cmd === 'L') ctx.lineTo(seg[1], seg[2]);
+            else if (cmd === 'Q') ctx.quadraticCurveTo(seg[1], seg[2], seg[3], seg[4]);
+            else if (cmd === 'C') ctx.bezierCurveTo(seg[1], seg[2], seg[3], seg[4], seg[5], seg[6]);
+            else if (cmd === 'Z') ctx.closePath();
+          });
+          ctx.stroke();
+        } else if (obj.type === 'line') {
+          ctx.beginPath();
+          ctx.moveTo(obj.x1 || 0, obj.y1 || 0);
+          ctx.lineTo(obj.x2 || 0, obj.y2 || 0);
+          ctx.stroke();
+        }
+      });
+      ctx.restore();
+      return true;
+    }
+    ctx.restore();
+  }
+  
+  return false;
+}
+
+function loadImageToCanvas(ctx, srcOrBlob, width, height) {
+  return new Promise((resolve) => {
+    if (!srcOrBlob) return resolve(false);
+    
+    let url = srcOrBlob;
+    let isCreatedBlobUrl = false;
+    
+    if (srcOrBlob instanceof Blob) {
+      url = URL.createObjectURL(srcOrBlob);
+      isCreatedBlobUrl = true;
+    }
+    
+    if (typeof url !== 'string' || !url.trim()) {
+      return resolve(false);
+    }
+    
+    const img = new Image();
+    if (!url.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
+    img.onload = () => {
+      try {
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(img, 0, 0, width, height);
+        ctx.restore();
+        if (isCreatedBlobUrl) URL.revokeObjectURL(url);
+        resolve(true);
+      } catch (err) {
+        console.warn("[Canvas] Erreur drawImage:", err);
+        if (isCreatedBlobUrl) URL.revokeObjectURL(url);
+        resolve(false);
+      }
+    };
+    img.onerror = (err) => {
+      console.warn("[Canvas] Erreur chargement image canvas:", err);
+      if (isCreatedBlobUrl) URL.revokeObjectURL(url);
+      resolve(false);
+    };
+    img.src = url;
+  });
+}
+
+async function restoreSessionCanvas(targetSession) {
+  if (!ensureCanvasContext()) return false;
+  
+  resetCanvasDrawingTools();
+  clearTransparentCanvas();
+  canvasUndoHistory = [];
+  isCanvasModifiedInEditor = false;
+  userExplicitlyClearedCanvas = false;
+  
+  if (!targetSession) {
+    saveCanvasState();
+    return false;
+  }
+  
+  const w = canvasElement.width || 600;
+  const h = canvasElement.height || 400;
+  
+  // 1. Tentative avec canvas_drawing_data_url (tracé transparent prioritaire)
+  const transparentDrawing = targetSession.canvas_drawing_data_url;
+  if (transparentDrawing) {
+    const renderedJson = renderDrawingDataToCanvas(canvasCtx, transparentDrawing, w, h);
+    if (renderedJson && !isCanvasBlank(canvasElement)) {
+      saveCanvasState();
+      return true;
+    }
+    
+    const loadedImg = await loadImageToCanvas(canvasCtx, transparentDrawing, w, h);
+    if (loadedImg && !isCanvasBlank(canvasElement)) {
+      saveCanvasState();
+      return true;
+    }
+  }
+  
+  // 2. Si le tracé transparent n'existe pas ou est vide, tenter avec le schéma fusionné / dessin anatomique
+  const mergedDrawing = targetSession.canvas_annotation_image_blob ||
+                        targetSession.anatomical_drawing ||
+                        targetSession.anatomicalDrawing ||
+                        targetSession.drawing ||
+                        targetSession.schema ||
+                        targetSession.annotations;
+                        
+  if (mergedDrawing) {
+    const renderedJson = renderDrawingDataToCanvas(canvasCtx, mergedDrawing, w, h);
+    if (renderedJson && !isCanvasBlank(canvasElement)) {
+      saveCanvasState();
+      return true;
+    }
+    
+    const loadedImg = await loadImageToCanvas(canvasCtx, mergedDrawing, w, h);
+    if (loadedImg && !isCanvasBlank(canvasElement)) {
+      saveCanvasState();
+      return true;
+    }
+  }
+  
+  // Si rien n'a pu être chargé ou canevas vide
+  saveCanvasState();
+  return false;
+}
+
+function clearTransparentCanvas() {
+  if (ensureCanvasContext()) {
+    canvasCtx.save();
+    canvasCtx.globalCompositeOperation = 'source-over';
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    canvasCtx.restore();
+  }
+}
+
+function saveCanvasState() {
+  if (!ensureCanvasContext()) return;
+  if (canvasUndoHistory.length >= MAX_UNDO_STATES) {
+    canvasUndoHistory.shift();
+  }
+  canvasUndoHistory.push(canvasElement.toDataURL('image/png'));
+}
+
+function restoreCanvasState() {
+  if (canvasUndoHistory.length > 1) {
+    canvasUndoHistory.pop(); // supprimer l'état actuel
+    const prevStateDataUrl = canvasUndoHistory[canvasUndoHistory.length - 1];
+    
+    const img = new Image();
+    img.onload = () => {
+      clearTransparentCanvas();
+      if (ensureCanvasContext()) {
+        canvasCtx.save();
+        canvasCtx.globalCompositeOperation = 'source-over';
+        canvasCtx.drawImage(img, 0, 0);
+        canvasCtx.restore();
+      }
+    };
+    img.src = prevStateDataUrl;
+  } else if (canvasUndoHistory.length === 1) {
+    canvasUndoHistory.pop();
+    clearTransparentCanvas();
+  } else {
+    showToast('Aucun tracé à annuler.', 'warning');
+  }
+}
+
+// Génère la fusion Image squelette + Dessin transparent (en respectant "contain" pour éviter tout décalage)
+function generateMergedCanvasDataUrl() {
+  return new Promise((resolve) => {
+    const bgImg = document.getElementById('canvas-skeleton-img');
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = canvasElement.width;
+    tempCanvas.height = canvasElement.height;
+    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+
+    // Remplir de blanc en fond pour l'impression propre
+    tempCtx.fillStyle = '#ffffff';
+    tempCtx.fillRect(0,0,tempCanvas.width,tempCanvas.height);
+
+    // Fonction utilitaire pour dessiner l'image en respectant l'aspect ratio (contain)
+    const drawImageContained = (ctx, img, targetW, targetH) => {
+      const imgRatio = img.naturalWidth / img.naturalHeight;
+      const canvasRatio = targetW / targetH;
+      let dWidth, dHeight, dX, dY;
+
+      if (imgRatio > canvasRatio) {
+        dWidth = targetW;
+        dHeight = targetW / imgRatio;
+        dX = 0;
+        dY = (targetH - dHeight) / 2;
+      } else {
+        dWidth = targetH * imgRatio;
+        dHeight = targetH;
+        dX = (targetW - dWidth) / 2;
+        dY = 0;
+      }
+      ctx.drawImage(img, dX, dY, dWidth, dHeight);
+    };
+
+    // Dessiner le squelette
+    if (bgImg && bgImg.complete && bgImg.naturalWidth !== 0) {
+      drawImageContained(tempCtx, bgImg, tempCanvas.width, tempCanvas.height);
+      // Dessiner le tracé transparent par dessus
+      tempCtx.drawImage(canvasElement, 0, 0);
+      resolve(tempCanvas.toDataURL('image/png'));
+    } else {
+      // Si l'image n'est pas chargée, charger et dessiner l'image et l'annotation
+      const newImg = new Image();
+      newImg.onload = () => {
+        drawImageContained(tempCtx, newImg, tempCanvas.width, tempCanvas.height);
+        tempCtx.drawImage(canvasElement, 0, 0);
+        resolve(tempCanvas.toDataURL('image/png'));
+      };
+      newImg.onerror = () => {
+        // En cas d'erreur de chargement image, renvoyer seulement le tracé
+        tempCtx.drawImage(canvasElement, 0, 0);
+        resolve(tempCanvas.toDataURL('image/png'));
+      };
+      newImg.src = bgImg ? bgImg.src : 'horse_skeleton.png';
+    }
+  });
+}
+
+// --- LOGIQUE CALCUL AUTOMATIQUE TENSÉGRITÉ ---
+function setupTensegriteListeners() {
+  // Ecouteurs sur les sous-intensités pour calculer la moyenne
+  document.querySelectorAll('.sub-intensity').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const parentBox = sel.closest('.tensegrite-category-box');
+      const category = parentBox.getAttribute('data-category');
+      
+      // Calcul de la moyenne des sous-catégories
+      const selects = parentBox.querySelectorAll('.sub-intensity');
+      let sum = 0;
+      let count = 0;
+      
+      selects.forEach(s => {
+        const val = s.value;
+        let num = 1; // Faible par defaut
+        if (val === 'Moyen') num = 2;
+        else if (val === 'Élevé') num = 3;
+        
+        sum += num;
+        count++;
+      });
+
+      const avg = Math.round(sum / count);
+      let textAvg = 'Faible';
+      if (avg === 2) textAvg = 'Moyen';
+      else if (avg === 3) textAvg = 'Élevé';
+
+      // Assigner à la surcharge
+      const overrideSelect = document.getElementById(`override-${category}`);
+      if (overrideSelect) {
+        overrideSelect.value = textAvg;
+      }
+
+      updateTensegriteTitles();
+    });
+  });
+
+  // Ecouteurs de changement manuel (surcharge) pour mettre à jour le titre immédiatement
+  ['ftm', 'torsion', 'diaphragme', 'loge'].forEach(cat => {
+    const overrideSelect = document.getElementById(`override-${cat}`);
+    if (overrideSelect) {
+      overrideSelect.addEventListener('change', updateTensegriteTitles);
+    }
+  });
+}
+
+function updateTensegriteTitles() {
+  // Met à jour l'affichage des titres de Tenségrité
+  const categories = ['ftm', 'torsion', 'diaphragme', 'loge'];
+  categories.forEach(cat => {
+    const override = document.getElementById(`override-${cat}`).value;
+    const parent = document.querySelector(`.tensegrite-category-box[data-category="${cat}"]`);
+    const titleSpan = parent.querySelector('.tensegrite-category-title');
+    
+    // Enlever ancienne intensité
+    let originalTitle = titleSpan.textContent.split(' - ')[0];
+    titleSpan.textContent = `${originalTitle} - [${override}]`;
+  });
+}
+
+// --- LOGIQUE KINÉSIOLOGIE DYNAMIQUE ---
+function setupKinesioListeners() {
+  const typeSelect = document.getElementById('proto-kinesiologie-type');
+  if (typeSelect) {
+    typeSelect.addEventListener('change', (e) => {
+      handleKinesioTypeChange(e.target.value);
+    });
+  }
+}
+
+function handleKinesioTypeChange(type) {
+  // Masquer tous les panels
+  document.getElementById('panel-kinesio-emotions-reactives').style.display = 'none';
+  document.getElementById('panel-kinesio-emotion-urgence').style.display = 'none';
+  document.getElementById('panel-kinesio-autre').style.display = 'none';
+  document.getElementById('panel-kinesio-commun').style.display = 'block'; // visible par defaut
+
+  const probContainer = document.getElementById('container-kinesio-problematique');
+  if (probContainer) probContainer.style.display = 'block';
+
+  const synthoContainer = document.getElementById('container-kinesio-syntho');
+  if (synthoContainer) synthoContainer.style.display = 'block';
+
+  // Résilience sur l'apostrophe (normalise typographique ’ en droite ')
+  const normType = type.replace(/’/g, "'");
+
+  if (normType === 'Émotions réactives') {
+    document.getElementById('panel-kinesio-emotions-reactives').style.display = 'block';
+    if (synthoContainer) synthoContainer.style.display = 'none'; // Masquer Syntonisation pour émotions réactives
+  } else if (normType === "Émotion d'urgence") {
+    document.getElementById('panel-kinesio-emotion-urgence').style.display = 'block';
+    document.getElementById('panel-kinesio-commun').style.display = 'none'; // Masquer commun pour urgence
+    if (probContainer) probContainer.style.display = 'none';
+  } else if (normType === 'Autre') {
+    document.getElementById('panel-kinesio-autre').style.display = 'block';
+  }
+}
+
+// --- GÉNÉRATEUR AUTOMATIQUE COMPTE-RENDU CLIENT FILTRÉ ---
+function setupFormListeners() {
+  const summaryBtn = document.getElementById('btn-generate-client-summary');
+  if (summaryBtn) {
+    summaryBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      generateClientSummaryReport();
+    });
+  }
+
+  // Soumission formulaire séance
+  const sessionForm = document.getElementById('session-form');
+  if (sessionForm) {
+    sessionForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await saveSessionForm();
+    });
+  }
+
+  // Clic Annuler Séance en bas
+  const btnCancelSessionForm = document.getElementById('btn-cancel-session-form');
+  if (btnCancelSessionForm) {
+    btnCancelSessionForm.onclick = (e) => {
+      e.preventDefault();
+      const animalSelect = document.getElementById('session-form-animal');
+      if (animalSelect && animalSelect.value) {
+        window.location.hash = `animals/${animalSelect.value}`;
+      } else {
+        window.location.hash = 'sessions';
+      }
+    };
+  }
+
+  // Clic Annuler en haut (btn-back-to-sessions)
+  const btnBackToSessions = document.getElementById('btn-back-to-sessions');
+  if (btnBackToSessions) {
+    btnBackToSessions.onclick = (e) => {
+      e.preventDefault();
+      const animalSelect = document.getElementById('session-form-animal');
+      if (animalSelect && animalSelect.value) {
+        window.location.hash = `animals/${animalSelect.value}`;
+      } else {
+        window.location.hash = 'sessions';
+      }
+    };
+  }
+
+  // Dynamic reminders add button wiring
+  const btnAddReminderItem = document.getElementById('btn-add-reminder-item');
+  if (btnAddReminderItem) {
+    btnAddReminderItem.onclick = (e) => {
+      e.preventDefault();
+      addReminderRow();
+    };
+  }
+
+  // Cacher/Afficher champs délai rappel
+  const reminderSelect = document.getElementById('session-reminder-enable');
+  if (reminderSelect) {
+    reminderSelect.addEventListener('change', (e) => {
+      const show = e.target.value === 'yes';
+      document.querySelectorAll('.schedule-field').forEach(el => {
+        el.style.display = show ? 'block' : 'none';
+      });
+      // Déclencher le changement pour afficher la date custom
+      const delaySelect = document.getElementById('session-reminder-delay');
+      if (delaySelect) delaySelect.dispatchEvent(new Event('change'));
+    });
+  }
+
+  // Toggling Technique du Filet Options in editor
+  const auraFiletCb = document.getElementById('aura-filet');
+  if (auraFiletCb) {
+    auraFiletCb.addEventListener('change', (e) => {
+      document.getElementById('panel-filet-options').style.display = e.target.checked ? 'block' : 'none';
+    });
+  }
+
+  const auraFlechesCb = document.getElementById('aura-fleches');
+  if (auraFlechesCb) {
+    auraFlechesCb.addEventListener('change', (e) => {
+      document.getElementById('panel-aura-fleches-loc').style.display = e.target.checked ? 'block' : 'none';
+    });
+  }
+
+  const auraMassesCb = document.getElementById('aura-masses');
+  if (auraMassesCb) {
+    auraMassesCb.addEventListener('change', (e) => {
+      document.getElementById('panel-aura-masses-loc').style.display = e.target.checked ? 'block' : 'none';
+    });
+  }
+
+  const auraLocalCompCb = document.getElementById('aura-local-complement');
+  const auraLocalCompText = document.getElementById('aura-local-complement-text');
+  if (auraLocalCompText && auraLocalCompCb) {
+    auraLocalCompText.addEventListener('input', () => {
+      if (auraLocalCompText.value.trim()) auraLocalCompCb.checked = true;
+    });
+  }
+
+  const delaySelect = document.getElementById('session-reminder-delay');
+  if (delaySelect) {
+    delaySelect.addEventListener('change', (e) => {
+      const isCustom = e.target.value === 'custom';
+      const customField = document.querySelector('.custom-date-field');
+      if (customField) {
+        customField.style.display = isCustom ? 'block' : 'none';
+      }
+      
+      if (!isCustom) {
+        const sessionDate = document.getElementById('session-form-date').value;
+        const targetDate = calculateFutureDate(sessionDate, e.target.value);
+        document.getElementById('session-reminder-date').value = targetDate;
+      }
+    });
+  }
+
+  // Modifier la date de séance recalculera la date de rappel si pas en custom
+  const sessionFormDateEl = document.getElementById('session-form-date');
+  if (sessionFormDateEl) {
+    sessionFormDateEl.addEventListener('change', () => {
+      const delayEl = document.getElementById('session-reminder-delay');
+      if (delayEl) {
+        const delay = delayEl.value;
+        if (delay !== 'custom') {
+          const sessionDate = sessionFormDateEl.value;
+          const targetDate = calculateFutureDate(sessionDate, delay);
+          const reminderDateEl = document.getElementById('session-reminder-date');
+          if (reminderDateEl) reminderDateEl.value = targetDate;
+        }
+      }
+    });
+  }
+}
+
+function getCalculatedSummaryText(sessionData = null) {
+  const parts = [];
+  
+  // 1. Shiatsu
+  if (document.getElementById('proto-shiatsu-enable').checked) {
+    const worked = [];
+    if (document.getElementById('meridian-reins').checked) worked.push('Reins');
+    if (document.getElementById('meridian-vessie').checked) worked.push('Vessie');
+    if (document.getElementById('meridian-foie').checked) worked.push('Foie');
+    if (document.getElementById('meridian-vesicule').checked) worked.push('Vésicule Biliaire');
+    if (document.getElementById('meridian-coeur').checked) worked.push('Cœur');
+    if (document.getElementById('meridian-grele').checked) worked.push('Intestin Grêle');
+    if (document.getElementById('meridian-maitre-coeur').checked) worked.push('Maître Cœur');
+    if (document.getElementById('meridian-triple-rechauffeur').checked) worked.push('Triple Réchauffeur');
+    if (document.getElementById('meridian-rate').checked) worked.push('Rate/Pancréas');
+    if (document.getElementById('meridian-estomac').checked) worked.push('Estomac');
+    if (document.getElementById('meridian-poumon').checked) worked.push('Poumon');
+    if (document.getElementById('meridian-gros-intestin').checked) worked.push('Gros Intestin');
+
+    if (document.getElementById('mv-gouverneur').checked) worked.push('Vaisseau Gouverneur');
+    if (document.getElementById('mv-conception').checked) worked.push('Vaisseau Conception');
+
+    let text = `**Shiatsu**\nMéridiens travaillés : ` + (worked.length > 0 ? worked.join(', ') : 'Aucun');
+    parts.push(text);
+  }
+
+  // 2. Techniques Manuelles & Tenségrité (fusionnées dans Techniques manuelles pour le client)
+  const isManuellesChecked = document.getElementById('proto-manuelles-enable')?.checked;
+  const manuText = isManuellesChecked ? document.getElementById('proto-manuelles-texte')?.value.trim() : '';
+
+  const tensegriteClientItems = [];
+  if (document.getElementById('proto-tensegrite-enable')?.checked) {
+    // 1. FTM -> "système nerveux"
+    const ftmOverride = document.getElementById('override-ftm')?.value;
+    const ftmQueue = document.querySelector('select[data-sub="queue"]')?.value;
+    const ftmOD = document.querySelector('select[data-sub="oeil_droit"]')?.value;
+    const ftmOG = document.querySelector('select[data-sub="oeil_gauche"]')?.value;
+    const ftmE = document.querySelector('select[data-sub="energetique"]')?.value;
+    const isFtmActive = [ftmQueue, ftmOD, ftmOG, ftmE].some(v => v === 'Moyen' || v === 'Élevé') || (ftmOverride === 'Moyen' || ftmOverride === 'Élevé');
+    if (isFtmActive) {
+      tensegriteClientItems.push('système nerveux');
+    }
+
+    // 2. Torsion physio des hanches & occipital
+    const torsionHD = document.querySelector('select[data-sub="hanche_droite"]')?.value;
+    const torsionHG = document.querySelector('select[data-sub="hanche_gauche"]')?.value;
+    const torsionOcciput = document.querySelector('select[data-sub="occiput"]')?.value;
+    const torsionOverride = document.getElementById('override-torsion')?.value;
+
+    const isHdActive = torsionHD === 'Moyen' || torsionHD === 'Élevé';
+    const isHgActive = torsionHG === 'Moyen' || torsionHG === 'Élevé';
+
+    if (isHdActive && isHgActive && torsionHD === torsionHG) {
+      // Même intensité : "bassin" (ou "bassin +" si niveau élevé)
+      tensegriteClientItems.push(torsionHD === 'Élevé' ? 'bassin +' : 'bassin');
+    } else if (isHdActive || isHgActive) {
+      // Pas la même intensité : ne mentionner que les hanches actives (niveau moyen ou élevé)
+      if (isHdActive) {
+        tensegriteClientItems.push(torsionHD === 'Élevé' ? 'hanche D +' : 'hanche D');
+      }
+      if (isHgActive) {
+        tensegriteClientItems.push(torsionHG === 'Élevé' ? 'hanche G +' : 'hanche G');
+      }
+    } else if (torsionOverride === 'Moyen' || torsionOverride === 'Élevé') {
+      tensegriteClientItems.push(torsionOverride === 'Élevé' ? 'bassin +' : 'bassin');
+    }
+
+    // Occipital
+    if (torsionOcciput === 'Moyen' || torsionOcciput === 'Élevé') {
+      tensegriteClientItems.push('occipital');
+    }
+
+    // 3. Diaphragmes -> "Diaphragmes : pelvien, thoraco-lombaire, cervico-thoracique" (sur une seule ligne)
+    const activeDiaphragmes = [];
+    const dPelvien = document.querySelector('select[data-sub="pelvien"]')?.value;
+    const dThoraco = document.querySelector('select[data-sub="thoraco_lombaire"]')?.value;
+    const dCervico = document.querySelector('select[data-sub="cervico_thoracique"]')?.value;
+    const dC0C1 = document.querySelector('select[data-sub="c0_c1"]')?.value;
+    if (dPelvien === 'Moyen' || dPelvien === 'Élevé') activeDiaphragmes.push('pelvien');
+    if (dThoraco === 'Moyen' || dThoraco === 'Élevé') activeDiaphragmes.push('thoraco-lombaire');
+    if (dCervico === 'Moyen' || dCervico === 'Élevé') activeDiaphragmes.push('cervico-thoracique');
+    if (dC0C1 === 'Moyen' || dC0C1 === 'Élevé') activeDiaphragmes.push('C0-C1');
+    if (activeDiaphragmes.length > 0) {
+      tensegriteClientItems.push(`Diaphragmes : ${activeDiaphragmes.join(', ')}`);
+    }
+
+    // 4. Loges -> "Loges : viscérale, thoracique" (sur une seule ligne)
+    const activeLoges = [];
+    const lDigestive = document.querySelector('select[data-sub="digestive"]')?.value;
+    const lThoracique = document.querySelector('select[data-sub="thoracique"]')?.value;
+    const lGorge = document.querySelector('select[data-sub="gorge"]')?.value;
+    const lCervelet = document.querySelector('select[data-sub="cervelet"]')?.value;
+    if (lDigestive === 'Moyen' || lDigestive === 'Élevé') activeLoges.push('viscérale');
+    if (lThoracique === 'Moyen' || lThoracique === 'Élevé') activeLoges.push('thoracique');
+    if (lGorge === 'Moyen' || lGorge === 'Élevé') activeLoges.push('gorge');
+    if (lCervelet === 'Moyen' || lCervelet === 'Élevé') activeLoges.push('cervelet');
+    if (activeLoges.length > 0) {
+      tensegriteClientItems.push(`Loges : ${activeLoges.join(', ')}`);
+    }
+
+    // 5. Hélice
+    const helices = document.getElementById('proto-tensegrite-helices')?.value.trim();
+    if (helices) {
+      tensegriteClientItems.push(helices);
+    }
+  }
+
+  if (isManuellesChecked || tensegriteClientItems.length > 0) {
+    let sectionContent = '';
+    // Inscrire en premier les éléments transformés de la Tenségrité, un par ligne
+    if (tensegriteClientItems.length > 0) {
+      sectionContent += tensegriteClientItems.join('\n');
+    }
+    // Inscrire ensuite les éléments des Techniques manuelles, avec passage à la ligne
+    if (manuText) {
+      if (sectionContent) {
+        sectionContent += '\n' + manuText;
+      } else {
+        sectionContent += manuText;
+      }
+    }
+    if (!sectionContent) {
+      sectionContent = 'Aucune observation saisie.';
+    }
+    parts.push(`**Techniques manuelles - zones travaillées :**\n` + sectionContent);
+  }
+
+  // 4. Cranio-Sacrée
+  if (document.getElementById('proto-cranio-enable').checked) {
+    const lines = [];
+
+    const ambiance = document.getElementById('proto-cranio-ambiance').value.trim();
+    if (ambiance) {
+      lines.push(`• Ambiance émotionnelle : ${ambiance}`);
+    }
+
+    // Adaptatif
+    const adaptatifList = [];
+    if (document.getElementById('cranio-sacro').checked) adaptatifList.push("Sacro-iliaque");
+    if (document.getElementById('cranio-rre').checked) adaptatifList.push("Os du crâne");
+    if (document.getElementById('cranio-occiput').checked) adaptatifList.push("Occiput");
+    if (document.getElementById('cranio-couple').checked) adaptatifList.push("Couple scapho-cuboïdien");
+    if (document.getElementById('cranio-strains').checked) adaptatifList.push("sphénoïde");
+    if (document.getElementById('cranio-grosse-art').checked) adaptatifList.push("Grosse articulation");
+    if (adaptatifList.length > 0) {
+      lines.push(`• Adaptatif : ${adaptatifList.join(', ')}`);
+    }
+
+    // Ceinture pelvienne
+    const pelvienneList = [];
+    if (document.getElementById('cranio-iliaque-ensemble').checked) pelvienneList.push("Iliaques ensemble");
+    if (document.getElementById('cranio-coccygienne').checked) pelvienneList.push("Coccygienne");
+    if (document.getElementById('cranio-ixions').checked) pelvienneList.push("Ixions");
+    if (document.getElementById('cranio-pubis').checked) pelvienneList.push("Pubis");
+    if (document.getElementById('cranio-iliaque-indep').checked) pelvienneList.push("Iliaques indép.");
+    if (document.getElementById('cranio-sacrum-liaison').checked) pelvienneList.push("Liaison Iliaque-Sacrum");
+    if (pelvienneList.length > 0) {
+      lines.push(`• Ceinture pelvienne : ${pelvienneList.join(', ')}`);
+    }
+
+    // Autres structures somatiques
+    const autresList = [];
+    if (document.getElementById('cranio-vertebres').checked) autresList.push("Vertèbres");
+    if (document.getElementById('cranio-scapulaire').checked) autresList.push("Ceinture scapulaire");
+    if (document.getElementById('cranio-ant-complet').checked) autresList.push("Membres antérieurs");
+    if (document.getElementById('cranio-post-complet').checked) autresList.push("Membres postérieurs");
+    if (document.getElementById('cranio-genoux').checked) autresList.push("Genoux");
+    if (document.getElementById('cranio-jarrets').checked) autresList.push("Jarrets");
+    if (document.getElementById('cranio-visceres').checked) {
+      const vTxt = document.getElementById('cranio-visceres-text').value.trim();
+      autresList.push("Viscères" + (vTxt ? ' ('+vTxt+')' : ''));
+    }
+    if (autresList.length > 0) {
+      lines.push(`• Autres structures : ${autresList.join(', ')}`);
+    }
+
+    let text = `**Cranio-Sacrée**`;
+    if (lines.length > 0) {
+      text += `\n` + lines.join('\n');
+    } else {
+      text += `\n• Aucune zone spécifique`;
+    }
+    parts.push(text);
+  }
+
+  // 5. Kinésiologie
+  const isKinesioChecked = (typeof sessionData !== 'undefined' && sessionData?.protocols?.kinesiologie)
+    ? !!sessionData.protocols.kinesiologie.checked
+    : !!document.getElementById('proto-kinesiologie-enable')?.checked;
+
+  if (isKinesioChecked) {
+    const kData = (typeof sessionData !== 'undefined' && sessionData?.protocols?.kinesiologie) ? sessionData.protocols.kinesiologie : null;
+    const type = kData?.type || document.getElementById('proto-kinesiologie-type')?.value || 'Classique';
+    const prob = (kData?.problematique !== undefined ? kData.problematique : (document.getElementById('kinesio-problematique')?.value || '')).trim();
+    const goal = (kData?.objectif !== undefined ? kData.objectif : (document.getElementById('kinesio-objectif')?.value || '')).trim();
+    const ldt = (kData?.ldt !== undefined ? kData.ldt : (document.getElementById('kinesio-ldt')?.value || '')).trim();
+
+    const cenDEl = document.getElementById('kinesio-cen-debut');
+    const cenFEl = document.getElementById('kinesio-cen-fin');
+    const rawCenD = kData?.cen_debut !== undefined && kData?.cen_debut !== null ? kData.cen_debut : (cenDEl && cenDEl.value !== '' ? cenDEl.value : '100');
+    const rawCenF = kData?.cen_fin !== undefined && kData?.cen_fin !== null ? kData.cen_fin : (cenFEl && cenFEl.value !== '' ? cenFEl.value : '0');
+    const cenD = rawCenD !== '' ? rawCenD : '100';
+    const cenF = rawCenF !== '' ? rawCenF : '0';
+
+    let text = `**Kinésiologie** (${type})`;
+    const subParts = [];
+
+    if (prob) subParts.push(`<u>Problématique travaillée :</u>\n${prob}`);
+
+    if (type === 'Émotions réactives') {
+      const reactives = (kData?.emot_reactives !== undefined ? kData.emot_reactives : (document.getElementById('kinesio-reactives')?.value || '')).trim();
+      const reactrice = (kData?.emot_reactrice !== undefined ? kData.emot_reactrice : (document.getElementById('kinesio-reactrice')?.value || '')).trim();
+      if (reactives) subParts.push(`<u>Émotions réactives :</u>\n${reactives}`);
+      if (reactrice) subParts.push(`<u>Émotions réactrices :</u>\n${reactrice}`);
+    }
+
+    if (type === 'Émotion d’urgence' || type === 'Émotions d\'urgence' || type === "Émotion d'urgence") {
+      const liberee = (kData?.emot_liberee !== undefined ? kData.emot_liberee : (document.getElementById('kinesio-liberee')?.value || '')).trim();
+      if (liberee) subParts.push(`<u>Émotion d'urgence libérée :</u>\n${liberee}`);
+    }
+
+    const syntho = (kData?.syntho !== undefined ? kData.syntho : (document.getElementById('kinesio-syntho')?.value || '')).trim();
+    if (type !== 'Émotions réactives' && type !== 'Émotion d’urgence' && type !== 'Émotions d\'urgence' && type !== "Émotion d'urgence" && syntho) {
+      subParts.push(`<u>Syntonisation :</u>\n${syntho}`);
+    }
+
+    if (goal) subParts.push(`<u>Objectif :</u>\n${goal}`);
+    if (ldt) subParts.push(`<u>Ligne de Temps (LDT) :</u>\n${ldt}`);
+    subParts.push(`<u>CEN :</u>\nde ${cenD}% à ${cenF}%`);
+
+    if (subParts.length > 0) {
+      text += `\n\n` + subParts.join(`\n\n`);
+    }
+    parts.push(text);
+  }
+
+  // 6. Aura
+  if (document.getElementById('proto-aura-enable').checked) {
+    const list = [];
+    if (document.getElementById('aura-recentrage').checked) list.push("Recentrage");
+    if (document.getElementById('aura-liens').checked) list.push("Section des liens");
+    if (document.getElementById('aura-vidange').checked) list.push("Vidange");
+    if (document.getElementById('aura-fleches').checked) {
+      const loc = document.getElementById('aura-fleches-loc').value.trim();
+      list.push("Élimination des flèches énergétiques" + (loc ? ` : ${loc}` : ''));
+    }
+    if (document.getElementById('aura-masses').checked) {
+      const loc = document.getElementById('aura-masses-loc').value.trim();
+      list.push("Élimination des masses énergétiques" + (loc ? ` : ${loc}` : ''));
+    }
+    if (document.getElementById('aura-recharge').checked) list.push("Recharge / comblement");
+    if (document.getElementById('aura-chakras').checked) list.push("Régulation chakras");
+    if (document.getElementById('aura-circulation').checked) list.push("Relance de la circulation générale énergétique");
+    if (document.getElementById('aura-mouvement').checked) list.push("Relance mouv. primordial");
+    
+    // Filet
+    if (document.getElementById('aura-filet').checked) {
+      const fList = [];
+      if (document.getElementById('filet-energies').checked) fList.push('énergies négatives');
+      if (document.getElementById('filet-emotions').checked) fList.push('émotions négatives');
+      if (document.getElementById('filet-parasites').checked) fList.push('parasites');
+      if (document.getElementById('filet-entites').checked) fList.push('petites entités');
+      if (document.getElementById('filet-sorts').checked) fList.push('sorts');
+      if (document.getElementById('filet-incorporations').checked) fList.push('incorporations');
+      list.push(`Technique du filet ${fList.length > 0 ? '['+fList.join(', ')+']' : ''}`);
+    }
+
+    // Soins spécifiques
+    if (document.getElementById('aura-local-filament').checked) list.push("Filament incandescent");
+    if (document.getElementById('aura-local-polarites').checked) list.push("Équilibre des polarités énergétiques");
+    if (document.getElementById('aura-local-recharge').checked) list.push("Recharge locale");
+    if (document.getElementById('aura-local-complement').checked || document.getElementById('aura-local-complement-text').value.trim()) {
+      const cTxt = document.getElementById('aura-local-complement-text').value.trim();
+      list.push("Techniques complémentaires" + (cTxt ? ` (${cTxt})` : ''));
+    }
+    const sLoc = document.getElementById('aura-soins-loc')?.value.trim();
+    if (sLoc) {
+      list.push(`Localisation soins spécifiques : ${sLoc}`);
+    }
+    if (document.getElementById('aura-repolarisation').checked) list.push("Repolarisation énergétique");
+
+    let text = `**Aura**`;
+    if (list.length > 0) {
+      text += `\n` + list.map(item => `• ${item}`).join('\n');
+    } else {
+      text += `\n• Aucune étape spécifique`;
+    }
+    parts.push(text);
+  }
+
+  let generatedSummaryText = parts.join('\n\n');
+  return generatedSummaryText;
+}
+
+function generateClientSummaryReport() {
+  let generatedSummaryText = getCalculatedSummaryText();
+  document.getElementById('session-form-resume').value = generatedSummaryText;
+  showToast('Résumé de séance client généré avec succès.');
+}
+
+// Enregistrer la séance
+async function saveSessionForm() {
+  // COLLECTE ET VALIDATION DES RAPPELS DYNAMIQUES
+  const reminderRows = document.querySelectorAll('.reminder-row-item');
+  const remindersToSave = [];
+  for (const row of reminderRows) {
+    const delaySelect = row.querySelector('.reminder-item-delay');
+    const dateInput = row.querySelector('.reminder-item-date');
+    const typeSelect = row.querySelector('.reminder-item-type');
+    const customTypeInput = row.querySelector('.reminder-item-custom-type');
+    const notesInput = row.querySelector('.reminder-item-notes');
+    
+    const delayVal = delaySelect ? delaySelect.value : '2m';
+    const dateVal = dateInput ? dateInput.value : '';
+    let typeVal = typeSelect ? typeSelect.value : 'Prendre des nouvelles';
+    if (typeVal === 'Autre') {
+      typeVal = (customTypeInput && customTypeInput.value.trim()) ? customTypeInput.value.trim() : 'Autre';
+    }
+    const notesVal = notesInput ? notesInput.value.trim() : '';
+    
+    if (!dateVal) {
+      showToast('Veuillez spécifier une date de rappel valide pour tous les rappels.', 'error');
+      if (dateInput) dateInput.focus();
+      return; // Bloque la sauvegarde
+    }
+    
+    remindersToSave.push({
+      delay: delayVal,
+      date_prevue: dateVal,
+      type_rappel: typeVal,
+      notes: notesVal
+    });
+  }
+
+  const sId = document.getElementById('session-form-id').value;
+  const animalId = Number(document.getElementById('session-form-animal').value);
+  const dateStr = document.getElementById('session-form-date').value;
+  const numSession = parseInt(document.getElementById('session-form-number').value) || 1;
+  const motif = document.getElementById('session-form-objective').value.trim();
+  const notesObs = document.getElementById('session-form-notes-obs').value.trim();
+  const crPerso = document.getElementById('session-form-cr-practicienne').value.trim();
+  let resume = document.getElementById('session-form-resume').value.trim();
+  if (!resume) {
+    resume = getCalculatedSummaryText();
+  }
+
+  const animal = await getById('animals', animalId);
+  const clientId = animal ? animal.client_id : null;
+
+  // Fusionner les Questionnaires
+  const qAvant = collectQuestionnaireData('q-avant-seance-container');
+  const q3Sem = collectQuestionnaireData('q-3-semaines-container');
+
+  // Fusionner les protocoles
+  const shiatsuChecked = document.getElementById('proto-shiatsu-enable').checked;
+  const manuellesChecked = document.getElementById('proto-manuelles-enable').checked;
+  const tensegriteChecked = document.getElementById('proto-tensegrite-enable').checked;
+  const cranioChecked = document.getElementById('proto-cranio-enable').checked;
+  const kinesioChecked = document.getElementById('proto-kinesiologie-enable').checked;
+  const auraChecked = document.getElementById('proto-aura-enable').checked;
+
+  const protocoles = {
+    shiatsu: {
+      checked: shiatsuChecked,
+      yin: {
+        reins: document.getElementById('meridian-reins').checked,
+        foie: document.getElementById('meridian-foie').checked,
+        coeur: document.getElementById('meridian-coeur').checked,
+        maitre_coeur: document.getElementById('meridian-maitre-coeur').checked,
+        rate: document.getElementById('meridian-rate').checked,
+        poumon: document.getElementById('meridian-poumon').checked
+      },
+      yang: {
+        vessie: document.getElementById('meridian-vessie').checked,
+        vesicule: document.getElementById('meridian-vesicule').checked,
+        grele: document.getElementById('meridian-grele').checked,
+        triple: document.getElementById('meridian-triple-rechauffeur').checked,
+        estomac: document.getElementById('meridian-estomac').checked,
+        gros_intestin: document.getElementById('meridian-gros-intestin').checked
+      },
+      vaisseaux: {
+        gouverneur: document.getElementById('mv-gouverneur').checked,
+        conception: document.getElementById('mv-conception').checked
+      },
+      precisions: ''
+    },
+    manuelles: {
+      checked: manuellesChecked,
+      texte: document.getElementById('proto-manuelles-texte').value.trim()
+    },
+    tensegrite: {
+      checked: tensegriteChecked,
+      ftm: {
+        override: document.getElementById('override-ftm').value,
+        queue: document.querySelector('select[data-sub="queue"]').value,
+        oeil_droit: document.querySelector('select[data-sub="oeil_droit"]').value,
+        oeil_gauche: document.querySelector('select[data-sub="oeil_gauche"]').value,
+        energetique: document.querySelector('select[data-sub="energetique"]').value
+      },
+      torsion: {
+        override: document.getElementById('override-torsion').value,
+        hanche_droite: document.querySelector('select[data-sub="hanche_droite"]').value,
+        hanche_gauche: document.querySelector('select[data-sub="hanche_gauche"]').value,
+        occiput: document.querySelector('select[data-sub="occiput"]').value
+      },
+      diaphragme: {
+        override: document.getElementById('override-diaphragme').value,
+        pelvien: document.querySelector('select[data-sub="pelvien"]').value,
+        thoraco_lombaire: document.querySelector('select[data-sub="thoraco_lombaire"]').value,
+        cervico_thoracique: document.querySelector('select[data-sub="cervico_thoracique"]').value,
+        c0_c1: document.querySelector('select[data-sub="c0_c1"]').value
+      },
+      loge: {
+        override: document.getElementById('override-loge').value,
+        digestive: document.querySelector('select[data-sub="digestive"]').value,
+        thoracique: document.querySelector('select[data-sub="thoracique"]').value,
+        gorge: document.querySelector('select[data-sub="gorge"]').value,
+        cervelet: document.querySelector('select[data-sub="cervelet"]').value
+      },
+      helices: document.getElementById('proto-tensegrite-helices').value.trim(),
+      precisions: ''
+    },
+    cranio: {
+      checked: cranioChecked,
+      ambiance: document.getElementById('proto-cranio-ambiance').value.trim(),
+      adaptatif: {
+        sacro: document.getElementById('cranio-sacro').checked,
+        rre: document.getElementById('cranio-rre').checked,
+        occiput: document.getElementById('cranio-occiput').checked,
+        couple: document.getElementById('cranio-couple').checked,
+        strains: document.getElementById('cranio-strains').checked,
+        grosse_art: document.getElementById('cranio-grosse-art').checked
+      },
+      somatique: {
+        iliaque_ensemble: document.getElementById('cranio-iliaque-ensemble').checked,
+        coccygienne: document.getElementById('cranio-coccygienne').checked,
+        ixions: document.getElementById('cranio-ixions').checked,
+        pubis: document.getElementById('cranio-pubis').checked,
+        iliaque_indep: document.getElementById('cranio-iliaque-indep').checked,
+        sacrum_liaison: document.getElementById('cranio-sacrum-liaison').checked,
+        vertebres: document.getElementById('cranio-vertebres').checked,
+        scapulaire: document.getElementById('cranio-scapulaire').checked,
+        ant_complet: document.getElementById('cranio-ant-complet').checked,
+        post_complet: document.getElementById('cranio-post-complet').checked,
+        genoux: document.getElementById('cranio-genoux').checked,
+        jarrets: document.getElementById('cranio-jarrets').checked,
+        visceres: document.getElementById('cranio-visceres').checked,
+        visceres_text: document.getElementById('cranio-visceres-text').value.trim()
+      },
+      precisions: ''
+    },
+    kinesiologie: {
+      checked: kinesioChecked,
+      type: document.getElementById('proto-kinesiologie-type')?.value || 'Classique',
+      emot_reactives: document.getElementById('kinesio-reactives')?.value?.trim() || '',
+      emot_reactrice: document.getElementById('kinesio-reactrice')?.value?.trim() || '',
+      emot_liberee: document.getElementById('kinesio-liberee')?.value?.trim() || '',
+      precisions: '',
+      problematique: document.getElementById('kinesio-problematique')?.value?.trim() || '',
+      syntho: document.getElementById('kinesio-syntho')?.value?.trim() || '',
+      objectif: document.getElementById('kinesio-objectif')?.value?.trim() || '',
+      cen_debut: isNaN(parseInt(document.getElementById('kinesio-cen-debut')?.value)) ? 100 : parseInt(document.getElementById('kinesio-cen-debut').value),
+      cen_fin: isNaN(parseInt(document.getElementById('kinesio-cen-fin')?.value)) ? 0 : parseInt(document.getElementById('kinesio-cen-fin').value),
+      ldt: document.getElementById('kinesio-ldt')?.value?.trim() || ''
+    },
+    aura: {
+      checked: auraChecked,
+      recentrage: document.getElementById('aura-recentrage').checked,
+      liens: document.getElementById('aura-liens').checked,
+      vidange: document.getElementById('aura-vidange').checked,
+      fleches: document.getElementById('aura-fleches').checked,
+      fleches_loc: document.getElementById('aura-fleches-loc').value.trim(),
+      masses: document.getElementById('aura-masses').checked,
+      masses_loc: document.getElementById('aura-masses-loc').value.trim(),
+      recharge: document.getElementById('aura-recharge').checked,
+      chakras: document.getElementById('aura-chakras').checked,
+      circulation: document.getElementById('aura-circulation').checked,
+      mouvement: document.getElementById('aura-mouvement').checked,
+      repolarisation: document.getElementById('aura-repolarisation').checked,
+      filet: document.getElementById('aura-filet').checked,
+      filet_options: {
+        energies: document.getElementById('filet-energies').checked,
+        emotions: document.getElementById('filet-emotions').checked,
+        parasites: document.getElementById('filet-parasites').checked,
+        entites: document.getElementById('filet-entites').checked,
+        sorts: document.getElementById('filet-sorts').checked,
+        incorporations: document.getElementById('filet-incorporations').checked
+      },
+      local_filament: document.getElementById('aura-local-filament').checked,
+      local_polarites: document.getElementById('aura-local-polarites').checked,
+      local_recharge: document.getElementById('aura-local-recharge').checked,
+      local_complement: document.getElementById('aura-local-complement').checked || !!document.getElementById('aura-local-complement-text').value.trim(),
+      local_complement_text: document.getElementById('aura-local-complement-text').value.trim(),
+      soins_loc: document.getElementById('aura-soins-loc').value.trim(),
+      local_complement_loc: document.getElementById('aura-soins-loc').value.trim(),
+      precisions: ''
+    }
+  };
+
+  // Canvas dessin : exporter le tracé transparent & le tracé fusionné
+  let drawingDataUrl = canvasElement ? canvasElement.toDataURL('image/png') : '';
+  let mergedDataUrl = await generateMergedCanvasDataUrl();
+
+  // Sécurité anti-écrasement lors de l'édition d'une séance existante (v1.7.2) :
+  // Si le canvas n'a pas été retouché ou s'il est vide sans intention explicite d'effacement,
+  // préserver les schémas existants pour éviter tout remplacement par une image vide.
+  if (sId) {
+    try {
+      const existingSession = await getById('sessions', Number(sId));
+      if (existingSession) {
+        const isCurrentBlank = isCanvasBlank(canvasElement);
+        const hasExistingDrawing = !!(existingSession.canvas_drawing_data_url ||
+                                      existingSession.canvas_annotation_image_blob ||
+                                      existingSession.anatomical_drawing ||
+                                      existingSession.anatomicalDrawing);
+
+        if (!isCanvasModifiedInEditor && hasExistingDrawing) {
+          // Cas 1 : Le canvas n'a pas été retouché lors de cette édition
+          if (existingSession.canvas_drawing_data_url) {
+            drawingDataUrl = existingSession.canvas_drawing_data_url;
+          }
+          if (existingSession.canvas_annotation_image_blob || existingSession.anatomical_drawing || existingSession.anatomicalDrawing) {
+            mergedDataUrl = existingSession.canvas_annotation_image_blob || existingSession.anatomical_drawing || existingSession.anatomicalDrawing;
+          }
+        } else if (isCurrentBlank && !userExplicitlyClearedCanvas && hasExistingDrawing) {
+          // Cas 2 : Le canvas est vide sans intention explicite d'effacement (protection anti-perte)
+          if (existingSession.canvas_drawing_data_url) {
+            drawingDataUrl = existingSession.canvas_drawing_data_url;
+          }
+          if (existingSession.canvas_annotation_image_blob || existingSession.anatomical_drawing || existingSession.anatomicalDrawing) {
+            mergedDataUrl = existingSession.canvas_annotation_image_blob || existingSession.anatomical_drawing || existingSession.anatomicalDrawing;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[SessionSave] Erreur vérification sécurité canvas:", err);
+    }
+  }
+
+  const sessionData = {
+    animal_id: animalId,
+    client_id: clientId,
+    date_seance: dateStr,
+    motif: motif,
+    notes_observations: notesObs,
+    n_seance_annee: numSession,
+    q_avant_seance: qAvant,
+    q_3_semaines: q3Sem,
+    protocoles_realises: protocoles,
+    canvas_annotation_image_blob: mergedDataUrl, // fusionné pour le CR print
+    canvas_drawing_data_url: drawingDataUrl, // transparent pour l'éditeur
+    cr_personnel: crPerso,
+    precisions: document.getElementById('session-form-precisions').value.trim(),
+    delai_prochaine_seance: remindersToSave.length > 0 ? remindersToSave[0].delay : '2m',
+    resume_client_genere: resume
+  };
+
+  let savedId = null;
+
+  if (sId) {
+    sessionData.id = Number(sId);
+    await update('sessions', sessionData);
+    try { await deletePdfCache(`cr_pdf_${sessionData.id}`); } catch (_) {}
+    savedId = sessionData.id;
+    showToast('Séance modifiée avec succès.');
+  } else {
+    savedId = await add('sessions', sessionData);
+    showToast('Séance enregistrée avec succès.');
+  }
+
+  // --- TRAITEMENT DES RAPPELS MULTIPLES ---
+  // Si on éditait, supprimer les anciens rappels associés à cette séance
+  if (sId) {
+    const existingReminders = await getByIndex('reminders', 'session_id', Number(sId));
+    for (const r of existingReminders) {
+      await remove('reminders', r.id);
+    }
+  }
+
+  // Enregistrer les nouveaux rappels
+  for (const rData of remindersToSave) {
+    const weekStr = getYearWeek(new Date(rData.date_prevue));
+    const titleVal = rData.type_rappel || 'Rappel';
+    const noteVal = rData.notes || '';
+    await add('reminders', {
+      animal_id: animalId,
+      client_id: clientId,
+      session_id: savedId,
+      date_prevue: rData.date_prevue,
+      semaine_prevue: weekStr,
+      type_rappel: titleVal,
+      title: titleVal,
+      motif: titleVal,
+      statut: 'en_attente',
+      notes: noteVal,
+      description: noteVal,
+      note: noteVal,
+      delay: rData.delay
+    });
+  }
+
+  if (remindersToSave.length > 0) {
+    showToast(`${remindersToSave.length} rappel(s) planifié(s).`);
+  }
+
+  window.location.hash = `sessions/${savedId}`;
+}
+
+// --- RENDU : DIRECTORY PROFESSIONALS ---
+async function renderProfessionalsList() {
+  const professionals = await getAll('professionals');
+  const animals = await getAll('animals');
+  const searchInput = document.getElementById('prof-search-input');
+  if (searchInput && !searchInput.dataset.listener) {
+    searchInput.dataset.listener = 'true';
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderProfessionalsList();
+    });
+  }
+  const filterVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+  const tbody = document.getElementById('professionals-table-body');
+  tbody.innerHTML = '';
+
+  const filtered = professionals.filter(p => {
+    if (!filterVal) return true;
+    return (p.nom && p.nom.toLowerCase().includes(filterVal)) ||
+           (p.prenom && p.prenom.toLowerCase().includes(filterVal)) ||
+           (p.specialite && p.specialite.toLowerCase().includes(filterVal)) ||
+           (p.notes && p.notes.toLowerCase().includes(filterVal));
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Aucun professionnel enregistré.</td></tr>';
+  } else {
+    for (const p of filtered) {
+      const associatedAnimals = animals.filter(an => {
+        const pros = an.pros_associes_ids || [];
+        return pros.includes(p.id);
+      });
+
+      let animalsHtml = '-';
+      if (associatedAnimals.length > 0) {
+        animalsHtml = associatedAnimals.map(an => {
+          const emojiMap = {
+            'cheval': '🐴',
+            'chien': '🐕',
+            'chat': '🐱'
+          };
+          const emoji = emojiMap[an.espece.toLowerCase()] || '🐾';
+          return `<button class="btn-link-animal" data-id="${an.id}" style="background: none; border: none; color: var(--color-primary); cursor: pointer; text-decoration: underline; padding: 0; font-family: inherit; font-size: inherit; display: inline-flex; align-items: center; gap: 4px; margin-right: 8px; vertical-align: middle;">
+            <span>${emoji}</span>
+            <span>${an.nom}</span>
+          </button>`;
+        }).join(' ');
+      }
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${p.nom.toUpperCase()}</strong> ${p.prenom}</td>
+        <td><span class="panel-badge" style="background:rgba(255,255,255,0.06); color:var(--text-main); font-weight:600;">${p.specialite}</span></td>
+        <td>${p.telephone || '-'}</td>
+        <td>${animalsHtml}</td>
+        <td style="font-size:0.85rem; color:var(--text-muted); max-width:300px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${p.notes || ''}">${p.notes || '-'}</td>
+        <td class="actions-column">
+          <button class="btn btn-secondary btn-small btn-edit-prof" data-id="${p.id}">Modifier</button>
+        </td>
+      `;
+
+      tr.querySelector('.btn-edit-prof').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openProfessionalDialog(p);
+      });
+
+      tr.querySelectorAll('.btn-link-animal').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const animId = Number(btn.dataset.id);
+          window.location.hash = `animals/${animId}`;
+        });
+      });
+
+      tbody.appendChild(tr);
+    }
+  }
+}
+
+// --- RENDU : SUIVI ET RAPPELS PAR SEMAINE ---
+async function renderRemindersList() {
+  const reminders = await getAll('reminders');
+  const animals = await getAll('animals');
+  const clients = await getAll('clients');
+
+  const statusFilter = document.getElementById('reminder-status-filter');
+  if (statusFilter && !statusFilter.dataset.listener) {
+    statusFilter.dataset.listener = 'true';
+    statusFilter.addEventListener('change', renderRemindersList);
+  }
+  const statusFilterVal = statusFilter ? statusFilter.value : 'pending';
+
+  const searchInput = document.getElementById('reminder-search-input');
+  if (searchInput && !searchInput.dataset.listener) {
+    searchInput.dataset.listener = 'true';
+    searchInput.addEventListener('input', (e) => {
+      if (e && e.isComposing) return;
+      renderRemindersList();
+    });
+  }
+  const filterVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+  const container = document.getElementById('reminders-grouped-container');
+  container.innerHTML = '';
+
+  const filtered = reminders.filter(r => {
+    // Status Filter
+    if (statusFilterVal === 'pending' && r.statut !== 'en_attente') return false;
+    if (statusFilterVal === 'completed' && r.statut !== 'fait') return false;
+
+    // Search Filter
+    if (filterVal) {
+      const q = normalizeText(filterVal);
+      const animalId = r.animal_id || r.animalId;
+      const isAll = (animalId === 'ALL');
+      const animal = (!isAll && animalId) ? (animals.find(an => an.id === animalId) || {}) : {};
+      
+      const clientId = r.client_id || r.clientId || animal.client_id || animal.clientId;
+      const client = clientId ? (clients.find(cl => cl.id === clientId) || {}) : {};
+      
+      let allAnimalsText = '';
+      if (isAll) {
+        const clientAnimals = clientId ? animals.filter(an => an.client_id === clientId && !an.archived_at) : [];
+        allAnimalsText = 'tous les animaux all ' + clientAnimals.map(an => an.nom).join(' ');
+      }
+
+      const taskValues = Object.values(r).filter(v => typeof v === 'string' || typeof v === 'number').join(' ');
+      const animalName = animal.nom || animal.name || '';
+      const clientLastName = client.nom || client.lastName || client.name || '';
+      const clientFirstName = client.prenom || client.firstName || '';
+      
+      const searchCorpus = [
+        taskValues,
+        animalName,
+        allAnimalsText,
+        clientLastName,
+        clientFirstName
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      if (!normalizeText(searchCorpus).includes(q)) return false;
+    }
+
+    return true;
+  });
+
+  if (filterVal && filtered.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 40px 20px; text-align: center; color: var(--text-sub); font-style: italic; background: rgba(255, 255, 255, 0.02); border-radius: 8px; border: 1px dashed var(--glass-border); font-size: 0.95rem;">
+        Aucune tâche ou rappel trouvé pour cette recherche
+      </div>
+    `;
+    return;
+  }
+
+  // Get current week
+  const currentWeek = getYearWeek(new Date());
+
+  // Grouper par semaine prévue
+  const grouped = {};
+  if (!filterVal) {
+    grouped[currentWeek] = []; // Always initialize current week ONLY when not searching
+  }
+
+  filtered.forEach(r => {
+    // Calculer la semaine si manquante
+    const w = r.semaine_prevue || getYearWeek(new Date(r.date_prevue));
+    if (!grouped[w]) {
+      grouped[w] = [];
+    }
+    grouped[w].push(r);
+  });
+
+  // Trier les semaines
+  const weeks = Object.keys(grouped).sort((a,b) => {
+    return a.localeCompare(b);
+  });
+
+  for (const w of weeks) {
+    const isCurrent = (w === currentWeek);
+    const hasUncompleted = grouped[w].some(r => r.statut === 'en_attente');
+    const isPastOverdue = (w < currentWeek && hasUncompleted);
+
+    const sec = document.createElement('div');
+    sec.className = 'reminder-week-section';
+    
+    let headerClass = '';
+    if (isCurrent) {
+      headerClass = 'current-week';
+    } else if (isPastOverdue) {
+      headerClass = 'past-overdue';
+    } else if (w > currentWeek) {
+      headerClass = 'future-week';
+    }
+
+    sec.innerHTML = `
+      <div class="reminder-week-header ${headerClass}">${formatWeekDisplay(w)}</div>
+      <div class="reminder-list"></div>
+    `;
+
+    const list = sec.querySelector('.reminder-list');
+    
+    if (grouped[w].length === 0) {
+      list.innerHTML = `
+        <div class="reminder-item-empty" style="padding: 12px 15px; text-align: center; color: var(--text-sub); font-style: italic; background: rgba(255, 255, 255, 0.02); border-radius: 8px; border: 1px dashed var(--glass-border); font-size: 0.9rem;">
+          Aucune tâche cette semaine
+        </div>
+      `;
+    } else {
+      // Trier les rappels dans la semaine par date
+      grouped[w].sort((a,b) => new Date(a.date_prevue) - new Date(b.date_prevue));
+
+      for (const r of grouped[w]) {
+        const isAllAnimals = (r.animal_id === 'ALL');
+        const animal = !isAllAnimals ? animals.find(an => an.id === r.animal_id) : null;
+        const client = clients.find(cl => cl.id === r.client_id);
+        
+        const ownerName = client ? `${client.prenom} ${client.nom}` : '-';
+
+        const rItem = document.createElement('div');
+        
+        let statusClass = 'status-future';
+        if (r.statut === 'fait') {
+          statusClass = 'status-done';
+        } else {
+          const delayDays = Math.ceil((new Date(r.date_prevue) - new Date()) / (1000 * 60 * 60 * 24));
+          if (delayDays < 0) statusClass = 'status-overdue';
+          else if (delayDays === 0) statusClass = 'status-today';
+        }
+
+        rItem.className = `reminder-item ${statusClass}`.trim();
+
+        const rawType = r.type_rappel || r.title || r.motif || 'Rappel';
+        const displayName = (rawType === 'prendre_des_nouvelles') ? 'Prendre des nouvelles' : ((rawType === 'fixer_rdv' || rawType === 'prendre_rdv') ? 'Planifier un nouveau RDV' : rawType);
+        
+        let animalDisplay = '';
+        if (isAllAnimals) {
+          const clientAnimals = r.client_id ? animals.filter(an => an.client_id === r.client_id && !an.archived_at) : [];
+          const namesList = clientAnimals.map(a => a.nom).join(', ');
+          animalDisplay = `<span class="badge-all-animals" style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.15); color: var(--color-primary); border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.75rem; padding: 2px 7px; border-radius: 4px; font-weight: 600; vertical-align: middle;">🐾 Tous les animaux${clientAnimals.length > 0 ? ` (${clientAnimals.length})` : ''}</span>${namesList ? `<span style="font-size: 0.85em; opacity: 0.85; margin-left: 6px;">(${namesList})</span>` : ''}`;
+        } else if (animal) {
+          animalDisplay = animal.nom;
+        } else {
+          animalDisplay = 'Général';
+        }
+
+        const rawNote = r.notes || r.description || r.note || '';
+
+        rItem.innerHTML = `
+          <div class="reminder-left" style="cursor: pointer; flex-grow: 1; margin-right: 15px;">
+            <span class="reminder-date-tag">${formatDate(r.date_prevue)} ${r.statut === 'fait' ? '[Traité]' : ''}</span>
+            <span class="reminder-title">${displayName} &bull; ${animalDisplay}</span>
+            <span class="reminder-meta">Propriétaire : ${ownerName} &bull; ${rawNote ? escapeHtml(rawNote) : 'Sans note'}</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
+            <button class="btn btn-secondary btn-small btn-edit-reminder" style="background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); color: var(--text-main);">Modifier / Reporter</button>
+            ${r.statut === 'en_attente' ? `<button class="btn btn-secondary btn-small btn-complete-reminder-list" data-id="${r.id}">Marquer Fait</button>` : ''}
+          </div>
+        `;
+
+        rItem.querySelector('.reminder-left').addEventListener('click', () => {
+          if (r.animal_id && r.animal_id !== 'ALL') {
+            window.location.hash = `animals/${r.animal_id}`;
+          } else if (r.client_id) {
+            window.location.hash = `clients/${r.client_id}`;
+          } else {
+            openReminderDialog(r);
+          }
+        });
+
+        const editBtn = rItem.querySelector('.btn-edit-reminder');
+        if (editBtn) {
+          editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openReminderDialog(r);
+          });
+        }
+
+        const btn = rItem.querySelector('.btn-complete-reminder-list');
+        if (btn) {
+          btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            r.statut = 'fait';
+            await update('reminders', r);
+            showToast('Rappel effectué.');
+            await renderRemindersList();
+            await updateReminderBadge();
+            await renderDashboard();
+          });
+        }
+
+        list.appendChild(rItem);
+      }
+    }
+
+    container.appendChild(sec);
+  }
+}
+
+// Event listener filtre rappel
+const reminderStatusFilter = document.getElementById('reminder-status-filter');
+if (reminderStatusFilter) {
+  reminderStatusFilter.addEventListener('change', renderRemindersList);
+}
+
+// --- RENDU : SAUVEGARDES, EXPORTS & STATS ---
+async function renderSettingsData() {
+  const clients = await getAll('clients');
+  const animals = await getAll('animals');
+  const sessions = await getAll('sessions');
+  const reminders = await getAll('reminders');
+
+  // 1. Moyenne séances par animal
+  const avg = animals.length > 0 ? (sessions.length / animals.length).toFixed(1) : '0.0';
+  document.getElementById('stat-avg-sessions-animal').textContent = avg;
+
+  // 2. Taux de rappels traités
+  const completedR = reminders.filter(r => r.statut === 'fait').length;
+  const pctR = reminders.length > 0 ? Math.round((completedR / reminders.length) * 100) : 0;
+  document.getElementById('stat-reminders-done').textContent = `${pctR}%`;
+
+  // 3. Espèce majoritaire
+  const speciesCounts = {};
+  animals.forEach(an => {
+    const sp = an.espece || 'Autre';
+    speciesCounts[sp] = (speciesCounts[sp] || 0) + 1;
+  });
+  
+  let majSp = 'Aucune';
+  let maxVal = 0;
+  Object.entries(speciesCounts).forEach(([sp, val]) => {
+    if (val > maxVal) {
+      maxVal = val;
+      majSp = sp;
+    }
+  });
+  document.getElementById('stat-most-species').textContent = majSp !== 'Aucune' ? `${majSp} (${maxVal})` : 'Aucune';
+}
+
+
+// --- GESTIONNAIRES DE SAUVEGARDE & RESTAURATION ---
+function setupBackupRestore() {
+  // Export JSON complet
+  document.getElementById('btn-export-backup').onclick = async () => {
+    try {
+      const data = await exportAllData();
+      const str = JSON.stringify(data, null, 2);
+      const blob = new Blob([str], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sauvegarde_ekikare_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      showToast('Sauvegarde de la base exportée avec succès.');
+    } catch (err) {
+      console.error(err);
+      showToast('Erreur lors de l\'exportation de la sauvegarde.', 'error');
+    }
+  };
+
+  // Import JSON complet
+  document.getElementById('import-backup-file').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (confirm('L\'importation écrasera l\'intégralité des données IndexedDB actuelles. Continuer ?')) {
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const importData = JSON.parse(evt.target.result);
+          await importAllData(importData);
+          showToast('Sauvegarde restaurée avec succès.');
+          // Recharger le tableau de bord
+          window.location.hash = 'dashboard';
+          handleRouting();
+        } catch (err) {
+          console.error(err);
+          showToast('Fichier invalide ou corrompu.', 'error');
+        }
+      };
+      reader.readAsText(file);
+    }
+    // clear input value to allow re-upload
+    e.target.value = '';
+  };
+
+  // Export CSV Séances
+  document.getElementById('btn-export-csv-sessions').onclick = async () => {
+    const sessions = await getAll('sessions');
+    const animals = await getAll('animals');
+    
+    let csv = '\uFEFF'; // BOM pour Excel UTF-8
+    csv += 'ID Séance;Date;ID Animal;Nom Animal;Motif;N° Séance Année;Résumé Client\n';
+    
+    sessions.forEach(s => {
+      const an = animals.find(a => a.id === s.animal_id);
+      const anName = an ? an.nom : 'Inconnu';
+      
+      // Nettoyer le résumé pour le CSV
+      const resumeClean = s.resume_client_genere ? s.resume_client_genere.replace(/[\n\r;]+/g, ' ') : '';
+      
+      csv += `${s.id};${s.date_seance};${s.animal_id};"${anName.replace(/"/g, '""')}";"${s.motif.replace(/"/g, '""')}";${s.n_seance_annee || 1};"${resumeClean.replace(/"/g, '""')}"\n`;
+    });
+
+    downloadCSV(csv, 'sessions_ekikare.csv');
+  };
+
+  // Export CSV Animaux
+  document.getElementById('btn-export-csv-animals').onclick = async () => {
+    const animals = await getAll('animals');
+    const clients = await getAll('clients');
+
+    let csv = '\uFEFF'; // BOM pour Excel UTF-8
+    csv += 'ID Animal;Nom;Espèce;Race;Robe;Sexe;Naissance/Âge;Lieu de vie;Propriétaire\n';
+animals.forEach(an => {
+      const cl = clients.find(c => c.id === an.client_id);
+      const clName = cl ? `${cl.prenom} ${cl.nom}` : 'Inconnu';
+
+      csv += `${an.id};"${an.nom.replace(/"/g, '""')}";"${an.espece.replace(/"/g, '""')}";"${(an.race || '').replace(/"/g, '""')}";"${(an.robe || '').replace(/"/g, '""')}";"${an.sexe || ''}";"${an.date_naissance_ou_age || ''}";"${(an.lieu_de_vie || '').replace(/"/g, '""')}";"${clName.replace(/"/g, '""')}"\n`;
+    });
+
+    downloadCSV(csv, 'animaux_ekikare.csv');
+  };
+
+  // Forcer la mise à jour de l'application et purger les caches du navigateur (isolé Prod vs Beta)
+  const handleForceCacheRefresh = async () => {
+    showToast('Purge du cache et mise à jour de l\'application en cours...', 'info');
+    try {
+      // 1. Vider uniquement les caches de l'environnement courant (Beta ou Prod)
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        const envKeys = keys.filter(k => IS_BETA_ENV ? k.startsWith('ekikare-beta-') : !k.startsWith('ekikare-beta-'));
+        await Promise.all(envKeys.map(k => caches.delete(k)));
+      }
+      // 2. Désinscrire uniquement le Service Worker de l'environnement courant
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        const envRegs = registrations.filter(r => IS_BETA_ENV ? r.scope.includes('/beta') : !r.scope.includes('/beta'));
+        await Promise.all(envRegs.map(r => r.unregister()));
+      }
+    } catch (err) {
+      console.error('Erreur lors de la purge du cache:', err);
+    }
+    // 3. Recharger la page brutalement
+    setTimeout(() => {
+      window.location.reload(true);
+    }, 400);
+  };
+
+  const btnForceCacheRefresh = document.getElementById('btn-force-cache-refresh');
+  if (btnForceCacheRefresh) {
+    btnForceCacheRefresh.onclick = handleForceCacheRefresh;
+  }
+  const btnForceCacheUpdate = document.getElementById('btn-force-cache-update');
+  if (btnForceCacheUpdate) {
+    btnForceCacheUpdate.onclick = handleForceCacheRefresh;
+  }
+}
+
+function downloadCSV(csvContent, filename) {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showToast('Fichier d\'analyse CSV exporté.');
+}
+
+// --- DIALOGS (MODALS) POPUPS LOGIC ---
+
+// STATE VARIABLES FOR EXTERNAL SESSION FILES
+let extSessionFileData = null;
+let extSessionFileName = null;
+let extSessionFileType = null;
+
+/**
+ * Initialise le visualiseur de zoom tactile (désactivé au profit de l'ouverture native sur mobile/tablette
+ * et du zoom CSS direct sur desktop).
+ */
+function initDocPinchZoom(element) {
+  return null;
+}
+
+/**
+ * Résout une ressource de pièce jointe (identifiant/UUID, Blob, URL web/drive, base64, JSON)
+ * vers un Blob valide, une URL exploitable, et ses métadonnées MIME et nom.
+ */
+async function resolveAttachmentResource(resource, fallbackType = '', fallbackName = '') {
+  if (!resource) return null;
+
+  let resolvedData = resource;
+  let resolvedType = fallbackType || '';
+  let resolvedName = fallbackName || '';
+  let blob = null;
+  let blobUrl = null;
+
+  // 1. Dépaquetage si c'est un objet ou du JSON sérialisé
+  if (typeof resource === 'string' && (resource.trim().startsWith('{') || resource.trim().startsWith('['))) {
+    try {
+      const parsed = JSON.parse(resource);
+      if (parsed && typeof parsed === 'object') {
+        resolvedData = parsed.fileData || parsed.data || parsed.url || parsed.blob || parsed.path || parsed.attachments || parsed.id || resource;
+        resolvedType = parsed.fileType || parsed.type || parsed.mime || resolvedType;
+        resolvedName = parsed.fileName || parsed.name || resolvedName;
+      }
+    } catch (_) {}
+  } else if (typeof resource === 'object' && resource !== null && !(resource instanceof Blob)) {
+    resolvedData = resource.fileData || resource.data || resource.url || resource.blob || resource.path || resource.attachments || resource.id || resource;
+    resolvedType = resource.fileType || resource.type || resource.mime || resolvedType;
+    resolvedName = resource.fileName || resource.name || resolvedName;
+  }
+
+  // 2. Si c'est déjà un Blob ou File
+  if (resolvedData instanceof Blob) {
+    blob = resolvedData;
+    resolvedType = resolvedType || blob.type;
+    blobUrl = URL.createObjectURL(blob);
+    return { blob, blobUrl, mime: resolvedType || 'application/octet-stream', name: resolvedName };
+  }
+
+  // 3. Si c'est une chaîne de caractères
+  if (typeof resolvedData === 'string') {
+    const trimmed = resolvedData.trim();
+
+    // Cas A : URL Blob existante
+    if (trimmed.startsWith('blob:')) {
+      blobUrl = trimmed;
+      try {
+        const resp = await fetch(trimmed);
+        if (resp.ok) {
+          blob = await resp.blob();
+          if (!resolvedType) resolvedType = blob.type;
+        }
+      } catch (_) {}
+      return { blob, blobUrl, mime: resolvedType || 'application/octet-stream', name: resolvedName };
+    }
+
+    // Cas B : URL web (http:// ou https:// - ex: Google Drive, Supabase Storage, CDN)
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      blobUrl = trimmed;
+      // Conversion lien Google Drive en preview pour intégration fluide
+      if (trimmed.includes('drive.google.com/file/d/')) {
+        const driveMatch = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+        if (driveMatch && driveMatch[1]) {
+          blobUrl = `https://drive.google.com/file/d/${driveMatch[1]}/preview`;
+        }
+      }
+      try {
+        const resp = await fetch(trimmed);
+        if (resp.ok) {
+          blob = await resp.blob();
+          blobUrl = URL.createObjectURL(blob);
+          if (!resolvedType) resolvedType = blob.type;
+        }
+      } catch (err) {
+        console.warn("[resolveAttachmentResource] Fetch direct URL distant:", err);
+      }
+      return { blob, blobUrl, mime: resolvedType || (blob ? blob.type : 'application/octet-stream'), name: resolvedName };
+    }
+
+    // Cas C : Data URL Base64
+    if (trimmed.startsWith('data:')) {
+      try {
+        const parts = trimmed.split(',');
+        const mimeMatch = parts[0].match(/:(.*?);/);
+        resolvedType = resolvedType || (mimeMatch ? mimeMatch[1] : 'application/octet-stream');
+        const b64 = parts[1] || '';
+        const byteChars = atob(b64);
+        const byteNumbers = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+          byteNumbers[i] = byteChars.charCodeAt(i);
+        }
+        blob = new Blob([byteNumbers], { type: resolvedType });
+        blobUrl = URL.createObjectURL(blob);
+        return { blob, blobUrl, mime: resolvedType, name: resolvedName };
+      } catch (err) {
+        console.warn("[resolveAttachmentResource] Erreur parsing data: URL:", err);
+      }
+    }
+
+    // Cas D : Base64 pur sans préfixe data:
+    const isPureBase64 = /^[A-Za-z0-9+/=]+$/.test(trimmed) && trimmed.length > 80;
+    if (isPureBase64) {
+      try {
+        if (!resolvedType) {
+          if (trimmed.startsWith('JVBERi')) resolvedType = 'application/pdf';
+          else if (trimmed.startsWith('/9j/')) resolvedType = 'image/jpeg';
+          else if (trimmed.startsWith('iVBOR')) resolvedType = 'image/png';
+          else resolvedType = 'application/octet-stream';
+        }
+        const byteChars = atob(trimmed);
+        const byteNumbers = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+          byteNumbers[i] = byteChars.charCodeAt(i);
+        }
+        blob = new Blob([byteNumbers], { type: resolvedType });
+        blobUrl = URL.createObjectURL(blob);
+        return { blob, blobUrl, mime: resolvedType, name: resolvedName };
+      } catch (err) {
+        console.warn("[resolveAttachmentResource] Erreur parsing base64 brut:", err);
+      }
+    }
+
+    // Cas E : Identifiant, UUID ou clé de stockage dans IndexedDB ou Supabase
+    const isIdentifier = !trimmed.includes(';') && (trimmed.length < 80 || /^[0-9a-f-]{8,}$/i.test(trimmed));
+    if (isIdentifier) {
+      console.log(`[resolveAttachmentResource] Résolution de l'identifiant '${trimmed}'...`);
+
+      // 1. Recherche dans IndexedDB
+      try {
+        const db = await (typeof initDB === 'function' ? initDB() : getDB());
+        const candidateStores = ['sessions', 'attachments', 'files', 'documents', 'settings'];
+        for (const sName of candidateStores) {
+          if (db.objectStoreNames.contains(sName)) {
+            // Par getById
+            try {
+              const rec = await getById(sName, trimmed);
+              if (rec) {
+                const subResource = rec.fileData || rec.file_data || rec.data || rec.blob || rec.attachments || rec.url;
+                if (subResource && subResource !== trimmed) {
+                  return await resolveAttachmentResource(subResource, rec.fileType || rec.type || resolvedType, rec.fileName || rec.name || resolvedName);
+                }
+              }
+            } catch (_) {}
+
+            // Par parcours du store
+            try {
+              const allItems = await getAll(sName);
+              const found = allItems.find(it => 
+                String(it.id) === trimmed || 
+                String(it.uuid) === trimmed ||
+                String(it.file_id) === trimmed ||
+                String(it.attachment_id) === trimmed ||
+                (it.attachments && String(it.attachments) === trimmed)
+              );
+              if (found) {
+                const subResource = found.fileData || found.file_data || found.data || found.blob || found.attachments || found.url;
+                if (subResource && subResource !== trimmed) {
+                  return await resolveAttachmentResource(subResource, found.fileType || found.type || resolvedType, found.fileName || found.name || resolvedName);
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (idbErr) {
+        console.warn("[resolveAttachmentResource] Erreur recherche IndexedDB:", idbErr);
+      }
+
+      // 2. Recherche distante dans Supabase
+      if (navigator.onLine) {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          // Tentative de téléchargement depuis Supabase Storage
+          const buckets = ['attachments', 'documents', 'sessions', 'files'];
+          for (const bName of buckets) {
+            try {
+              const { data: dlBlob, error: dlErr } = await supabase.storage.from(bName).download(trimmed);
+              if (!dlErr && dlBlob) {
+                blob = dlBlob;
+                blobUrl = URL.createObjectURL(blob);
+                resolvedType = resolvedType || blob.type;
+                return { blob, blobUrl, mime: resolvedType || 'application/octet-stream', name: resolvedName || trimmed };
+              }
+            } catch (_) {}
+          }
+
+          // Tentative de recherche dans la table sessions
+          try {
+            const { data: sRecord } = await supabase.from('sessions').select('*').eq('id', trimmed).maybeSingle();
+            if (sRecord && sRecord.attachments && sRecord.attachments !== trimmed) {
+              return await resolveAttachmentResource(sRecord.attachments, sRecord.file_type || resolvedType, sRecord.file_name || resolvedName);
+            }
+          } catch (_) {}
+        }
+      }
+    }
+  }
+
+  // Fallback si blobUrl n'a pu être construit
+  return {
+    blob: null,
+    blobUrl: blobUrl || '',
+    mime: resolvedType || 'application/octet-stream',
+    name: resolvedName || (typeof resource === 'string' ? resource : 'document')
+  };
+}
+
+// HELPER CENTRAL : GÉNÉRATION BLOB PDF DEPUIS HTML (SANDBOX A4 FIXE 794px)
+let isPdfGenerating = false;
+let lastPdfGenerateTime = 0;
+
+async function generatePdfBlobFromHtml(htmlContent, filename = 'document.pdf') {
+  const now = Date.now();
+  if (isPdfGenerating || (now - lastPdfGenerateTime < 1500)) {
+    console.warn("Génération PDF déjà en cours ou trop rapprochée, appel ignoré.");
+    return null;
+  }
+  isPdfGenerating = true;
+  lastPdfGenerateTime = now;
+
+  try {
+    // 1. Nettoyage préventif
+    const oldSandbox = document.getElementById('pdf-isolation-sandbox');
+    if (oldSandbox) oldSandbox.remove();
+
+    // 2. Création et insertion dans le DOM réel
+    const sandbox = document.createElement('div');
+    sandbox.id = 'pdf-isolation-sandbox';
+    sandbox.className = 'print-container official-a4-sheet cr-document';
+    sandbox.style.cssText = [
+      'position: fixed !important',
+      'left: 0 !important',
+      'top: 0 !important',
+      'width: 794px !important',
+      'max-width: 794px !important',
+      'min-width: 794px !important',
+      'margin: 0 !important',
+      'padding: 15mm !important',
+      'box-sizing: border-box !important',
+      'height: auto !important',
+      'min-height: 1123px !important',
+      'display: block !important',
+      'overflow: visible !important',
+      'background: #ffffff !important',
+      'color: #1f2937 !important',
+      'transform: none !important'
+    ].join('; ') + ';';
+    sandbox.innerHTML = (typeof htmlContent === 'string') ? htmlContent : (htmlContent?.innerHTML || '');
+    document.body.appendChild(sandbox);
+
+    // En-tête : Forcer la structure 2 colonnes (Client à gauche, Animal à droite)
+    const grids = sandbox.querySelectorAll('.print-grid-2');
+    grids.forEach(g => {
+      g.style.setProperty('display', 'flex', 'important');
+      g.style.setProperty('flex-direction', 'row', 'important');
+      g.style.setProperty('justify-content', 'space-between', 'important');
+      g.style.setProperty('align-items', 'flex-start', 'important');
+      g.style.setProperty('gap', '24px', 'important');
+      g.style.setProperty('width', '100%', 'important');
+      g.style.setProperty('margin-bottom', '20px', 'important');
+      Array.from(g.children).forEach(col => {
+        col.style.setProperty('flex', '1 1 0%', 'important');
+        col.style.setProperty('width', 'calc(50% - 12px)', 'important');
+        col.style.setProperty('max-width', 'calc(50% - 12px)', 'important');
+        col.style.setProperty('box-sizing', 'border-box', 'important');
+      });
+    });
+
+    // En-tête : Titre à gauche, logo à droite
+    const headers = sandbox.querySelectorAll('.print-header');
+    headers.forEach(h => {
+      h.style.setProperty('display', 'flex', 'important');
+      h.style.setProperty('flex-direction', 'row', 'important');
+      h.style.setProperty('justify-content', 'space-between', 'important');
+      h.style.setProperty('align-items', 'center', 'important');
+      h.style.setProperty('width', '100%', 'important');
+    });
+
+    // Espacement du Schéma d'annotations (saut de page naturel sans forçage rigide)
+    const schemaBlocs = sandbox.querySelectorAll('.schema-bloc, #portal-cr-section-canvas, #print-section-canvas, .schema-section, .planche-anatomique');
+    schemaBlocs.forEach(bloc => {
+      bloc.style.setProperty('padding-top', '5mm', 'important');
+      bloc.style.setProperty('page-break-before', 'auto', 'important');
+      bloc.style.setProperty('break-before', 'auto', 'important');
+      bloc.style.setProperty('page-break-inside', 'avoid', 'important');
+      bloc.style.setProperty('break-inside', 'avoid', 'important');
+      bloc.style.setProperty('height', 'auto', 'important');
+      bloc.style.setProperty('max-height', 'none', 'important');
+      bloc.style.setProperty('overflow', 'visible', 'important');
+    });
+
+    const schemaPreviews = sandbox.querySelectorAll('.print-canvas-preview, .print-canvas-preview img, #portal-cr-session-canvas-img, #print-session-canvas-img');
+    schemaPreviews.forEach(el => {
+      el.style.setProperty('max-height', 'none', 'important');
+      el.style.setProperty('overflow', 'visible', 'important');
+      el.style.setProperty('page-break-inside', 'avoid', 'important');
+      el.style.setProperty('break-inside', 'avoid', 'important');
+    });
+
+    // Bas de page : Mentions légales insérées en dernier, sous les précisions / documents joints ou le schéma
+    const canvasSectionInSandbox = sandbox.querySelector('#portal-cr-section-canvas, .schema-bloc');
+    const precisionsSectionInSandbox = sandbox.querySelector('#portal-cr-section-precisions, #print-section-precisions');
+    const attachmentSectionInSandbox = sandbox.querySelector('#portal-cr-section-attachment');
+    const isAnimalDossier = !!(
+      sandbox.querySelector('.dossier-section-sessions, .dossier-section-identity, .dossier-section-medical, #animal-dossier-preview-sheet') ||
+      (typeof filename === 'string' && (filename.startsWith('Dossier_') || filename.startsWith('Fiche_Liaison_')))
+    );
+
+    // Ne pas injecter de mentions légales supplémentaires sur le dossier de suivi (il possède déjà son propre pied de page officiel complet)
+    if (!isAnimalDossier) {
+      const legalNoticeHtml = `
+        <div class="cr-legal-notice" style="margin-top: 30px; padding-top: 10px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important; display: block !important; visibility: visible !important; opacity: 1 !important;">
+          Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.
+        </div>
+      `;
+      sandbox.querySelectorAll('.cr-legal-notice, .legal-notice, .print-footer').forEach(el => el.remove());
+      if (attachmentSectionInSandbox && attachmentSectionInSandbox.style.display !== 'none') {
+        attachmentSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
+      } else if (precisionsSectionInSandbox && precisionsSectionInSandbox.style.display !== 'none') {
+        precisionsSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
+      } else if (canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none') {
+        canvasSectionInSandbox.insertAdjacentHTML('afterend', legalNoticeHtml);
+      } else {
+        sandbox.insertAdjacentHTML('beforeend', legalNoticeHtml);
+      }
+    } else {
+      // Pour le dossier de suivi : élimination garantie de tout bloc de mentions légales dupliqué (.cr-legal-notice)
+      sandbox.querySelectorAll('.cr-legal-notice').forEach(el => el.remove());
+    }
+
+    // Espacement pour le dossier de suivi en page 2 (padding-top: 15mm pour respirer sous le bord supérieur)
+    const dossierSessionsSections = sandbox.querySelectorAll('.dossier-section-sessions');
+    dossierSessionsSections.forEach(sec => {
+      sec.style.setProperty('padding-top', '15mm', 'important');
+      sec.style.setProperty('page-break-before', 'always', 'important');
+      sec.style.setProperty('break-before', 'page', 'important');
+    });
+
+    // S'assurer que le flux des éléments internes n'est pas effondré
+    const internalElements = sandbox.querySelectorAll('#portal-cr-sheet, #animal-dossier-preview-sheet, .cr-document, .official-a4-sheet, div, section');
+    internalElements.forEach(el => {
+      if (el.style.height === '100%' || el.style.height === '100vh') {
+        el.style.setProperty('height', 'auto', 'important');
+        el.style.setProperty('min-height', '100%', 'important');
+      }
+      el.style.setProperty('overflow', 'visible', 'important');
+    });
+
+    // 3. Attente stricte du chargement des polices et images
+    if (document.fonts && document.fonts.ready) {
+      try { await document.fonts.ready; } catch (_) {}
+    }
+    const images = Array.from(sandbox.querySelectorAll('img'));
+    await Promise.all(images.map(img => {
+      if (img.complete) return Promise.resolve();
+      return new Promise(resolve => { img.onload = img.onerror = resolve; });
+    }));
+    await new Promise(r => setTimeout(r, 200));
+
+    const sandboxToPrint = document.getElementById('pdf-isolation-sandbox') || sandbox;
+
+    // Sonde de présence dans le DOM (diagnostic obligatoire demandé)
+    console.warn("Vérification mentions dans le DOM :", sandbox.querySelector('.cr-legal-notice'));
+
+    const hasSchema = canvasSectionInSandbox && canvasSectionInSandbox.style.display !== 'none';
+    const pageUnitHeight = Math.floor(794 * (297 / 210)); // 1122px (hauteur exacte d'une page A4 pour html2pdf à 794px de large)
+    const naturalHeight = Math.ceil(sandboxToPrint.scrollHeight || sandboxToPrint.getBoundingClientRect().height || pageUnitHeight);
+    const neededPages = Math.max(hasSchema ? 2 : (isAnimalDossier ? 2 : 1), Math.ceil(naturalHeight / pageUnitHeight));
+    const contentHeight = neededPages * pageUnitHeight;
+
+    // 4. Configuration html2canvas avec options complètes et logging désactivé
+    const opt = {
+      margin: 0,
+      filename: filename || 'document.pdf',
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        x: 0,
+        y: 0,
+        scrollX: 0,
+        scrollY: 0,
+        width: 794,
+        windowWidth: 794,
+        height: contentHeight,
+        windowHeight: contentHeight
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { 
+        mode: ['css', 'legacy']
+      }
+    };
+
+    // 5. Génération et extraction du Blob avec suppression garantie de page blanche terminale
+    let pdfBlob = null;
+    try {
+      const maxAllowedPages = neededPages;
+      const worker = html2pdf()
+        .set(opt)
+        .from(sandboxToPrint)
+        .toPdf()
+        .get('pdf')
+        .then((pdf) => {
+          if (pdf && pdf.internal && typeof pdf.internal.getNumberOfPages === 'function') {
+            while (pdf.internal.getNumberOfPages() > maxAllowedPages && typeof pdf.deletePage === 'function') {
+              pdf.deletePage(pdf.internal.getNumberOfPages());
+            }
+          }
+        });
+      pdfBlob = await worker.output('blob');
+    } catch (error) {
+      console.error("ERREUR DÉTECTÉE DANS HTML2PDF :", error);
+      throw error;
+    } finally {
+      if (sandboxToPrint && sandboxToPrint.parentNode) {
+        sandboxToPrint.remove();
+      }
+    }
+
+    return pdfBlob;
+  } finally {
+    const s = document.getElementById('pdf-isolation-sandbox');
+    if (s) s.remove();
+    isPdfGenerating = false;
+  }
+}
+
+async function generatePdfBlobFromElement(sourceElement, filename) {
+  const content = (sourceElement && sourceElement.innerHTML) ? sourceElement.innerHTML : (sourceElement || '');
+  return generatePdfBlobFromHtml(content, filename);
+}
+
+// HELPER : Détection stricte du contexte navigateur mobile / tablette (non standalone)
+function isMobileOrTabletBrowserEnvironment() {
+  const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
+  return !isStandalone && (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+    window.innerWidth <= 768 ||
+    (isTouchDevice && !/Windows NT/i.test(navigator.userAgent) && window.innerWidth <= 1024)
+  );
+}
+
+// HELPER : Déblocage immédiat de l'ouverture du second onglet sur mobile (gestion synchrone du clic)
+function prepareMobileTabIfNeeded() {
+  if (!isMobileOrTabletBrowserEnvironment()) return null;
+  try {
+    const newTab = window.open('about:blank', '_blank');
+    if (newTab) {
+      newTab.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px;">Génération du document en cours...</p>');
+      try { newTab.document.close(); } catch (_) {}
+      return newTab;
+    }
+  } catch (err) {
+    console.warn("Échec ouverture synchrone nouvel onglet:", err);
+  }
+  return null;
+}
+
+// ============================================================================
+// AIGUILLEUR CENTRAL UNIVERSEL UNIQUE : openUniversalDocument(resource, filename, title, options)
+// 100% des documents (CR internes, Dossiers de santé, Pièces jointes PDF/Images)
+// convergent vers cette fonction unique.
+// ============================================================================
+let isUniversalDocOpening = false;
+let lastUniversalDocTime = 0;
+export async function openUniversalDocument(resource, arg2, arg3, arg4 = {}) {
+  const now = Date.now();
+  if (isUniversalDocOpening || (now - lastUniversalDocTime < 1500)) {
+    console.warn("openUniversalDocument déjà en cours ou trop rapprochée, appel ignoré.");
+    return;
+  }
+  isUniversalDocOpening = true;
+  lastUniversalDocTime = now;
+
+  try {
+    if (!resource) {
+      showToast("Aucun document joint à afficher.", "error");
+      return;
+    }
+
+    // Normalisation des arguments pour supporter les signatures :
+    // - openUniversalDocument(blobUrlOrBlob, filename, title, extraInfo)
+    // - openDocumentViewerModal(fileData, fileType, fileName, extraInfo)
+    let rawResource = resource;
+    let filename = '';
+    let displayTitle = '';
+    let extraInfo = {};
+
+    if (typeof arg2 === 'string' && (arg2.includes('/') || arg2 === '')) {
+      // Signature héritée : (fileData, fileType, fileName, extraInfo)
+      filename = arg3 || 'document.pdf';
+      extraInfo = (typeof arg4 === 'object' && arg4 !== null) ? arg4 : {};
+      displayTitle = extraInfo.text || filename;
+    } else {
+      // Signature unifiée : (blobUrlOrBlob, filename, title, extraInfo)
+      filename = (typeof arg2 === 'string' && arg2) ? arg2 : 'document.pdf';
+      if (typeof arg3 === 'object' && arg3 !== null) {
+        extraInfo = arg3;
+        displayTitle = extraInfo.text || filename;
+      } else {
+        displayTitle = arg3 || filename;
+        extraInfo = (typeof arg4 === 'object' && arg4 !== null) ? arg4 : {};
+      }
+    }
+
+    // 1. Détection stricte de l'environnement matériel et d'affichage
+    const isStandalone = !!(window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) || !!window.navigator.standalone;
+    const isMobileOrTabletBrowser = isMobileOrTabletBrowserEnvironment();
+
+    // Helper interne pour résoudre le Blob et créer le blobUrl
+    async function resolveToBlobAndUrl(data) {
+      let resolvedData = data;
+      if (typeof data === 'function') {
+        resolvedData = await data();
+      }
+      if (resolvedData instanceof Blob) {
+        const url = URL.createObjectURL(resolvedData);
+        return { blob: resolvedData, blobUrl: url, isTempUrl: true, mime: resolvedData.type || 'application/pdf', name: filename };
+      }
+      if (typeof resolvedData === 'string' && (resolvedData.startsWith('blob:') || resolvedData.startsWith('http://') || resolvedData.startsWith('https://'))) {
+        return { blob: extraInfo.blob || null, blobUrl: resolvedData, isTempUrl: false, mime: (filename.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'), name: filename };
+      }
+      // Données base64 ou attachments de la base IndexedDB
+      const resolved = await resolveAttachmentResource(resolvedData, extraInfo.fileType || (filename.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'), filename);
+      let url = resolved.blobUrl;
+      let isTemp = false;
+      if (!url && resolved.blob) {
+        url = URL.createObjectURL(resolved.blob);
+        isTemp = true;
+      }
+      return {
+        blob: resolved.blob,
+        blobUrl: url,
+        isTempUrl: isTemp,
+        mime: resolved.mime || (filename.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
+        name: resolved.name || filename
+      };
+    }
+
+    // ==========================================================================
+    // RÈGLE TERMINAL 1 : Tablette & Smartphone en application PWA installée (standalone)
+    // Maintien strict de l'affichage plein écran avec croix [×] en haut à droite
+    // ==========================================================================
+    if (isStandalone) {
+      let standaloneViewer = document.getElementById('standalone-document-viewer');
+      if (!standaloneViewer) {
+        standaloneViewer = document.createElement('div');
+        standaloneViewer.id = 'standalone-document-viewer';
+        standaloneViewer.setAttribute('role', 'dialog');
+        standaloneViewer.setAttribute('aria-modal', 'true');
+        standaloneViewer.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 100000; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; margin: 0; padding: 20px 0; box-sizing: border-box; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch;';
+        document.body.appendChild(standaloneViewer);
+      }
+
+      standaloneViewer.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100vh; color: #94a3b8;">
+          <div style="width: 38px; height: 38px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #D96B27; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
+          <p style="margin: 0; font-size: 0.9rem;">Génération du document...</p>
+        </div>
+      `;
+      standaloneViewer.style.display = 'flex';
+
+      let docInfo = null;
+      try {
+        docInfo = await resolveToBlobAndUrl(rawResource);
+      } catch (err) {
+        console.error("[openUniversalDocument standalone] Erreur résolution:", err);
+        standaloneViewer.style.display = 'none';
+        showToast("Erreur lors de la préparation du document.", "error");
+        return;
+      }
+
+      // Nettoyage immédiat du conteneur de compilation
+      const sandbox = document.getElementById('pdf-isolation-sandbox');
+      if (sandbox) {
+        sandbox.remove();
+      }
+
+      if (!docInfo || !docInfo.blobUrl) {
+        standaloneViewer.style.display = 'none';
+        showToast("Document non disponible ou introuvable.", "error");
+        return;
+      }
+
+      const { blobUrl, isTempUrl, mime, name } = docInfo;
+      const isPdf = !!(mime?.includes('pdf') || name?.toLowerCase().endsWith('.pdf'));
+
+      if (isPdf) {
+        let renderedViaPdfJs = false;
+        if (window.pdfjsLib) {
+          try {
+            standaloneViewer.innerHTML = `
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100vh; color: #94a3b8;">
+                <div style="width: 38px; height: 38px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #D96B27; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
+                <p style="margin: 0; font-size: 0.9rem;">Affichage du document...</p>
+              </div>
+            `;
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            const loadingTask = window.pdfjsLib.getDocument(blobUrl);
+            const pdfDoc = await loadingTask.promise;
+
+            const canvasWrap = document.createElement('div');
+            canvasWrap.style.cssText = 'width: 100%; min-height: 100vh; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 20px 0; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;';
+
+            const availWidth = Math.max(window.innerWidth - 32, 280);
+            for (let pNum = 1; pNum <= pdfDoc.numPages; pNum++) {
+              const page = await pdfDoc.getPage(pNum);
+              const unscaledViewport = page.getViewport({ scale: 1 });
+              const fitScale = Math.min(availWidth, 794) / unscaledViewport.width;
+              const viewport = page.getViewport({ scale: fitScale });
+
+              const canvas = document.createElement('canvas');
+              canvas.height = viewport.height;
+              canvas.width = viewport.width;
+              canvas.style.cssText = 'width: 100%; max-width: 794px; height: auto; display: block; margin: 0 auto 14px auto; left: auto; right: auto; transform: none; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.6); box-sizing: border-box;';
+
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              await page.render({ canvasContext: ctx, viewport }).promise;
+              canvasWrap.appendChild(canvas);
+            }
+            standaloneViewer.innerHTML = '';
+            standaloneViewer.appendChild(canvasWrap);
+            renderedViaPdfJs = true;
+          } catch (pdfErr) {
+            console.warn("[openUniversalDocument standalone] Rendu PDF.js échoué, repli object:", pdfErr);
+          }
+        }
+
+        if (!renderedViaPdfJs) {
+          standaloneViewer.innerHTML = `<object data="${blobUrl}" type="application/pdf" style="width: 100%; height: 100vh; border: none;">
+            <iframe src="${blobUrl}" style="width: 100%; height: 100vh; border: none;"></iframe>
+          </object>`;
+        }
+      } else {
+        standaloneViewer.innerHTML = `<img src="${blobUrl}" style="max-width: 100%; max-height: 100vh; object-fit: contain; margin: auto; display: block;" />`;
+      }
+
+      // Supprimer tout éventuel bouton flottant précédent
+      const oldCloseBtn = document.getElementById('floating-doc-close-btn');
+      if (oldCloseBtn) oldCloseBtn.remove();
+      const oldRegenBtn = document.getElementById('floating-doc-regen-btn');
+      if (oldRegenBtn) oldRegenBtn.remove();
+
+      // Bouton flottant universel de fermeture en haut à droite
+      const closeBtn = document.createElement('button');
+      closeBtn.id = 'floating-doc-close-btn';
+      closeBtn.innerHTML = '&times;';
+      closeBtn.setAttribute('aria-label', 'Fermer le document');
+      closeBtn.style.cssText = 'position: fixed; top: 14px; right: 14px; z-index: 100001; background: rgba(0,0,0,0.75); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 42px; height: 42px; font-size: 26px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); -webkit-tap-highlight-color: transparent;';
+
+      // Bouton flottant de régénération (si fourni via onRegenerate)
+      if (typeof extraInfo.onRegenerate === 'function') {
+        const regenBtn = document.createElement('button');
+        regenBtn.id = 'floating-doc-regen-btn';
+        regenBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        `;
+        regenBtn.setAttribute('aria-label', 'Régénérer le document');
+        regenBtn.title = 'Régénérer le document';
+        regenBtn.style.cssText = 'position: fixed; top: 14px; right: 64px; z-index: 100001; background: rgba(0,0,0,0.75); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 42px; height: 42px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); -webkit-tap-highlight-color: transparent;';
+        regenBtn.onclick = async () => {
+          regenBtn.disabled = true;
+          try {
+            await extraInfo.onRegenerate();
+          } finally {
+            regenBtn.disabled = false;
+          }
+        };
+        document.body.appendChild(regenBtn);
+      }
+
+      const closeViewer = () => {
+        if (standaloneViewer) {
+          standaloneViewer.innerHTML = '';
+          standaloneViewer.style.display = 'none';
+        }
+        if (closeBtn && closeBtn.parentNode) {
+          closeBtn.remove();
+        }
+        const floatingRegen = document.getElementById('floating-doc-regen-btn');
+        if (floatingRegen && floatingRegen.parentNode) {
+          floatingRegen.remove();
+        }
+        if (isTempUrl) {
+          try { URL.revokeObjectURL(blobUrl); } catch (_) {}
+        }
+        window.removeEventListener('keydown', onEscKey);
+      };
+
+      const onEscKey = (e) => {
+        if (e.key === 'Escape') closeViewer();
+      };
+      window.addEventListener('keydown', onEscKey);
+
+      closeBtn.onclick = () => {
+        closeViewer();
+      };
+
+      document.body.appendChild(closeBtn);
+      return;
+    }
+
+    // ==========================================================================
+    // RÈGLE TERMINAL 2 : Mobile & Tablette Chrome (navigateurs classiques)
+    // Ouverture directe du blobUrl dans un second onglet natif
+    // Déblocage Chrome Mobile : utilisation de l'onglet pré-ouvert de façon synchrone lors du clic utilisateur
+    // ==========================================================================
+    if (isMobileOrTabletBrowser) {
+      let targetTab = extraInfo.preOpenedTab || null;
+      if (!targetTab) {
+        try {
+          targetTab = window.open('about:blank', '_blank');
+          if (targetTab) {
+            targetTab.document.write('<p style="font-family: sans-serif; text-align: center; margin-top: 50px;">Génération du document en cours...</p>');
+            try { targetTab.document.close(); } catch (_) {}
+          }
+        } catch (_) {}
+      }
+
+      let docInfo = null;
+      try {
+        docInfo = await resolveToBlobAndUrl(rawResource);
+      } catch (err) {
+        console.error("[openUniversalDocument mobile] Erreur résolution:", err);
+        if (targetTab && !targetTab.closed) {
+          try {
+            targetTab.document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #ef4444;">Erreur lors de la génération du document.</p>';
+          } catch (_) {}
+        }
+        showToast("Erreur lors de la préparation du document.", "error");
+        return;
+      }
+
+      // Nettoyage immédiat du conteneur de compilation
+      const sandbox = document.getElementById('pdf-isolation-sandbox');
+      if (sandbox) {
+        sandbox.remove();
+      }
+
+      if (!docInfo || !docInfo.blobUrl) {
+        if (targetTab && !targetTab.closed) {
+          try {
+            targetTab.document.body.innerHTML = '<p style="font-family: sans-serif; text-align: center; margin-top: 50px; color: #ef4444;">Document non disponible ou introuvable.</p>';
+          } catch (_) {}
+        }
+        showToast("Document non disponible ou introuvable.", "error");
+        return;
+      }
+
+      const { blobUrl, isTempUrl } = docInfo;
+
+      // Navigation dans l'onglet ouvert, ou repli dans la fenêtre courante
+      if (targetTab && !targetTab.closed) {
+        try {
+          targetTab.location.href = blobUrl;
+        } catch (navErr) {
+          console.warn("Navigation targetTab échouée, redirection directe:", navErr);
+          window.location.href = blobUrl;
+        }
+      } else {
+        window.location.href = blobUrl;
+      }
+
+      if (isTempUrl) {
+        setTimeout(() => {
+          try { URL.revokeObjectURL(blobUrl); } catch (_) {}
+        }, 120000);
+      }
+      return;
+    }
+
+    // ==========================================================================
+    // RÈGLE TERMINAL 3 : PC Desktop (bureau avec souris)
+    // Boîte modale centrée (#dialog-document-viewer) avec lecteur PDF propre,
+    // boutons "Télécharger le PDF" et "Fermer".
+    // ==========================================================================
+    const dialog = document.getElementById('dialog-document-viewer');
+    if (!dialog) {
+      showToast("Visionneuse de document non disponible.", "error");
+      return;
+    }
+
+    try {
+      const titleEl = document.getElementById('doc-viewer-title');
+      const subtitleEl = document.getElementById('doc-viewer-subtitle');
+      const iconEl = document.getElementById('doc-viewer-icon');
+      const bodyEl = document.getElementById('doc-viewer-body') || dialog.querySelector('.modal-pj-body');
+      const downloadBtn = document.getElementById('btn-download-doc-viewer');
+      const shareBtn = document.getElementById('btn-share-doc-viewer');
+      const openBtn = document.getElementById('btn-open-doc-viewer');
+      const btnZoomOut = document.getElementById('btn-zoom-out-doc-viewer');
+      const btnZoomIn = document.getElementById('btn-zoom-in-doc-viewer');
+      const btnZoomReset = document.getElementById('btn-zoom-reset-doc-viewer');
+      const zoomLevelEl = document.getElementById('doc-viewer-zoom-level');
+      const zoomControls = dialog.querySelector('.doc-viewer-zoom-controls');
+
+      if (openBtn) openBtn.style.display = 'none';
+
+      const safeTitle = (extraInfo.text && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(extraInfo.text)) ? extraInfo.text : (displayTitle && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(displayTitle) ? displayTitle : "Document");
+
+      // 2. Éviter le flash visuel pour l'utilisateur :
+      // Ouvrir d'abord la modale avec un écran de chargement ("Génération du document...")
+      // qui recouvre tout l'écran pendant les quelques millisecondes de compilation.
+      if (titleEl) titleEl.textContent = safeTitle;
+      if (subtitleEl) subtitleEl.textContent = extraInfo.subtitle || "Génération du document...";
+      if (iconEl) iconEl.textContent = '📄';
+      if (zoomControls) zoomControls.style.display = 'none';
+
+      if (bodyEl) {
+        bodyEl.innerHTML = `
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; min-height: 480px; color: #94a3b8; background: rgba(15, 23, 42, 0.7); border-radius: 8px;">
+            <div style="width: 44px; height: 44px; border: 4px solid rgba(255,255,255,0.2); border-top-color: #D96B27; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px;"></div>
+            <p style="margin: 0; font-size: 1.1rem; font-weight: 600; color: #f8fafc;">Génération du document...</p>
+            <p style="margin: 8px 0 0 0; font-size: 0.85rem; color: #94a3b8;">Veuillez patienter pendant la compilation du document</p>
+          </div>
+        `;
+      }
+
+      if (!dialog.open) {
+        dialog.showModal();
+      }
+
+      // Résolution du Blob et de l'URL pendant que la modale de chargement recouvre l'écran
+      let docInfo = null;
+      try {
+        docInfo = await resolveToBlobAndUrl(rawResource);
+      } catch (genErr) {
+        console.error("[openUniversalDocument desktop] Erreur résolution:", genErr);
+        if (dialog.open) dialog.close();
+        showToast("Impossible de charger le document.", "error");
+        return;
+      }
+
+      // Dès que html2pdf().output('blob') a terminé : supprimer le sandbox si encore présent
+      const sandbox = document.getElementById('pdf-isolation-sandbox');
+      if (sandbox) {
+        sandbox.remove();
+      }
+
+      if (!docInfo || !docInfo.blobUrl) {
+        if (dialog.open) dialog.close();
+        showToast("Document non disponible.", "error");
+        return;
+      }
+
+      const { blob, blobUrl, isTempUrl, mime, name: cleanFilename } = docInfo;
+      const isImage = !!(mime?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(cleanFilename));
+      const isPdf = !isImage;
+
+      const isUuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(cleanFilename) || cleanFilename.length >= 24;
+      let finalTitle = cleanFilename;
+      if (isUuid || cleanFilename.startsWith('blob:') || cleanFilename === 'document.jpg' || cleanFilename === 'compte_rendu.pdf' || cleanFilename === 'document.pdf') {
+        finalTitle = safeTitle || (isPdf ? 'Document (PDF)' : 'Photo');
+      } else {
+        finalTitle = safeTitle || cleanFilename;
+      }
+
+      if (titleEl) titleEl.textContent = finalTitle;
+      if (subtitleEl) {
+        subtitleEl.textContent = extraInfo.subtitle || (blob ? `${mime || (isPdf ? 'PDF' : 'Image')} • ${(blob.size / 1024).toFixed(1)} Ko` : (isPdf ? 'Document PDF' : 'Image'));
+      }
+      if (iconEl) {
+        iconEl.textContent = isPdf ? '📄' : (isImage ? '🖼️' : '📎');
+      }
+
+      // Zoom desktop (pour images)
+      let currentZoom = 1.0;
+      const applyZoom = () => {
+        if (zoomLevelEl) zoomLevelEl.textContent = `${Math.round(currentZoom * 100)}%`;
+        const zoomableEl = bodyEl ? bodyEl.querySelector('.zoomable-document-content') : null;
+        if (zoomableEl) {
+          zoomableEl.style.transformOrigin = '50% 0';
+          zoomableEl.style.transform = `scale(${currentZoom})`;
+        }
+      };
+
+      if (btnZoomOut) {
+        btnZoomOut.onclick = (e) => {
+          e.stopPropagation();
+          currentZoom = Math.max(0.5, Math.round((currentZoom - 0.2) * 10) / 10);
+          applyZoom();
+        };
+      }
+      if (btnZoomIn) {
+        btnZoomIn.onclick = (e) => {
+          e.stopPropagation();
+          currentZoom = Math.min(3.0, Math.round((currentZoom + 0.2) * 10) / 10);
+          applyZoom();
+        };
+      }
+      if (btnZoomReset) {
+        btnZoomReset.onclick = (e) => {
+          e.stopPropagation();
+          currentZoom = 1.0;
+          applyZoom();
+        };
+      }
+
+      // Action 2 : Remplacer le contenu de la modale par l'iframe avec le blobUrl
+      if (isPdf) {
+        if (zoomControls) zoomControls.style.display = 'none';
+
+        if (bodyEl) {
+          bodyEl.classList.remove('has-image');
+          bodyEl.classList.add('has-pdf');
+          bodyEl.innerHTML = `
+            <div id="modalPdfViewer">
+              <iframe src="${blobUrl}" title="Visionneuse PDF"></iframe>
+            </div>
+          `;
+          const pdfIframe = document.querySelector('#modalPdfViewer iframe');
+          if (pdfIframe) {
+            pdfIframe.src = blobUrl;
+          }
+        }
+      } else if (isImage) {
+        if (zoomControls) zoomControls.style.display = 'inline-flex';
+        currentZoom = 1.0;
+        if (bodyEl) {
+          bodyEl.classList.remove('has-pdf');
+          bodyEl.classList.add('has-image');
+          bodyEl.innerHTML = `
+            <div class="zoomable-document-content" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; max-width: 794px; margin: 0 auto; left: auto; right: auto; transform: none; box-sizing: border-box;">
+              <img src="${blobUrl}" alt="${escapeHtml(finalTitle)}" class="attachment-img" style="display: block; width: 100%; max-width: 794px; height: auto; margin: 0 auto; left: auto; right: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); box-sizing: border-box;">
+            </div>
+          `;
+        }
+        applyZoom();
+      }
+
+      // Téléchargement direct
+      if (downloadBtn) {
+        const span = downloadBtn.querySelector('.btn-text');
+        if (span) span.textContent = isPdf ? 'Télécharger le PDF' : 'Télécharger';
+        downloadBtn.onclick = () => {
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = cleanFilename.endsWith('.pdf') ? cleanFilename : (isPdf ? `${cleanFilename}.pdf` : cleanFilename);
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => a.remove(), 200);
+          showToast(`Document téléchargé : ${finalTitle}`);
+        };
+      }
+
+      // Bouton Régénérer le PDF (si fourni via extraInfo.onRegenerate)
+      const regenerateBtn = document.getElementById('btn-regenerate-doc-viewer');
+      if (regenerateBtn) {
+        if (typeof extraInfo.onRegenerate === 'function') {
+          regenerateBtn.style.display = 'inline-flex';
+          regenerateBtn.onclick = async () => {
+            regenerateBtn.disabled = true;
+            try {
+              await extraInfo.onRegenerate();
+            } finally {
+              regenerateBtn.disabled = false;
+            }
+          };
+        } else {
+          regenerateBtn.style.display = 'none';
+          regenerateBtn.onclick = null;
+        }
+      }
+
+      // Partage
+      if (shareBtn) {
+        shareBtn.onclick = async () => {
+          try {
+            if (blob) {
+              const file = new File([blob], cleanFilename, { type: mime || 'application/octet-stream' });
+              if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                  files: [file],
+                  title: finalTitle,
+                  text: extraInfo.text || `Document ${finalTitle}`
+                });
+                return;
+              }
+            }
+            if (navigator.share) {
+              await navigator.share({
+                title: finalTitle,
+                text: extraInfo.text || `Document ${finalTitle}`,
+                url: window.location.href
+              });
+            }
+          } catch (e) {
+            if (e.name !== 'AbortError') console.warn('Share error:', e);
+          }
+        };
+      }
+
+      // Fermeture centralisée via [×] et boutons de fermeture
+      const closeBtns = dialog.querySelectorAll('.btn-close-dialog, .btn-close, .modal-close');
+      closeBtns.forEach(btn => {
+        btn.onclick = () => {
+          if (typeof dialog.close === 'function') dialog.close();
+          else dialog.removeAttribute('open');
+        };
+      });
+
+      dialog.onclick = (e) => {
+        const rect = dialog.getBoundingClientRect();
+        if (
+          e.clientX < rect.left ||
+          e.clientX > rect.right ||
+          e.clientY < rect.top ||
+          e.clientY > rect.bottom
+        ) {
+          if (typeof dialog.close === 'function') dialog.close();
+          else dialog.removeAttribute('open');
+        }
+      };
+
+      dialog.onclose = () => {
+        currentZoom = 1.0;
+        const iframe = document.querySelector('#modalPdfViewer iframe');
+        if (iframe) {
+          iframe.src = 'about:blank';
+        }
+        if (regenerateBtn) {
+          regenerateBtn.style.display = 'none';
+          regenerateBtn.onclick = null;
+        }
+        if (isTempUrl) {
+          try { URL.revokeObjectURL(blobUrl); } catch (_) {}
+        }
+      };
+    } catch (err) {
+      console.error("Erreur lors de l'ouverture du document", err);
+      showToast("Impossible d'ouvrir le document joint.", "error");
+    }
+  } finally {
+    isUniversalDocOpening = false;
+  }
+}
+
+export const openDocumentViewerModal = openUniversalDocument;
+export const openAttachment = openUniversalDocument;
+export const viewDocument = openUniversalDocument;
+if (typeof window !== 'undefined') {
+  window.openUniversalDocument = openUniversalDocument;
+  window.openDocumentViewerModal = openUniversalDocument;
+  window.openAttachment = openUniversalDocument;
+  window.viewDocument = openUniversalDocument;
+}
+
+// SETUP STATIC LISTENERS FOR EXTERNAL SESSION DIALOG
+function setupExternalSessionListeners() {
+  const fileInput = document.getElementById('ext-session-file');
+  const fileInfo = document.getElementById('ext-session-file-info');
+  const fileNameSpan = document.getElementById('ext-session-file-name');
+  const fileDeleteBtn = document.getElementById('btn-ext-session-file-delete');
+  const professionSelect = document.getElementById('ext-session-profession');
+  const otherGroup = document.getElementById('group-ext-session-profession-other');
+  const otherInput = document.getElementById('ext-session-profession-other');
+
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          extSessionFileData = reader.result;
+          extSessionFileName = file.name;
+          extSessionFileType = file.type;
+          if (fileNameSpan) fileNameSpan.textContent = file.name;
+          if (fileInfo) fileInfo.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  }
+
+  if (fileDeleteBtn) {
+    fileDeleteBtn.addEventListener('click', () => {
+      extSessionFileData = null;
+      extSessionFileName = null;
+      extSessionFileType = null;
+      if (fileInput) fileInput.value = '';
+      if (fileInfo) fileInfo.style.display = 'none';
+    });
+  }
+
+  if (professionSelect) {
+    professionSelect.addEventListener('change', () => {
+      if (professionSelect.value === 'Autre') {
+        if (otherGroup) otherGroup.style.display = 'block';
+        if (otherInput) otherInput.setAttribute('required', 'required');
+      } else {
+        if (otherGroup) otherGroup.style.display = 'none';
+        if (otherInput) {
+          otherInput.removeAttribute('required');
+          otherInput.value = '';
+        }
+      }
+    });
+  }
+}
+
+// OPEN EXTERNAL SESSION DIALOG
+function openExternalSessionDialog(session = null, animalId = null) {
+  const dialog = document.getElementById('dialog-external-session');
+  const form = document.getElementById('dialog-external-session-form');
+  
+  if (!dialog || !form) return;
+
+  // Title
+  document.getElementById('dialog-external-session-title').textContent = session 
+    ? 'Modifier la séance' 
+    : 'Ajouter une séance';
+    
+  // IDs
+  document.getElementById('dialog-external-session-id').value = session ? session.id : '';
+  document.getElementById('dialog-external-session-animal-id').value = session ? session.animal_id : (animalId || '');
+  
+  // Fields
+  document.getElementById('ext-session-date').value = session ? session.date_seance : new Date().toISOString().split('T')[0];
+  
+  const professionSelect = document.getElementById('ext-session-profession');
+  const otherGroup = document.getElementById('group-ext-session-profession-other');
+  const otherInput = document.getElementById('ext-session-profession-other');
+  
+  if (session) {
+    const isStandard = ['Ostéopathe', 'Masseur', 'Maréchal', 'Podologue', 'Dentiste', 'Nutritionniste', 'Naturopathe', 'Nutri + Naturo', 'Vétérinaire', 'Coach', 'Comportementaliste', 'Saddle Fitter'].includes(session.profession);
+    if (isStandard) {
+      professionSelect.value = session.profession;
+      otherGroup.style.display = 'none';
+      otherInput.removeAttribute('required');
+      otherInput.value = '';
+    } else {
+      professionSelect.value = 'Autre';
+      otherGroup.style.display = 'block';
+      otherInput.setAttribute('required', 'required');
+      otherInput.value = session.profession;
+    }
+    
+    document.getElementById('ext-session-practitioner').value = session.practitionerName || '';
+    document.getElementById('ext-session-motif').value = session.motif || '';
+    document.getElementById('ext-session-summary').value = session.summary || '';
+    
+    extSessionFileData = session.fileData || null;
+    extSessionFileName = session.fileName || null;
+    extSessionFileType = session.fileType || null;
+  } else {
+    professionSelect.value = '';
+    otherGroup.style.display = 'none';
+    otherInput.removeAttribute('required');
+    otherInput.value = '';
+    
+    document.getElementById('ext-session-practitioner').value = '';
+    document.getElementById('ext-session-motif').value = '';
+    document.getElementById('ext-session-summary').value = '';
+    
+    extSessionFileData = null;
+    extSessionFileName = null;
+    extSessionFileType = null;
+  }
+  
+  document.getElementById('ext-session-file').value = '';
+  const fileInfo = document.getElementById('ext-session-file-info');
+  const fileNameSpan = document.getElementById('ext-session-file-name');
+  if (extSessionFileData) {
+    fileNameSpan.textContent = extSessionFileName || 'Fichier joint';
+    fileInfo.style.display = 'block';
+  } else {
+    fileInfo.style.display = 'none';
+  }
+  
+  // Cancel buttons
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+  
+  // Submit handler
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    
+    if (currentPortalClientId) {
+      const pClient = await getById('clients', currentPortalClientId);
+      if (pClient && pClient.archived_at) {
+        showToast("Action impossible : cet espace client a été clôturé.", "error");
+        dialog.close();
+        return;
+      }
+    }
+
+    const id = document.getElementById('dialog-external-session-id').value;
+    const finalAnimalId = Number(document.getElementById('dialog-external-session-animal-id').value);
+    const dateVal = document.getElementById('ext-session-date').value;
+    let profession = professionSelect.value;
+    if (profession === 'Autre') {
+      profession = otherInput.value.trim();
+    }
+    
+    const practitionerName = document.getElementById('ext-session-practitioner').value.trim();
+    const motif = document.getElementById('ext-session-motif').value.trim();
+    const summary = document.getElementById('ext-session-summary').value.trim();
+    
+    if (!dateVal || !profession) {
+      showToast("Veuillez renseigner la date et la spécialité.", "error");
+      return;
+    }
+    
+    const animal = await getById('animals', finalAnimalId);
+    
+    const sessionObj = {
+      isExternal: true,
+      animal_id: finalAnimalId,
+      client_id: animal ? (animal.client_id || animal.clientId || null) : null,
+      date_seance: dateVal,
+      practitionerName: practitionerName,
+      profession: profession,
+      motif: motif,
+      summary: summary,
+      fileData: extSessionFileData,
+      fileName: extSessionFileName,
+      fileType: extSessionFileType
+    };
+    
+    if (id) {
+      sessionObj.id = Number(id);
+      await update('sessions', sessionObj);
+      try { await deletePdfCache(`cr_pdf_${sessionObj.id}`); } catch (_) {}
+      showToast("Séance modifiée avec succès.");
+    } else {
+      await add('sessions', sessionObj);
+      showToast("Séance ajoutée avec succès.");
+    }
+    
+    dialog.close();
+    await renderAnimalDetails(finalAnimalId);
+  };
+
+  dialog.showModal();
+}
+
+// 1. DIALOG CLIENT (AJOUTER / MODIFIER)
+async function openClientDialog(client = null) {
+  const dialog = document.getElementById('dialog-client');
+  const form = document.getElementById('dialog-client-form');
+  form.reset();
+  FormSanitizer.initBlurListeners();
+
+  const titleEl = document.getElementById('dialog-client-title');
+  const idInput = document.getElementById('dialog-client-id');
+
+  let currentClient = client;
+  if (client && client.id) {
+    const fresh = await getById('clients', client.id);
+    if (fresh) currentClient = fresh;
+  }
+
+  // Mémoriser les valeurs initiales pour identifier précisément les champs modifiés par l'utilisateur
+  const initialValues = {
+    nom: (currentClient ? currentClient.nom : '') || '',
+    prenom: (currentClient ? currentClient.prenom : '') || '',
+    telephone: FormSanitizer.formatPhone((currentClient ? currentClient.telephone : '') || ''),
+    email: (currentClient ? currentClient.email : '') || '',
+    adresse: (currentClient ? currentClient.adresse : '') || '',
+    ecurie: (currentClient ? currentClient.ecurie : '') || '',
+    notes: (currentClient && currentClient.notes ? String(currentClient.notes).replace(/\[portal_token:[^\]]+\]/g, '').trim() : '') || ''
+  };
+
+  if (currentClient) {
+    titleEl.textContent = 'Modifier le Client';
+    idInput.value = currentClient.id;
+    document.getElementById('client-form-lastname').value = initialValues.nom;
+    document.getElementById('client-form-firstname').value = initialValues.prenom;
+    document.getElementById('client-form-phone').value = initialValues.telephone;
+    document.getElementById('client-form-email').value = initialValues.email;
+    document.getElementById('client-form-address').value = initialValues.adresse;
+    document.getElementById('client-form-stable').value = initialValues.ecurie;
+    document.getElementById('client-form-notes').value = initialValues.notes;
+    const clientFormCgv = document.getElementById('client-form-cgv-accepted');
+    if (clientFormCgv) clientFormCgv.checked = !!(currentClient && currentClient.cgv_rgpd_accepted);
+  } else {
+    titleEl.textContent = 'Nouveau Client';
+    idInput.value = '';
+    document.getElementById('client-form-stable').value = '';
+    const clientFormCgv = document.getElementById('client-form-cgv-accepted');
+    if (clientFormCgv) clientFormCgv.checked = false;
+  }
+
+  // Cancel buttons
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  // Submit form
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    
+    if (currentPortalClientId) {
+      const pClient = await getById('clients', currentPortalClientId);
+      if (pClient && pClient.archived_at) {
+        showToast("Action impossible : cet espace client a été clôturé.", "error");
+        dialog.close();
+        return;
+      }
+    }
+
+    // Normalisation des champs avant sauvegarde
+    const cleanLastname = FormSanitizer.formatUpperCase(document.getElementById('client-form-lastname').value);
+    const cleanFirstname = FormSanitizer.formatCapitalize(document.getElementById('client-form-firstname').value);
+    const cleanPhone = FormSanitizer.formatPhone(document.getElementById('client-form-phone').value);
+
+    let cleanAddress = document.getElementById('client-form-address').value.trim();
+    if (cleanAddress) {
+      const parsed = parseAddress(cleanAddress);
+      if (parsed.zip && parsed.city) {
+        cleanAddress = `${parsed.address ? parsed.address + ', ' : ''}${parsed.zip} ${parsed.city}`;
+      }
+    }
+
+    // Répercussion immédiate sur l'interface du formulaire
+    document.getElementById('client-form-lastname').value = cleanLastname;
+    document.getElementById('client-form-firstname').value = cleanFirstname;
+    document.getElementById('client-form-phone').value = cleanPhone;
+    document.getElementById('client-form-address').value = cleanAddress;
+
+    const formValues = {
+      nom: cleanLastname,
+      prenom: cleanFirstname,
+      telephone: cleanPhone,
+      email: document.getElementById('client-form-email').value.trim(),
+      adresse: cleanAddress,
+      ecurie: document.getElementById('client-form-stable').value.trim(),
+      notes: document.getElementById('client-form-notes').value.trim()
+    };
+
+    if (idInput.value) {
+      const clientId = Number(idInput.value);
+
+      // 1. Déterminer les champs effectivement modifiés par l'utilisateur
+      const modifiedFields = {};
+      for (const [key, val] of Object.entries(formValues)) {
+        if (val !== (initialValues[key] || '')) {
+          modifiedFields[key] = val;
+        }
+      }
+
+      const clientFormCgv = document.getElementById('client-form-cgv-accepted');
+      const isCgvChecked = clientFormCgv ? clientFormCgv.checked : !!(currentClient && currentClient.cgv_rgpd_accepted);
+      const initialCgvChecked = !!(currentClient && currentClient.cgv_rgpd_accepted);
+      const cgvChanged = isCgvChecked !== initialCgvChecked;
+
+      // Si aucun champ n'a été modifié, fermer simplement
+      if (Object.keys(modifiedFields).length === 0 && !cgvChanged) {
+        dialog.close();
+        return;
+      }
+
+      // 2. Préparer le payload contenant UNIQUEMENT les champs modifiés par l'utilisateur (PATCH partiel)
+      const fieldsToUpdate = {};
+      if ('nom' in modifiedFields) fieldsToUpdate.last_name = modifiedFields.nom;
+      if ('prenom' in modifiedFields) fieldsToUpdate.first_name = modifiedFields.prenom;
+      if ('telephone' in modifiedFields) fieldsToUpdate.phone = modifiedFields.telephone;
+      if ('email' in modifiedFields) fieldsToUpdate.email = modifiedFields.email;
+      if ('adresse' in modifiedFields) fieldsToUpdate.address = modifiedFields.adresse;
+      if ('ecurie' in modifiedFields) fieldsToUpdate.main_stable = modifiedFields.ecurie;
+      if ('notes' in modifiedFields) fieldsToUpdate.notes = modifiedFields.notes;
+      if (cgvChanged) {
+        fieldsToUpdate.cgv_rgpd_accepted = isCgvChecked;
+        fieldsToUpdate.cgv_rgpd_accepted_at = isCgvChecked ? (currentClient?.cgv_rgpd_accepted_at || new Date().toISOString()) : null;
+        fieldsToUpdate.cgv_rgpd_version = isCgvChecked ? (currentClient?.cgv_rgpd_version || 'v7') : null;
+      }
+      fieldsToUpdate.updated_at = new Date().toISOString();
+
+      let updateSuccess = false;
+      const supabase = getSupabaseClient();
+      if (navigator.onLine && supabase) {
+        try {
+          let { error: updateErr, status } = await supabase
+            .from('clients')
+            .update(fieldsToUpdate)
+            .eq('id', clientId);
+
+          if (updateErr && currentClient && currentClient.uuid) {
+            console.warn("Échec update par ID, tentative par UUID:", currentClient.uuid);
+            const fallbackRes = await supabase
+              .from('clients')
+              .update(fieldsToUpdate)
+              .eq('uuid', currentClient.uuid);
+            if (!fallbackRes.error) {
+              updateErr = null;
+              status = fallbackRes.status;
+            }
+          }
+
+          if (!updateErr && (status === 200 || status === 204)) {
+            updateSuccess = true;
+          } else if (!updateErr) {
+            updateSuccess = true;
+          } else {
+            console.warn("Erreur update ciblé Supabase:", updateErr, "status:", status);
+          }
+        } catch (netErr) {
+          console.warn("Exception update ciblé Supabase:", netErr);
+        }
+      }
+
+      // 3. Mettre à jour l'enregistrement local avec UNIQUEMENT les champs modifiés
+      const current = (await getById('clients', clientId)) || currentClient || {};
+      const cgvAcceptedAt = isCgvChecked ? (current.cgv_rgpd_accepted_at || new Date().toISOString()) : null;
+      const cgvVersion = isCgvChecked ? (current.cgv_rgpd_version || 'v7') : null;
+
+      const updatedClient = {
+        ...current,
+        ...modifiedFields,
+        id: clientId,
+        uuid: current.uuid || (currentClient && currentClient.uuid) || generateUUID(),
+        archived_at: current.archived_at || (currentClient && currentClient.archived_at) || null,
+        archive_reason: current.archive_reason || (currentClient && currentClient.archive_reason) || null,
+        cgv_rgpd_accepted: isCgvChecked,
+        cgv_rgpd_accepted_at: cgvAcceptedAt,
+        cgv_rgpd_version: cgvVersion,
+        updated_at: fieldsToUpdate.updated_at,
+        last_modified: Date.now(),
+        synced: updateSuccess ? 1 : 0
+      };
+
+      if (updatedClient.notes) {
+        updatedClient.notes = String(updatedClient.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
+      }
+
+      await updateLocal('clients', updatedClient);
+
+      // 4. Mettre à jour immédiatement l'interface locale sans rechargement lourd
+      if (currentPortalClientId) {
+        const ownerTitle = document.getElementById('portal-owner-title');
+        if (ownerTitle && (updatedClient.prenom || updatedClient.nom)) {
+          ownerTitle.textContent = `Espace Suivi de ${updatedClient.prenom || ''} ${(updatedClient.nom || '').toUpperCase()}`.trim();
+        }
+        const phoneEl = document.getElementById('portal-client-phone');
+        if (phoneEl) phoneEl.textContent = updatedClient.telephone || '-';
+        const emailEl = document.getElementById('portal-client-email');
+        if (emailEl) emailEl.textContent = updatedClient.email || '-';
+        const addressEl = document.getElementById('portal-client-address');
+        if (addressEl) addressEl.textContent = updatedClient.adresse || '-';
+        const stableEl = document.getElementById('portal-client-stable');
+        if (stableEl) stableEl.textContent = updatedClient.ecurie || '-';
+      }
+
+      showToast('Client modifié.');
+    } else {
+      const clientFormCgv = document.getElementById('client-form-cgv-accepted');
+      const isCgvChecked = Boolean(clientFormCgv && clientFormCgv.checked);
+      const cleanNewNotes = formValues.notes ? String(formValues.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim() : '';
+      const newClient = {
+        ...formValues,
+        notes: cleanNewNotes,
+        uuid: generateUUID(),
+        cgv_rgpd_accepted: isCgvChecked,
+        cgv_rgpd_accepted_at: isCgvChecked ? new Date().toISOString() : null,
+        cgv_rgpd_version: isCgvChecked ? 'v7' : null,
+        synced: 0
+      };
+      await add('clients', newClient);
+      showToast('Client créé.');
+    }
+
+    dialog.close();
+    
+    // Recharger la vue praticien si nécessaire (sans perturber le portail)
+    if (!currentPortalClientId) {
+      if (window.location.hash.startsWith('#clients/')) {
+        await renderClientDetails(currentClientId);
+      } else if (window.location.hash === '#clients') {
+        await renderClientsList();
+      }
+      await renderDashboard();
+    }
+  };
+
+  dialog.showModal();
+}
+
+let currentMedicalEvents = [];
+
+function renderFormMedicalEventsList() {
+  const container = document.getElementById('animal-form-med-events-list');
+  if (!container) return;
+  container.innerHTML = '';
+  
+  // Sort chronologically ascending
+  currentMedicalEvents.sort((a, b) => {
+    const yearA = parseInt(a.year) || 0;
+    const yearB = parseInt(b.year) || 0;
+    if (yearA !== yearB) return yearA - yearB;
+    return 0;
+  });
+
+  currentMedicalEvents.forEach((ev, idx) => {
+    const item = document.createElement('div');
+    item.className = 'med-event-item';
+    item.innerHTML = `
+      <span class="med-event-item-text">
+        <strong>${ev.year}</strong> ${ev.month ? `- ${ev.month}` : ''} : ${ev.event}
+      </span>
+      <button type="button" class="btn-delete-med-event" data-index="${idx}">&times;</button>
+    `;
+    item.querySelector('.btn-delete-med-event').onclick = () => {
+      currentMedicalEvents.splice(idx, 1);
+      renderFormMedicalEventsList();
+    };
+    container.appendChild(item);
+  });
+}
+
+// 2. DIALOG ANIMAL (AJOUTER / MODIFIER)
+async function openAnimalDialog(animal = null, preselectedClientId = null) {
+  const dialog = document.getElementById('dialog-animal');
+  const form = document.getElementById('dialog-animal-form');
+  form.reset();
+  FormSanitizer.initBlurListeners();
+
+  const atHomeCheckbox = document.getElementById('animal-form-stable-at-home');
+  const locGrid1 = document.getElementById('animal-form-location-grid-1');
+  const locGrid2 = document.getElementById('animal-form-location-grid-2');
+  const toggleLocationFields = () => {
+    const isAtHome = atHomeCheckbox.checked;
+    locGrid1.style.display = isAtHome ? 'none' : 'grid';
+    locGrid2.style.display = isAtHome ? 'none' : 'grid';
+  };
+  if (atHomeCheckbox) {
+    atHomeCheckbox.onchange = toggleLocationFields;
+  }
+
+  const titleEl = document.getElementById('dialog-animal-title');
+  const idInput = document.getElementById('dialog-animal-id');
+  const ownerSelect = document.getElementById('animal-form-owner');
+
+  // Charger la liste des clients pour le select propriétaire (tri par prénom)
+  ownerSelect.innerHTML = '';
+  const clients = await getAll('clients');
+  clients.sort((a, b) => {
+    const prenomComp = (a.prenom || '').localeCompare(b.prenom || '', 'fr', { sensitivity: 'base' });
+    if (prenomComp !== 0) return prenomComp;
+    return (a.nom || '').localeCompare(b.nom || '', 'fr', { sensitivity: 'base' });
+  });
+  clients.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = `${c.prenom} ${c.nom}`;
+    ownerSelect.appendChild(opt);
+  });
+
+  // Charger la liste des écuries connues pour l'auto-complétion
+  const allAnimals = await getAll('animals');
+  const knownStables = [];
+  allAnimals.forEach(an => {
+    if (an.stable_name && an.stable_name.trim()) {
+      const name = an.stable_name.trim();
+      const existing = knownStables.find(s => s.name.toLowerCase() === name.toLowerCase());
+      if (!existing) {
+        knownStables.push({
+          name: name,
+          address: (an.stable_address || '').trim(),
+          zip: (an.stable_zip || '').trim(),
+          city: (an.stable_city || '').trim(),
+          distance: an.stable_distance || 0
+        });
+      } else {
+        if (!existing.address && an.stable_address) existing.address = an.stable_address.trim();
+        if (!existing.zip && an.stable_zip) existing.zip = an.stable_zip.trim();
+        if (!existing.city && an.stable_city) existing.city = an.stable_city.trim();
+        if (!existing.distance && an.stable_distance) existing.distance = an.stable_distance;
+      }
+    } else if (an.lieu_de_vie && an.lieu_de_vie.trim()) {
+      const oldLieu = an.lieu_de_vie.trim();
+      if (oldLieu !== 'Non spécifié') {
+        const parsed = parseAddress(oldLieu);
+        const name = oldLieu;
+        const existing = knownStables.find(s => s.name.toLowerCase() === name.toLowerCase());
+        if (!existing) {
+          knownStables.push({
+            name: name,
+            address: parsed.address,
+            zip: parsed.zip,
+            city: parsed.city,
+            distance: an.stable_distance || 0
+          });
+        }
+      }
+    }
+  });
+
+  const datalist = document.getElementById('stable-names-datalist');
+  if (datalist) {
+    datalist.innerHTML = '';
+    knownStables.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      datalist.appendChild(opt);
+    });
+  }
+
+  const nameInput = document.getElementById('animal-form-stable-name');
+  if (nameInput) {
+    nameInput.oninput = (e) => {
+      if (e && e.isComposing) return;
+      const val = nameInput.value.trim().toLowerCase();
+      const match = knownStables.find(s => s.name.toLowerCase() === val);
+      if (match) {
+        const addrInput = document.getElementById('animal-form-stable-address');
+        const zipInput = document.getElementById('animal-form-stable-zip');
+        const cityInput = document.getElementById('animal-form-stable-city');
+        const distInput = document.getElementById('animal-form-stable-distance');
+        
+        if (addrInput) addrInput.value = match.address || '';
+        if (zipInput) zipInput.value = match.zip || '';
+        if (cityInput) cityInput.value = match.city || '';
+        if (distInput) distInput.value = match.distance || '';
+      }
+    };
+  }
+
+  // Setup photo elements
+  const fileInput = document.getElementById('animal-form-photo-file');
+  const previewImg = document.getElementById('animal-form-photo-preview');
+  const placeholder = document.getElementById('animal-form-photo-placeholder');
+  const photoDataInput = document.getElementById('animal-form-photo-data');
+  
+  if (fileInput && !fileInput.dataset.listener) {
+    fileInput.dataset.listener = 'true';
+    fileInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const base64 = event.target.result;
+          if (photoDataInput) photoDataInput.value = base64;
+          if (previewImg) {
+            previewImg.src = base64;
+            previewImg.style.display = 'block';
+          }
+          if (placeholder) placeholder.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+  }
+
+  // Setup conditional select options
+  const speciesSelect = document.getElementById('animal-form-species');
+  const speciesOther = document.getElementById('animal-form-species-other');
+  
+  const groupHousing = document.getElementById('group-housing-type');
+  const groupSocial = document.getElementById('group-social-type');
+  const groupWork = document.getElementById('group-work-objective');
+  const groupLifestyle = document.getElementById('group-lifestyle-details');
+
+  const updateSpeciesFields = () => {
+    const isHorse = speciesSelect.value === 'Cheval';
+    if (groupHousing) groupHousing.style.display = isHorse ? 'block' : 'none';
+    if (groupSocial) groupSocial.style.display = isHorse ? 'block' : 'none';
+    if (groupWork) groupWork.style.display = isHorse ? 'block' : 'none';
+    if (groupLifestyle) groupLifestyle.style.display = isHorse ? 'none' : 'block';
+  };
+
+  if (speciesSelect) {
+    speciesSelect.onchange = () => {
+      speciesOther.style.display = speciesSelect.value === 'Autre' ? 'block' : 'none';
+      updateSpeciesFields();
+    };
+  }
+
+  const housingTypeSelect = document.getElementById('animal-form-housing-type');
+  const housingTypeOther = document.getElementById('animal-form-housing-type-other');
+  if (housingTypeSelect) {
+    housingTypeSelect.onchange = () => {
+      housingTypeOther.style.display = housingTypeSelect.value === 'Autre' ? 'block' : 'none';
+    };
+  }
+
+  const trackingSelect = document.getElementById('animal-form-tracking-mode');
+  const trackingOther = document.getElementById('animal-form-tracking-mode-other');
+  if (trackingSelect) {
+    trackingSelect.onchange = () => {
+      trackingOther.style.display = trackingSelect.value === 'Autre' ? 'block' : 'none';
+    };
+  }
+
+  // Setup dynamic medical events builder
+  const addEventBtn = document.getElementById('btn-add-med-event');
+  if (addEventBtn && !addEventBtn.dataset.listener) {
+    addEventBtn.dataset.listener = 'true';
+    addEventBtn.onclick = () => {
+      const yearInput = document.getElementById('animal-form-med-year');
+      const monthInput = document.getElementById('animal-form-med-month');
+      const eventInput = document.getElementById('animal-form-med-event');
+      
+      const year = yearInput.value.trim();
+      const month = monthInput.value.trim();
+      const event = eventInput.value.trim();
+      
+      if (!year || !event) {
+        showToast('L\'année et la description de l\'événement sont obligatoires.', 'warning');
+        return;
+      }
+      
+      currentMedicalEvents.push({ year, month, event });
+      monthInput.value = '';
+      eventInput.value = '';
+      yearInput.value = '';
+      renderFormMedicalEventsList();
+    };
+  }
+
+  if (animal) {
+    titleEl.textContent = 'Modifier l\'Animal';
+    idInput.value = animal.id;
+    document.getElementById('animal-form-name').value = animal.nom || animal.name || '';
+    ownerSelect.value = animal.client_id;
+    const speciesSelect = document.getElementById('animal-form-species');
+    const speciesOther = document.getElementById('animal-form-species-other');
+    const speciesVal = animal.espece || animal.species || 'Cheval';
+    if (['Cheval', 'Chien', 'Chat'].includes(speciesVal)) {
+      speciesSelect.value = speciesVal;
+      speciesOther.style.display = 'none';
+      speciesOther.value = '';
+    } else {
+      speciesSelect.value = 'Autre';
+      speciesOther.style.display = 'block';
+      speciesOther.value = speciesVal;
+    }
+    document.getElementById('animal-form-breed').value = animal.race || animal.breed || '';
+
+    // Récupérer et parser custom_details pour les fallbacks éventuels
+    let custom = {};
+    if (animal.custom_details) {
+      if (typeof animal.custom_details === 'object' && animal.custom_details !== null) {
+        custom = animal.custom_details;
+      } else if (typeof animal.custom_details === 'string') {
+        try {
+          custom = JSON.parse(animal.custom_details);
+        } catch (e) {
+          console.warn('[openAnimalDialog] Erreur parsing custom_details:', e);
+        }
+      }
+    }
+
+    document.getElementById('animal-form-robe').value = animal.robe || custom.robe || '';
+    const idNumEl = document.getElementById('animal-form-id-number');
+    if (idNumEl) {
+      idNumEl.value = animal.id_number || custom.id_number || animal.sire || animal.puce || '';
+    }
+    let sexValue = animal.sexe || animal.gender || 'Inconnu';
+    if (sexValue === 'Mâle castré') sexValue = 'Mâle castré (Hongre)';
+    if (sexValue === 'Femelle') sexValue = 'Femelle (Jument)';
+    if (sexValue === 'Mâle') sexValue = 'Mâle entier';
+    document.getElementById('animal-form-sex').value = sexValue;
+
+    let birthdateVal = '';
+    let ageEstVal = '';
+    const rawBirthDate = animal.date_naissance_ou_age || animal.birth_date;
+    if (rawBirthDate) {
+      const birthDate = new Date(rawBirthDate);
+      if (!isNaN(birthDate.getTime())) {
+        birthdateVal = rawBirthDate;
+        const today = new Date();
+        const years = today.getFullYear() - birthDate.getFullYear();
+        ageEstVal = years >= 0 ? years : '';
+      } else {
+        const match = String(rawBirthDate).match(/\b\d+\b/);
+        if (match) {
+          ageEstVal = parseInt(match[0], 10);
+          const currentYear = new Date().getFullYear();
+          birthdateVal = `${currentYear - ageEstVal}-01-01`;
+        }
+      }
+    }
+    document.getElementById('animal-form-birthdate').value = birthdateVal;
+    document.getElementById('animal-form-age-estimation').value = ageEstVal;
+    
+    // Photo load
+    const photoVal = animal.photo_data_url || animal.photo_blob || animal.photo || '';
+    if (photoVal) {
+      photoDataInput.value = photoVal;
+      previewImg.src = photoVal;
+      previewImg.style.display = 'block';
+      placeholder.style.display = 'none';
+    } else {
+      photoDataInput.value = '';
+      previewImg.src = '';
+      previewImg.style.display = 'none';
+      placeholder.style.display = 'block';
+    }
+
+    // Écurie / pension
+    let stableName = animal.stable_name || custom.stable_name || animal.lieu_de_vie || animal.stable || '';
+    let stableAddress = animal.stable_address || custom.stable_address || '';
+    let stableZip = animal.stable_zip || custom.stable_zip || '';
+    let stableCity = animal.stable_city || custom.stable_city || '';
+    let stableDistance = (animal.stable_distance !== undefined && animal.stable_distance !== null && animal.stable_distance !== '')
+      ? animal.stable_distance
+      : ((animal.distance_km !== undefined && animal.distance_km !== null && animal.distance_km !== '')
+          ? animal.distance_km
+          : (custom.stable_distance !== undefined ? custom.stable_distance : ''));
+
+    // Fallback: parsing d'adresse si besoin
+    if (stableAddress && !stableZip && !stableCity) {
+      const parsed = parseAddress(stableAddress);
+      stableAddress = parsed.address;
+      stableZip = parsed.zip;
+      stableCity = parsed.city;
+    }
+    if (!stableName && (animal.lieu_de_vie || animal.stable) && (animal.lieu_de_vie || animal.stable) !== 'Non spécifié') {
+      const fallbackLieu = animal.lieu_de_vie || animal.stable;
+      stableName = fallbackLieu;
+      const parsed = parseAddress(fallbackLieu);
+      if (!stableAddress) stableAddress = parsed.address;
+      if (!stableZip) stableZip = parsed.zip;
+      if (!stableCity) stableCity = parsed.city;
+    }
+
+    const atHome = (animal.stable_at_home !== undefined)
+      ? Boolean(animal.stable_at_home)
+      : (custom.stable_at_home !== undefined ? Boolean(custom.stable_at_home) : stableName === 'Domicile');
+    document.getElementById('animal-form-stable-at-home').checked = atHome;
+    toggleLocationFields();
+
+    document.getElementById('animal-form-stable-name').value = stableName;
+    document.getElementById('animal-form-stable-address').value = stableAddress;
+    document.getElementById('animal-form-stable-zip').value = stableZip;
+    document.getElementById('animal-form-stable-city').value = stableCity;
+    document.getElementById('animal-form-stable-distance').value = stableDistance;
+
+    // Mode de vie & activité
+    const hType = animal.housing_type || animal.housing_mode || custom.housing_type || 'Pré';
+    document.getElementById('animal-form-housing-type').value = hType;
+    const hTypeOther = document.getElementById('animal-form-housing-type-other');
+    hTypeOther.value = animal.housing_type_other || animal.housing_mode_other || custom.housing_type_other || '';
+    hTypeOther.style.display = hType === 'Autre' ? 'block' : 'none';
+
+    document.getElementById('animal-form-social-type').value = animal.social_type || animal.social_life || custom.social_type || 'Individuel';
+    
+    // Suivi & alimentation
+    const trackMode = animal.tracking_mode || custom.tracking_mode || '4x par an';
+    trackingSelect.value = trackMode;
+    trackingOther.value = animal.tracking_mode_other || custom.tracking_mode_other || '';
+    trackingOther.style.display = trackMode === 'Autre' ? 'block' : 'none';
+
+    // Nutrition
+    const hasNutri = (animal.nutritionist !== undefined)
+      ? Boolean(animal.nutritionist)
+      : (custom.nutritionist !== undefined ? Boolean(custom.nutritionist) : false);
+    document.getElementById('animal-form-nutritionist').checked = hasNutri;
+    document.getElementById('animal-form-nutrition-details').value = animal.nutrition_details || animal.diet || custom.nutrition_details || '';
+
+    // Work & problems & lifestyle
+    document.getElementById('animal-form-work-objective').value = animal.work_objective || animal.work_goals || custom.work_objective || '';
+    document.getElementById('animal-form-lifestyle-details').value = animal.lifestyle_details || custom.lifestyle_details || '';
+    document.getElementById('animal-form-main-problems').value = animal.main_problems || animal.issues || custom.main_problems || '';
+    updateSpeciesFields();
+
+    // Antécédents / Événements médicaux
+    let rawEvents = animal.medical_events;
+    if (!rawEvents && custom.medical_events) {
+      rawEvents = custom.medical_events;
+    }
+    if (typeof rawEvents === 'string') {
+      try {
+        rawEvents = JSON.parse(rawEvents);
+      } catch (e) {
+        rawEvents = [];
+      }
+    }
+    if (Array.isArray(rawEvents) && rawEvents.length > 0) {
+      currentMedicalEvents = rawEvents.map(ev => ({
+        year: String(ev.year || ''),
+        month: String(ev.month || ''),
+        event: String(ev.event || '')
+      }));
+    } else if (animal.antecedents || animal.medical_history) {
+      const rawText = animal.antecedents || animal.medical_history || '';
+      currentMedicalEvents = [];
+      const parts = rawText.split(/[,;\n]+/).map(p => p.trim()).filter(Boolean);
+      parts.forEach(part => {
+        const match = part.match(/^(\d{4})\s*(?:-\s*([^:]+))?\s*:\s*(.+)$/);
+        if (match) {
+          currentMedicalEvents.push({
+            year: match[1],
+            month: (match[2] || '').trim(),
+            event: match[3].trim()
+          });
+        } else {
+          currentMedicalEvents.push({
+            year: '',
+            month: '',
+            event: part
+          });
+        }
+      });
+    } else {
+      currentMedicalEvents = [];
+    }
+    renderFormMedicalEventsList();
+  } else {
+    titleEl.textContent = 'Nouvel Animal';
+    idInput.value = '';
+    
+    // Reset photo
+    photoDataInput.value = '';
+    previewImg.src = '';
+    previewImg.style.display = 'none';
+    placeholder.style.display = 'block';
+
+    // Reset location fields
+    document.getElementById('animal-form-stable-at-home').checked = false;
+    toggleLocationFields();
+    document.getElementById('animal-form-stable-name').value = '';
+    document.getElementById('animal-form-stable-address').value = '';
+    document.getElementById('animal-form-stable-zip').value = '';
+    document.getElementById('animal-form-stable-city').value = '';
+    document.getElementById('animal-form-stable-distance').value = '';
+
+    // Reset date fields
+    document.getElementById('animal-form-birthdate').value = '';
+    document.getElementById('animal-form-age-estimation').value = '';
+    const idNumEl = document.getElementById('animal-form-id-number');
+    if (idNumEl) idNumEl.value = '';
+
+    // Reset selects
+    document.getElementById('animal-form-species').value = 'Cheval';
+    document.getElementById('animal-form-species-other').value = '';
+    document.getElementById('animal-form-species-other').style.display = 'none';
+
+    document.getElementById('animal-form-housing-type').value = 'Pré';
+    const hTypeOther = document.getElementById('animal-form-housing-type-other');
+    hTypeOther.value = '';
+    hTypeOther.style.display = 'none';
+
+    document.getElementById('animal-form-social-type').value = 'Individuel';
+    
+    trackingSelect.value = '4x par an';
+    trackingOther.value = '';
+    trackingOther.style.display = 'none';
+
+    // Reset nutrition
+    document.getElementById('animal-form-nutritionist').checked = false;
+    document.getElementById('animal-form-nutrition-details').value = '';
+
+    // Reset work & problems
+    document.getElementById('animal-form-work-objective').value = '';
+    document.getElementById('animal-form-lifestyle-details').value = '';
+    document.getElementById('animal-form-main-problems').value = '';
+    updateSpeciesFields();
+
+    // Reset medical events
+    currentMedicalEvents = [];
+    renderFormMedicalEventsList();
+
+    if (preselectedClientId) {
+      ownerSelect.value = preselectedClientId;
+    }
+  }
+
+  // Cancel buttons
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  // Submit form
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    
+    if (currentPortalClientId) {
+      const pClient = await getById('clients', currentPortalClientId);
+      if (pClient && pClient.archived_at) {
+        showToast("Action impossible : cet espace client a été clôturé.", "error");
+        dialog.close();
+        return;
+      }
+    }
+
+    const ownerId = Number(ownerSelect.value) || (animal && animal.client_id ? Number(animal.client_id) : (preselectedClientId ? Number(preselectedClientId) : (currentPortalClientId ? Number(currentPortalClientId) : null)));
+    
+    // Déterminer la date de naissance (avec calcul automatique si âge estimé est fourni)
+    let birthdateStr = document.getElementById('animal-form-birthdate').value;
+    const estAgeVal = document.getElementById('animal-form-age-estimation').value.trim();
+    
+    if (!birthdateStr && estAgeVal) {
+      const ageX = parseInt(estAgeVal, 10);
+      if (!isNaN(ageX)) {
+        const currentYear = new Date().getFullYear();
+        const birthYear = currentYear - ageX;
+        birthdateStr = `${birthYear}-01-01`;
+      }
+    }
+
+    let stableName = '';
+    let stableAddress = '';
+    let stableZip = '';
+    let stableCity = '';
+    let stableDistance = 0;
+    const stableAtHome = document.getElementById('animal-form-stable-at-home').checked;
+
+    if (stableAtHome) {
+      stableName = 'Domicile';
+      stableDistance = 0;
+      const ownerObj = clients.find(c => c.id === ownerId);
+      if (ownerObj && ownerObj.adresse) {
+        const parsed = parseAddress(ownerObj.adresse);
+        stableAddress = parsed.address;
+        stableZip = parsed.zip;
+        stableCity = parsed.city;
+      }
+    } else {
+      stableName = document.getElementById('animal-form-stable-name').value.trim();
+      stableAddress = document.getElementById('animal-form-stable-address').value.trim();
+      stableZip = FormSanitizer.formatZipCode(document.getElementById('animal-form-stable-zip').value);
+      stableCity = FormSanitizer.formatUpperCase(document.getElementById('animal-form-stable-city').value);
+      stableDistance = parseFloat(document.getElementById('animal-form-stable-distance').value) || 0;
+
+      document.getElementById('animal-form-stable-zip').value = stableZip;
+      document.getElementById('animal-form-stable-city').value = stableCity;
+
+      // À l'inverse, si une adresse déjà associée à une écurie connue est saisie, associer/remplir automatiquement le nom de l'écurie
+      if (!stableName && stableAddress && stableZip && stableCity) {
+        const match = knownStables.find(s => 
+          s.address.toLowerCase() === stableAddress.toLowerCase() &&
+          s.zip.toLowerCase() === stableZip.toLowerCase() &&
+          s.city.toLowerCase() === stableCity.toLowerCase()
+        );
+        if (match) {
+          stableName = match.name;
+          document.getElementById('animal-form-stable-name').value = stableName;
+          if (!stableDistance && match.distance) {
+            stableDistance = match.distance;
+            document.getElementById('animal-form-stable-distance').value = stableDistance;
+          }
+        }
+      }
+    }
+
+    // Récupérer l'enregistrement existant le plus frais si modification
+    let freshAnimal = null;
+    const animalIdNum = idInput.value ? Number(idInput.value) : (animal && animal.id ? Number(animal.id) : null);
+    if (animalIdNum) {
+      freshAnimal = await getById('animals', animalIdNum);
+    }
+
+    // Si des valeurs ont été saisies dans les champs événement médical mais non encore validées par le bouton '+'
+    const pendingYear = (document.getElementById('animal-form-med-year')?.value || '').trim();
+    const pendingMonth = (document.getElementById('animal-form-med-month')?.value || '').trim();
+    const pendingEvent = (document.getElementById('animal-form-med-event')?.value || '').trim();
+    if (pendingYear && pendingEvent) {
+      currentMedicalEvents.push({ year: pendingYear, month: pendingMonth, event: pendingEvent });
+      const mIn = document.getElementById('animal-form-med-month');
+      const eIn = document.getElementById('animal-form-med-event');
+      const yIn = document.getElementById('animal-form-med-year');
+      if (mIn) mIn.value = '';
+      if (eIn) eIn.value = '';
+      if (yIn) yIn.value = '';
+    }
+
+    // Préserver les professionnels associés (gérés exclusivement via dialog-associate-professionals)
+    let preservedProsAssocies = [];
+    if (freshAnimal && Array.isArray(freshAnimal.pros_associes_ids)) {
+      preservedProsAssocies = freshAnimal.pros_associes_ids;
+    } else if (freshAnimal && freshAnimal.custom_details) {
+      try {
+        const c = typeof freshAnimal.custom_details === 'string' ? JSON.parse(freshAnimal.custom_details) : freshAnimal.custom_details;
+        if (Array.isArray(c.pros_associes_ids)) preservedProsAssocies = c.pros_associes_ids;
+      } catch (e) {}
+    } else if (animal && Array.isArray(animal.pros_associes_ids)) {
+      preservedProsAssocies = animal.pros_associes_ids;
+    } else if (animal && animal.custom_details) {
+      try {
+        const c = typeof animal.custom_details === 'string' ? JSON.parse(animal.custom_details) : animal.custom_details;
+        if (Array.isArray(c.pros_associes_ids)) preservedProsAssocies = c.pros_associes_ids;
+      } catch (e) {}
+    }
+
+    // Normalisation du nom de l'animal
+    const cleanAnimalName = FormSanitizer.formatCapitalize(document.getElementById('animal-form-name').value);
+    document.getElementById('animal-form-name').value = cleanAnimalName;
+
+    // Rétrocompatibilité : préserver le numéro d'identification s'il existe déjà en BDD/IndexedDB
+    const existingIdNumber = (freshAnimal && freshAnimal.id_number) || (animal && animal.id_number) || '';
+    const idNumEl = document.getElementById('animal-form-id-number');
+    const cleanIdNumber = idNumEl ? FormSanitizer.formatIdNumber(idNumEl.value || '') : existingIdNumber;
+    if (idNumEl) {
+      idNumEl.value = cleanIdNumber;
+    }
+
+    const animalData = {
+      ...(freshAnimal || animal || {}),
+      client_id: ownerId,
+      nom: cleanAnimalName,
+      id_number: cleanIdNumber,
+      espece: (() => {
+        const val = document.getElementById('animal-form-species').value;
+        if (val === 'Autre') {
+          return document.getElementById('animal-form-species-other').value.trim() || 'Autre';
+        }
+        return val;
+      })(),
+      race: document.getElementById('animal-form-breed').value.trim(),
+      robe: document.getElementById('animal-form-robe').value.trim(),
+      sexe: document.getElementById('animal-form-sex').value,
+      date_naissance_ou_age: birthdateStr,
+      
+      // Pension & écurie
+      stable_name: stableName,
+      stable_address: stableAddress,
+      stable_zip: stableZip,
+      stable_city: stableCity,
+      stable_distance: stableDistance,
+      stable_at_home: stableAtHome,
+      
+      // Mode de vie & activité
+      housing_type: document.getElementById('animal-form-housing-type').value,
+      housing_type_other: document.getElementById('animal-form-housing-type-other').value.trim(),
+      social_type: document.getElementById('animal-form-social-type').value,
+      tracking_mode: document.getElementById('animal-form-tracking-mode').value,
+      tracking_mode_other: document.getElementById('animal-form-tracking-mode-other').value.trim(),
+      
+      // Fallback fields for backwards compatibility
+      housing_mode: document.getElementById('animal-form-housing-type').value,
+      housing_mode_other: document.getElementById('animal-form-housing-type-other').value.trim(),
+      
+      // Suivi & alimentation
+      nutritionist: document.getElementById('animal-form-nutritionist').checked,
+      nutrition_details: document.getElementById('animal-form-nutrition-details').value.trim(),
+      
+      // Work & problems
+      work_objective: document.getElementById('animal-form-work-objective').value.trim(),
+      lifestyle_details: document.getElementById('animal-form-lifestyle-details').value.trim(),
+      main_problems: document.getElementById('animal-form-main-problems').value.trim(),
+      
+      // Antécédents / Medical events & Photo
+      medical_events: [...currentMedicalEvents],
+      photo_data_url: document.getElementById('animal-form-photo-data').value || (freshAnimal ? freshAnimal.photo_data_url : (animal ? animal.photo_data_url : '')),
+      photo_blob: document.getElementById('animal-form-photo-data').value || (freshAnimal ? freshAnimal.photo_blob : (animal ? animal.photo_blob : null)),
+      
+      // Fallback fields for backwards compatibility
+      lieu_de_vie: stableName || 'Non spécifié',
+      antecedents: currentMedicalEvents.map(ev => `${ev.year}${ev.month ? ' - ' + ev.month : ''} : ${ev.event}`).join(', '),
+      
+      pros_associes_ids: preservedProsAssocies,
+      archived_at: (freshAnimal && freshAnimal.archived_at !== undefined) ? freshAnimal.archived_at : (animal ? animal.archived_at || null : null),
+      archive_reason: (freshAnimal && freshAnimal.archive_reason !== undefined) ? freshAnimal.archive_reason : (animal ? animal.archive_reason || null : null),
+      synced: 0
+    };
+
+    // Reconstituer également custom_details sérialisé complet
+    const customPayload = {
+      robe: animalData.robe,
+      lifestyle_details: animalData.lifestyle_details,
+      stable_name: animalData.stable_name,
+      stable_address: animalData.stable_address,
+      stable_zip: animalData.stable_zip,
+      stable_city: animalData.stable_city,
+      stable_distance: animalData.stable_distance,
+      stable_at_home: animalData.stable_at_home,
+      housing_type: animalData.housing_type,
+      housing_type_other: animalData.housing_type_other,
+      social_type: animalData.social_type,
+      tracking_mode: animalData.tracking_mode,
+      tracking_mode_other: animalData.tracking_mode_other,
+      nutritionist: animalData.nutritionist,
+      nutrition_details: animalData.nutrition_details,
+      work_objective: animalData.work_objective,
+      main_problems: animalData.main_problems,
+      medical_events: animalData.medical_events,
+      pros_associes_ids: animalData.pros_associes_ids,
+      archived_at: animalData.archived_at,
+      archive_reason: animalData.archive_reason
+    };
+    if (animalData.id_number) {
+      customPayload.id_number = animalData.id_number;
+    }
+    animalData.custom_details = JSON.stringify(customPayload);
+
+    if (idInput.value) {
+      animalData.id = Number(idInput.value);
+      await update('animals', animalData);
+      showToast('Animal modifié.');
+    } else {
+      await add('animals', animalData);
+      showToast('Animal enregistré.');
+    }
+
+    dialog.close();
+
+    // Recharger les vues appropriées
+    if (window.location.hash.startsWith('#animals/') || window.location.hash.includes('/animals/')) {
+      await renderAnimalDetails(currentAnimalId || animalData.id);
+    } else if (currentPortalClientId) {
+      await renderPortalDetails(currentPortalClientToken || currentPortalClientId);
+    } else if (window.location.hash.startsWith('#clients/')) {
+      await renderClientDetails(currentClientId || ownerId);
+    } else {
+      await renderAnimalsList();
+    }
+    
+    await renderDashboard();
+  };
+
+  dialog.showModal();
+}
+
+async function openProfessionalDialog(prof = null) {
+  const dialog = document.getElementById('dialog-professional');
+  const form = document.getElementById('dialog-professional-form');
+  form.reset();
+  FormSanitizer.initBlurListeners();
+  populateSpecialtyDropdown();
+
+  const titleEl = document.getElementById('dialog-professional-title');
+  const idInput = document.getElementById('dialog-professional-id');
+  const specialtySelect = document.getElementById('prof-form-specialty');
+  const specialtyOther = document.getElementById('prof-form-specialty-other');
+  
+  const toggleSpecialtyOther = () => {
+    specialtyOther.style.display = specialtySelect.value === 'Autre' ? 'block' : 'none';
+  };
+  
+  if (specialtySelect) {
+    specialtySelect.onchange = toggleSpecialtyOther;
+  }
+
+  // Fetch all animals and determine currently associated ones
+  const animals = await getAll('animals');
+  const currentlyAssocAnimals = prof ? animals.filter(an => (an.pros_associes_ids || []).includes(prof.id)).map(an => an.id) : [];
+  let checkedAnimalIds = [...currentlyAssocAnimals];
+
+  const animalSearchInput = document.getElementById('prof-form-animal-search');
+  const animalsListContainer = document.getElementById('prof-form-animals-list');
+
+  if (animalSearchInput) {
+    animalSearchInput.value = '';
+  }
+
+  const renderFormAnimals = () => {
+    const checkboxes = animalsListContainer.querySelectorAll('.prof-animal-checkbox');
+    checkboxes.forEach(cb => {
+      const id = Number(cb.value);
+      if (cb.checked) {
+        if (!checkedAnimalIds.includes(id)) checkedAnimalIds.push(id);
+      } else {
+        checkedAnimalIds = checkedAnimalIds.filter(x => x !== id);
+      }
+    });
+
+    animalsListContainer.innerHTML = '';
+    const filter = animalSearchInput ? animalSearchInput.value.toLowerCase().trim() : '';
+
+    const filteredAnimals = animals.filter(an => {
+      if (!filter) return true;
+      const term = normalizeText(filter);
+      return normalizeText(an.nom).includes(term) || normalizeText(an.espece).includes(term);
+    });
+
+    if (filteredAnimals.length === 0) {
+      animalsListContainer.innerHTML = '<p class="empty-state" style="margin: 5px 0;">Aucun animal correspondant.</p>';
+    } else {
+      filteredAnimals.forEach(an => {
+        const isChecked = checkedAnimalIds.includes(an.id);
+        const row = document.createElement('div');
+        row.className = 'checkbox-item';
+        row.style.margin = '4px 0';
+        
+        const emojiMap = {
+          'cheval': '🐴',
+          'chien': '🐕',
+          'chat': '🐱'
+        };
+        const emoji = emojiMap[an.espece.toLowerCase()] || '🐾';
+
+        row.innerHTML = `
+          <label style="cursor:pointer; display:flex; align-items:center; gap:10px;">
+            <input type="checkbox" class="prof-animal-checkbox" value="${an.id}" ${isChecked ? 'checked' : ''}>
+            <span>${emoji} <strong>${an.nom}</strong> (${an.espece})</span>
+          </label>
+        `;
+        animalsListContainer.appendChild(row);
+      });
+    }
+  };
+
+  if (animalSearchInput) {
+    animalSearchInput.oninput = (e) => {
+      if (e && e.isComposing) return;
+      renderFormAnimals();
+    };
+  }
+
+  renderFormAnimals();
+
+  if (prof) {
+    titleEl.textContent = 'Modifier le Professionnel';
+    idInput.value = prof.id;
+    document.getElementById('prof-form-lastname').value = prof.nom;
+    document.getElementById('prof-form-firstname').value = prof.prenom;
+    
+    const specVal = prof.specialite || 'Ostéopathe';
+    const standardSpecs = getAllSpecialties();
+    if (standardSpecs.includes(specVal)) {
+      specialtySelect.value = specVal;
+      specialtyOther.value = '';
+      specialtyOther.style.display = 'none';
+    } else {
+      specialtySelect.value = 'Autre';
+      specialtyOther.value = specVal;
+      specialtyOther.style.display = 'block';
+    }
+
+    document.getElementById('prof-form-phone').value = FormSanitizer.formatPhone(prof.telephone || '');
+    document.getElementById('prof-form-notes').value = prof.notes || '';
+  } else {
+    titleEl.textContent = 'Nouveau Professionnel';
+    idInput.value = '';
+    if (specialtySelect) {
+      specialtySelect.value = 'Ostéopathe';
+    }
+    if (specialtyOther) {
+      specialtyOther.value = '';
+      specialtyOther.style.display = 'none';
+    }
+  }
+
+  // Cancel buttons
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  // Submit form
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    
+    const spec = (() => {
+      const val = specialtySelect.value;
+      if (val === 'Autre') {
+        return specialtyOther.value.trim() || 'Autre';
+      }
+      return val;
+    })();
+
+    if (specialtySelect.value === 'Autre') {
+      await saveCustomSpecialty(spec);
+      populateSpecialtyDropdown();
+    }
+
+    // Normalisation avant enregistrement
+    const cleanLastname = FormSanitizer.formatUpperCase(document.getElementById('prof-form-lastname').value);
+    const cleanFirstname = FormSanitizer.formatCapitalize(document.getElementById('prof-form-firstname').value);
+    const cleanPhone = FormSanitizer.formatPhone(document.getElementById('prof-form-phone').value);
+
+    document.getElementById('prof-form-lastname').value = cleanLastname;
+    document.getElementById('prof-form-firstname').value = cleanFirstname;
+    document.getElementById('prof-form-phone').value = cleanPhone;
+
+    const profData = {
+      nom: cleanLastname,
+      prenom: cleanFirstname,
+      specialite: spec,
+      telephone: cleanPhone,
+      notes: document.getElementById('prof-form-notes').value.trim()
+    };
+
+    let profId;
+    if (idInput.value) {
+      profId = Number(idInput.value);
+      profData.id = profId;
+      await update('professionals', profData);
+      showToast('Professionnel modifié.');
+    } else {
+      profId = await add('professionals', profData);
+      showToast('Professionnel enregistré.');
+    }
+
+    // Sync animal selections once more before saving
+    const checkboxes = animalsListContainer.querySelectorAll('.prof-animal-checkbox');
+    checkboxes.forEach(cb => {
+      const id = Number(cb.value);
+      if (cb.checked) {
+        if (!checkedAnimalIds.includes(id)) checkedAnimalIds.push(id);
+      } else {
+        checkedAnimalIds = checkedAnimalIds.filter(x => x !== id);
+      }
+    });
+
+    // Update animals table in IndexedDB
+    for (const an of animals) {
+      let pros = an.pros_associes_ids || [];
+      const hasProf = pros.includes(profId);
+      const shouldHaveProf = checkedAnimalIds.includes(an.id);
+
+      if (shouldHaveProf && !hasProf) {
+        pros.push(profId);
+        an.pros_associes_ids = pros;
+        await update('animals', an);
+      } else if (!shouldHaveProf && hasProf) {
+        pros = pros.filter(id => id !== profId);
+        an.pros_associes_ids = pros;
+        await update('animals', an);
+      }
+    }
+
+    dialog.close();
+    await renderProfessionalsList();
+  };
+
+  dialog.showModal();
+}
+
+// 3B. DIALOG RAPPEL / TÂCHE (AJOUTER / MODIFIER)
+async function openReminderDialog(reminder = null, preselectedAnimalId = null) {
+  const dialog = document.getElementById('dialog-reminder');
+  const form = document.getElementById('dialog-reminder-form');
+  form.reset();
+
+  const titleEl = document.getElementById('dialog-reminder-title');
+  const idInput = document.getElementById('dialog-reminder-id');
+  const animalSelect = document.getElementById('reminder-form-animal');
+  const clientSelect = document.getElementById('reminder-form-client');
+  const typeSelect = document.getElementById('reminder-form-type-select');
+  const customTitleGroup = document.getElementById('reminder-form-custom-title-group');
+  const customTitleInput = document.getElementById('reminder-form-title');
+
+  const animals = await getAll('animals');
+  const clients = await getAll('clients');
+
+  // Populate client select - Trié par ordre alphabétique du PRÉNOM (français)
+  const selectableClients = clients.filter(cl => !cl.archived_at || (reminder && reminder.client_id === cl.id));
+  selectableClients.sort((a, b) => {
+    const prenomComp = (a.prenom || '').localeCompare(b.prenom || '', 'fr', { sensitivity: 'base' });
+    if (prenomComp !== 0) return prenomComp;
+    return (a.nom || '').localeCompare(b.nom || '', 'fr', { sensitivity: 'base' });
+  });
+
+  clientSelect.innerHTML = '<option value="">-- Aucun client --</option>';
+  selectableClients.forEach(cl => {
+    const opt = document.createElement('option');
+    opt.value = cl.id;
+    opt.textContent = `${cl.prenom} ${cl.nom.toUpperCase()}${cl.archived_at ? ' (Archivé)' : ''}`;
+    clientSelect.appendChild(opt);
+  });
+
+  // Gestion de l'affichage du champ personnalisé selon le type de rappel
+  const updateCustomTypeVisibility = () => {
+    if (typeSelect.value === 'Autre') {
+      if (customTitleGroup) customTitleGroup.style.display = 'block';
+      if (customTitleInput) customTitleInput.required = true;
+    } else {
+      if (customTitleGroup) customTitleGroup.style.display = 'none';
+      if (customTitleInput) customTitleInput.required = false;
+    }
+  };
+  typeSelect.onchange = updateCustomTypeVisibility;
+
+  // Fonction de mise à jour dynamique des options d'animaux selon le client choisi
+  function updateAnimalOptions(preferredAnimalVal = null) {
+    const selectedClientId = clientSelect.value ? Number(clientSelect.value) : null;
+    const currentVal = preferredAnimalVal !== null ? preferredAnimalVal : animalSelect.value;
+
+    animalSelect.innerHTML = '';
+
+    if (selectedClientId) {
+      // Filtrer les animaux de ce client
+      const clientAnimals = animals.filter(an => an.client_id === selectedClientId && (!an.archived_at || (reminder && (String(reminder.animal_id) === String(an.id) || reminder.animal_id === 'ALL')) || (preselectedAnimalId && preselectedAnimalId === an.id)));
+
+      if (clientAnimals.length === 0) {
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = '-- Aucun animal en particulier --';
+        animalSelect.appendChild(defaultOpt);
+
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.disabled = true;
+        emptyOpt.textContent = '(Aucun animal enregistré pour ce client)';
+        animalSelect.appendChild(emptyOpt);
+        animalSelect.value = '';
+      } else if (clientAnimals.length === 1) {
+        // S'il ne possède qu'UN SEUL animal :
+        // 1. Sélectionner automatiquement cet animal par défaut
+        // 2. Ne PAS proposer ni afficher l'option "Tous les animaux du client" dans ce cas
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = '-- Aucun animal en particulier --';
+        animalSelect.appendChild(defaultOpt);
+
+        const an = clientAnimals[0];
+        const opt = document.createElement('option');
+        opt.value = an.id;
+        opt.textContent = `${an.nom}${an.archived_at ? ' (Archivé)' : ''}`;
+        animalSelect.appendChild(opt);
+
+        if (preferredAnimalVal === '') {
+          animalSelect.value = '';
+        } else {
+          animalSelect.value = String(an.id);
+        }
+      } else {
+        // S'il possède PLUSIEURS animaux :
+        // Proposer en première option "Tous les animaux du client" (non sélectionnée d'office, laisser l'utilisateur choisir / laisser le placeholder)
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = '-- Aucun animal en particulier --';
+        animalSelect.appendChild(defaultOpt);
+
+        const allOpt = document.createElement('option');
+        allOpt.value = 'ALL';
+        allOpt.textContent = `🐾 Tous les animaux du client (${clientAnimals.length})`;
+        animalSelect.appendChild(allOpt);
+
+        // Liste individuelle des animaux triés
+        clientAnimals.slice().sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr', { sensitivity: 'base' })).forEach(an => {
+          const opt = document.createElement('option');
+          opt.value = an.id;
+          opt.textContent = `${an.nom}${an.archived_at ? ' (Archivé)' : ''}`;
+          animalSelect.appendChild(opt);
+        });
+
+        // Conserver la sélection si elle est valide
+        if (currentVal === 'ALL') {
+          animalSelect.value = 'ALL';
+        } else if (currentVal && clientAnimals.some(a => String(a.id) === String(currentVal))) {
+          animalSelect.value = String(currentVal);
+        } else {
+          animalSelect.value = '';
+        }
+      }
+    } else {
+      // Aucun client sélectionné : proposer tous les animaux avec le nom du propriétaire
+      const defaultOpt = document.createElement('option');
+      defaultOpt.value = '';
+      defaultOpt.textContent = '-- Aucun animal (ou choisir un client d\'abord) --';
+      animalSelect.appendChild(defaultOpt);
+
+      const selectableAnimals = animals.filter(an => !an.archived_at || (reminder && String(reminder.animal_id) === String(an.id)) || (preselectedAnimalId && preselectedAnimalId === an.id));
+      selectableAnimals.sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr', { sensitivity: 'base' })).forEach(an => {
+        const cl = clients.find(c => c.id === an.client_id);
+        const clLabel = cl ? ` (${cl.prenom} ${cl.nom.toUpperCase()})` : '';
+        const opt = document.createElement('option');
+        opt.value = an.id;
+        opt.textContent = `${an.nom}${clLabel}${an.archived_at ? ' (Archivé)' : ''}`;
+        animalSelect.appendChild(opt);
+      });
+
+      if (currentVal && currentVal !== 'ALL' && selectableAnimals.some(a => String(a.id) === String(currentVal))) {
+        animalSelect.value = String(currentVal);
+      } else {
+        animalSelect.value = '';
+      }
+    }
+  }
+
+  // Événements de synchronisation Client <-> Animal
+  clientSelect.onchange = () => {
+    updateAnimalOptions();
+  };
+
+  animalSelect.onchange = () => {
+    const val = animalSelect.value;
+    if (val && val !== 'ALL') {
+      const animId = Number(val);
+      const anim = animals.find(a => a.id === animId);
+      if (anim && anim.client_id) {
+        if (clientSelect.value !== String(anim.client_id)) {
+          clientSelect.value = String(anim.client_id);
+          updateAnimalOptions(animId);
+        }
+      }
+    }
+  };
+
+  // Pré-remplissage des champs si édition
+  if (reminder) {
+    titleEl.textContent = 'Modifier / Reporter la tâche';
+    idInput.value = reminder.id;
+
+    // Type de rappel standardisé
+    const rawType = reminder.type_rappel || reminder.title || reminder.motif || '';
+    if (rawType === 'Prendre des nouvelles' || rawType === 'prendre_des_nouvelles') {
+      typeSelect.value = 'Prendre des nouvelles';
+      if (customTitleInput) customTitleInput.value = '';
+    } else if (rawType === 'Planifier un nouveau RDV' || rawType === 'prendre_rdv' || rawType === 'fixer_rdv') {
+      typeSelect.value = 'Planifier un nouveau RDV';
+      if (customTitleInput) customTitleInput.value = '';
+    } else if (rawType) {
+      typeSelect.value = 'Autre';
+      if (customTitleInput) customTitleInput.value = rawType;
+    } else {
+      typeSelect.value = 'Prendre des nouvelles';
+      if (customTitleInput) customTitleInput.value = '';
+    }
+    updateCustomTypeVisibility();
+
+    let initialClientId = reminder.client_id;
+    if (!initialClientId && reminder.animal_id && reminder.animal_id !== 'ALL') {
+      const anim = animals.find(a => a.id === Number(reminder.animal_id));
+      if (anim && anim.client_id) initialClientId = anim.client_id;
+    }
+
+    if (initialClientId) {
+      clientSelect.value = String(initialClientId);
+    } else {
+      clientSelect.value = '';
+    }
+
+    const initialAnimalVal = reminder.animal_id ? String(reminder.animal_id) : '';
+    updateAnimalOptions(initialAnimalVal);
+
+    document.getElementById('reminder-form-date').value = reminder.date_prevue || reminder.due_date || '';
+    document.getElementById('reminder-form-notes').value = reminder.notes || reminder.description || reminder.note || '';
+
+    animalSelect.disabled = false;
+    clientSelect.disabled = false;
+  } else {
+    titleEl.textContent = 'Nouveau rappel / tâche';
+    idInput.value = '';
+
+    typeSelect.value = 'Prendre des nouvelles';
+    if (customTitleInput) customTitleInput.value = '';
+    updateCustomTypeVisibility();
+
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('reminder-form-date').value = today;
+    document.getElementById('reminder-form-notes').value = '';
+
+    if (preselectedAnimalId) {
+      const anim = animals.find(a => a.id === preselectedAnimalId);
+      const ownerId = anim ? anim.client_id : null;
+      if (ownerId) {
+        clientSelect.value = String(ownerId);
+      }
+      updateAnimalOptions(preselectedAnimalId);
+      animalSelect.value = String(preselectedAnimalId);
+
+      // Figés impérativement lorsque initié depuis la fiche d'un animal
+      animalSelect.disabled = true;
+      clientSelect.disabled = true;
+    } else {
+      clientSelect.value = '';
+      updateAnimalOptions('');
+      animalSelect.disabled = false;
+      clientSelect.disabled = false;
+    }
+  }
+
+  // Cancel buttons
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  // Submit form
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+
+    const selectedType = typeSelect.value;
+    const customTitle = customTitleInput ? customTitleInput.value.trim() : '';
+    let finalTitle = selectedType;
+    if (selectedType === 'Autre') {
+      if (!customTitle) {
+        showToast('Veuillez préciser le type de rappel.', 'warning');
+        if (customTitleInput) customTitleInput.focus();
+        return;
+      }
+      finalTitle = customTitle;
+    }
+
+    let animalId = null;
+    let clientId = clientSelect.value ? Number(clientSelect.value) : null;
+
+    if (preselectedAnimalId) {
+      animalId = preselectedAnimalId;
+      const anim = animals.find(a => a.id === preselectedAnimalId);
+      if (anim && anim.client_id) {
+        clientId = anim.client_id;
+      }
+    } else {
+      const animalVal = animalSelect.value;
+      if (animalVal === 'ALL') {
+        animalId = 'ALL';
+      } else if (animalVal) {
+        animalId = Number(animalVal);
+      }
+    }
+
+    const dateVal = document.getElementById('reminder-form-date').value;
+    const notesVal = document.getElementById('reminder-form-notes').value.trim();
+    const weekStr = getYearWeek(new Date(dateVal));
+
+    if (animalId === 'ALL' && !clientId) {
+      showToast('Veuillez sélectionner un client pour associer tous ses animaux.', 'warning');
+      return;
+    }
+
+    const reminderData = {
+      type_rappel: finalTitle,
+      title: finalTitle,
+      motif: finalTitle,
+      animal_id: animalId,
+      client_id: clientId,
+      date_prevue: dateVal,
+      semaine_prevue: weekStr,
+      notes: notesVal,
+      description: notesVal,
+      note: notesVal,
+      statut: reminder ? (reminder.statut || 'en_attente') : 'en_attente'
+    };
+
+    if (idInput.value) {
+      reminderData.id = Number(idInput.value);
+      await update('reminders', reminderData);
+      showToast('Rappel modifié.');
+    } else {
+      await add('reminders', reminderData);
+      showToast('Rappel enregistré.');
+    }
+
+    dialog.close();
+    await renderRemindersList();
+    await updateReminderBadge();
+    await renderDashboard();
+
+    const hash = window.location.hash;
+    if (hash.includes('animals/')) {
+      const parts = hash.split('/');
+      const currentAnimalId = Number(parts[parts.length - 1]);
+      if (currentAnimalId) {
+        await renderAnimalDetails(currentAnimalId);
+      }
+    }
+  };
+
+  dialog.showModal();
+}
+
+// 4. DIALOG ASSOCIER PROFESSIONNELS A UN ANIMAL
+async function openAssociateProfsDialog(animal) {
+  const dialog = document.getElementById('dialog-associate-professionals');
+  const listContainer = document.getElementById('associate-profs-list-container');
+  const searchInput = document.getElementById('associate-profs-search');
+  
+  if (searchInput) {
+    searchInput.value = '';
+  }
+
+  listContainer.innerHTML = '';
+
+  let professionals = await getAll('professionals');
+  const currentlyAssoc = animal.pros_associes_ids || [];
+  let checkedIds = [...currentlyAssoc];
+
+  const renderList = () => {
+    // Sync current checkboxes before rebuilding the list
+    const checkboxes = listContainer.querySelectorAll('.prof-assoc-checkbox');
+    checkboxes.forEach(cb => {
+      const id = Number(cb.value);
+      if (cb.checked) {
+        if (!checkedIds.includes(id)) checkedIds.push(id);
+      } else {
+        checkedIds = checkedIds.filter(x => x !== id);
+      }
+    });
+
+    listContainer.innerHTML = '';
+    const filter = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+    const filteredProfs = professionals.filter(p => {
+      if (!filter) return true;
+      const term = normalizeText(filter);
+      return normalizeText(p.nom).includes(term) ||
+             normalizeText(p.prenom).includes(term) ||
+             normalizeText(p.specialite).includes(term);
+    });
+
+    if (filteredProfs.length === 0) {
+      listContainer.innerHTML = '<p class="empty-state" style="margin: 10px 0;">Aucun professionnel correspondant.</p>';
+    } else {
+      filteredProfs.forEach(p => {
+        const isChecked = checkedIds.includes(p.id);
+        const row = document.createElement('div');
+        row.className = 'checkbox-item';
+        row.style.margin = '10px 0';
+        row.innerHTML = `
+          <label style="cursor:pointer; display:flex; align-items:center; gap:10px;">
+            <input type="checkbox" class="prof-assoc-checkbox" value="${p.id}" ${isChecked ? 'checked' : ''}>
+            <span><strong>${p.prenom} ${p.nom}</strong> (${p.specialite})</span>
+          </label>
+        `;
+        listContainer.appendChild(row);
+      });
+    }
+  };
+
+  if (searchInput) {
+    searchInput.oninput = (e) => {
+      if (e && e.isComposing) return;
+      renderList();
+    };
+  }
+
+  // Quick professional creation dialog hook
+  const createProfBtn = document.getElementById('btn-create-prof-quick');
+  if (createProfBtn) {
+    createProfBtn.onclick = () => {
+      openProfessionalDialog();
+      const profForm = document.getElementById('dialog-professional-form');
+      if (profForm) {
+        const originalSubmit = profForm.onsubmit;
+        profForm.onsubmit = async (e) => {
+          if (originalSubmit) {
+            await originalSubmit(e);
+          }
+          professionals = await getAll('professionals');
+          
+          if (professionals.length > 0) {
+            const lastPro = professionals.reduce((max, p) => p.id > max.id ? p : max, professionals[0]);
+            if (lastPro && lastPro.id) {
+              if (!checkedIds.includes(lastPro.id)) {
+                checkedIds.push(lastPro.id);
+              }
+            }
+          }
+          
+          renderList();
+        };
+      }
+    };
+  }
+
+  renderList();
+
+  // Cancel buttons
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  // Action enregistrer
+  document.getElementById('btn-save-associations').onclick = async () => {
+    const checkboxes = listContainer.querySelectorAll('.prof-assoc-checkbox');
+    checkboxes.forEach(cb => {
+      const id = Number(cb.value);
+      if (cb.checked) {
+        if (!checkedIds.includes(id)) checkedIds.push(id);
+      } else {
+        checkedIds = checkedIds.filter(x => x !== id);
+      }
+    });
+
+    animal.pros_associes_ids = checkedIds;
+    await update('animals', animal);
+    showToast('Professionnels associés mis à jour.');
+    dialog.close();
+
+    // Recharger la fiche animal
+    await renderAnimalDetails(animal.id);
+  };
+
+  dialog.showModal();
+}
+
+// 5. DIALOG AJOUTER UN EVÉNEMENT MÉDICAL DIRECT
+function openMedicalEventDialog(animal) {
+  const dialog = document.getElementById('dialog-medical-event');
+  const form = document.getElementById('dialog-medical-event-form');
+  form.reset();
+
+  const yearInput = document.getElementById('med-event-form-year');
+  const monthSelect = document.getElementById('med-event-form-month');
+  const textInput = document.getElementById('med-event-form-text');
+
+  // Default year to current year
+  const currentYear = new Date().getFullYear();
+  yearInput.value = currentYear;
+
+  // Cancel buttons
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  // Submit form
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+
+    const yearVal = yearInput.value.trim();
+    const monthVal = monthSelect.value;
+    const textVal = textInput.value.trim();
+
+    if (!yearVal || !textVal) {
+      showToast('L\'année et la pathologie sont requises.');
+      return;
+    }
+
+    const newEvent = {
+      year: yearVal,
+      month: monthVal || '',
+      event: textVal
+    };
+
+    let existingEvents = Array.isArray(animal.medical_events) ? animal.medical_events : [];
+    if (existingEvents.length === 0 && animal.custom_details) {
+      try {
+        const c = typeof animal.custom_details === 'string' ? JSON.parse(animal.custom_details) : animal.custom_details;
+        if (Array.isArray(c.medical_events)) existingEvents = c.medical_events;
+      } catch (e) {}
+    }
+    animal.medical_events = [...existingEvents, newEvent];
+    animal.antecedents = animal.medical_events.map(ev => `${ev.year}${ev.month ? ' - ' + ev.month : ''} : ${ev.event}`).join(', ');
+    animal.synced = 0;
+
+    await update('animals', animal);
+    showToast('Événement médical enregistré.');
+    dialog.close();
+
+    await renderAnimalDetails(animal.id);
+  };
+
+  dialog.showModal();
+}
+
+// Clics boutons rapides du Dashboard
+const quickClientBtn = document.getElementById('btn-quick-new-client');
+if (quickClientBtn) quickClientBtn.onclick = () => openClientDialog();
+
+const quickAnimalBtn = document.getElementById('btn-quick-new-animal');
+if (quickAnimalBtn) quickAnimalBtn.onclick = () => openAnimalDialog();
+
+const quickSessionBtn = document.getElementById('btn-quick-new-session');
+if (quickSessionBtn) {
+  quickSessionBtn.onclick = () => { window.location.hash = 'session-editor'; };
+}
+
+const quickReminderBtn = document.getElementById('btn-quick-new-reminder');
+if (quickReminderBtn) {
+  quickReminderBtn.onclick = () => openReminderDialog();
+}
+
+// Clics boutons d'ajouts de listes globales
+const addClientBtn = document.getElementById('btn-add-client');
+if (addClientBtn) addClientBtn.onclick = () => openClientDialog();
+
+const addAnimalBtn = document.getElementById('btn-add-animal');
+if (addAnimalBtn) addAnimalBtn.onclick = () => openAnimalDialog();
+
+const addSessionBtn = document.getElementById('btn-add-session');
+if (addSessionBtn) {
+  addSessionBtn.onclick = () => { window.location.hash = 'session-editor'; };
+}
+
+const addProfBtn = document.getElementById('btn-add-professional');
+if (addProfBtn) addProfBtn.onclick = () => openProfessionalDialog();
+
+const addReminderBtn = document.getElementById('btn-add-reminder');
+if (addReminderBtn) addReminderBtn.onclick = () => openReminderDialog();
+
+// --- UTILITAIRES DE LOCALISATION ---
+const DEPARTEMENTS = {
+  "01": "Ain", "02": "Aisne", "03": "Allier", "04": "Alpes-de-Haute-Provence", "05": "Hautes-Alpes",
+  "06": "Alpes-Maritimes", "07": "Ardèche", "08": "Ardennes", "09": "Ariège", "10": "Aube",
+  "11": "Aude", "12": "Aveyron", "13": "Bouches-du-Rhône", "14": "Calvados", "15": "Cantal",
+  "16": "Charente", "17": "Charente-Maritime", "18": "Cher", "19": "Corrèze", "2A": "Corse-du-Sud",
+  "2B": "Haute-Corse", "21": "Côte-d'Or", "22": "Côtes-d'Armor", "23": "Creuse", "24": "Dordogne",
+  "25": "Doubs", "26": "Drôme", "27": "Eure", "28": "Eure-et-Loir", "29": "Finistère",
+  "30": "Gard", "31": "Haute-Garonne", "32": "Gers", "33": "Gironde", "34": "Hérault",
+  "35": "Ille-et-Vilaine", "36": "Indre", "37": "Indre-et-Loire", "38": "Isère", "39": "Jura",
+  "40": "Landes", "41": "Loir-et-Cher", "42": "Loire", "43": "Haute-Loire", "44": "Loire-Atlantique",
+  "45": "Loiret", "46": "Lot", "47": "Lot-et-Garonne", "48": "Lozère", "49": "Maine-et-Loire",
+  "50": "Manche", "51": "Marne", "52": "Haute-Marne", "53": "Mayenne", "54": "Meurthe-et-Moselle",
+  "55": "Meuse", "56": "Morbihan", "57": "Moselle", "58": "Nièvre", "59": "Nord",
+  "60": "Oise", "61": "Orne", "62": "Pas-de-Calais", "63": "Puy-de-Dôme", "64": "Pyrénées-Atlantiques",
+  "65": "Hautes-Pyrénées", "66": "Pyrénées-Orientales", "67": "Bas-Rhin", "68": "Haut-Rhin", "69": "Rhône",
+  "70": "Haute-Saône", "71": "Saône-et-Loire", "72": "Sarthe", "73": "Savoie", "74": "Haute-Savoie",
+  "75": "Paris", "76": "Seine-Maritime", "77": "Seine-et-Marne", "78": "Yvelines", "79": "Deux-Sèvres",
+  "80": "Somme", "81": "Tarn", "82": "Tarn-et-Garonne", "83": "Var", "84": "Vaucluse",
+  "85": "Vendée", "86": "Vienne", "87": "Haute-Vienne", "88": "Vosges", "89": "Yonne",
+  "90": "Territoire de Belfort", "91": "Essonne", "92": "Hauts-de-Seine", "93": "Seine-Saint-Denis", "94": "Val-de-Marne",
+  "95": "Val-d'Oise", "971": "Guadeloupe", "972": "Martinique", "973": "Guyane", "974": "La Réunion", "976": "Mayotte"
+};
+
+// --- UTILS PROFESSIONNELS : SPÉCIALITÉS ---
+const DEFAULT_SPECIALTIES = [
+  "Ostéopathe", "Masseur", "Maréchal", "Podologue", "Dentiste",
+  "Nutritionniste", "Naturopathe", "Nutri + Naturo", "Vétérinaire",
+  "Coach", "Comportementaliste", "Saddle Fitter"
+];
+
+function getCustomSpecialties() {
+  try {
+    const fromCache = settingsCache['custom_specialties'];
+    if (fromCache) {
+      const parsed = typeof fromCache === 'string' ? JSON.parse(fromCache) : (Array.isArray(fromCache) ? fromCache : []);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    const list = localStorage.getItem('custom_specialties');
+    return list ? JSON.parse(list) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function saveCustomSpecialty(spec) {
+  if (!spec) return;
+  const normalized = spec.trim();
+  if (!normalized) return;
+  if (DEFAULT_SPECIALTIES.includes(normalized)) return;
+  
+  const customs = getCustomSpecialties();
+  if (!customs.includes(normalized)) {
+    customs.push(normalized);
+    const jsonVal = JSON.stringify(customs);
+    settingsCache['custom_specialties'] = jsonVal;
+    try {
+      localStorage.setItem('custom_specialties', jsonVal);
+    } catch (e) {}
+
+    await setSetting('custom_specialties', jsonVal);
+
+    if (navigator.onLine && window.SyncManager) {
+      SyncManager.triggerSync({ silent: true });
+    }
+  }
+}
+
+function getAllSpecialties() {
+  const customs = getCustomSpecialties();
+  return [...DEFAULT_SPECIALTIES, ...customs];
+}
+
+function populateSpecialtyDropdown() {
+  const select = document.getElementById('prof-form-specialty');
+  if (!select) return;
+  
+  const currentVal = select.value;
+  select.innerHTML = '';
+  
+  const allSpecs = getAllSpecialties();
+  allSpecs.forEach(spec => {
+    const opt = document.createElement('option');
+    opt.value = spec;
+    opt.textContent = spec;
+    select.appendChild(opt);
+  });
+  
+  const optOther = document.createElement('option');
+  optOther.value = 'Autre';
+  optOther.textContent = 'Autre';
+  select.appendChild(optOther);
+  
+  if (currentVal && (allSpecs.includes(currentVal) || currentVal === 'Autre')) {
+    select.value = currentVal;
+  }
+}
+
+function normalizeText(str) {
+  return (str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function getAnimalLocationSummary(an) {
+  if (!an) return 'Lieu non spécifié';
+  const name = (an.stableName || an.structure || an.ecurie || an.pension || an.stable_name || '').trim();
+  const zip = (an.stableZip || an.codePostal || an.stable_zip || '').trim();
+  const city = (an.stableCity || an.ville || an.stable_city || '').trim();
+  const isAtHome = !!(an.isAtOwnerHome || an.atDomicile || an.stable_at_home);
+  
+  const cpVille = `${zip} ${city}`.trim();
+  if (name) {
+    return cpVille ? `${name} - ${cpVille}` : name;
+  } else if (isAtHome) {
+    return cpVille ? `Domicile - ${cpVille}` : 'Domicile';
+  } else {
+    return cpVille || 'Lieu non spécifié';
+  }
+}
+
+function parseAddress(fullAddress) {
+  if (!fullAddress) return { address: '', zip: '', city: '' };
+  const zipMatch = fullAddress.match(/\b\d{5}\b/);
+  if (zipMatch) {
+    const zip = FormSanitizer.formatZipCode(zipMatch[0]);
+    const zipIndex = fullAddress.indexOf(zipMatch[0]);
+    const address = fullAddress.substring(0, zipIndex).replace(/,\s*$/, '').trim();
+    const rawCity = fullAddress.substring(zipIndex + 5).replace(/^\s*,\s*/, '').trim();
+    const city = FormSanitizer.formatUpperCase(rawCity);
+    return { address, zip, city };
+  }
+  return { address: fullAddress, zip: '', city: '' };
+}
+
+function getDepartmentDisplay(zipCode) {
+  if (!zipCode) return "Département non spécifié";
+  const cleanZip = zipCode.trim().replace(/\s/g, '');
+  if (/^\d{5}$/.test(cleanZip) || /^\d{2}\s*\d{3}$/.test(cleanZip) || /^\d{2,3}/.test(cleanZip)) {
+    const first3 = cleanZip.substring(0, 3);
+    if (DEPARTEMENTS[first3]) {
+      return `${first3} - ${DEPARTEMENTS[first3]}`;
+    }
+    const first2 = cleanZip.substring(0, 2);
+    if (DEPARTEMENTS[first2]) {
+      return `${first2} - ${DEPARTEMENTS[first2]}`;
+    }
+  }
+  return "Département non spécifié";
+}
+
+// --- LOGIQUE DE SYNCHRONISATION HYBRIDE (OFFLINE-FIRST) ---
+let isSyncing = false;
+
+function updateSyncStatusUI(status) {
+  const container = document.getElementById('sync-status-container');
+  if (!container) return;
+  
+  let html = '';
+  switch (status) {
+    case 'online':
+      html = `
+        <div class="sync-status-badge status-online" title="Données synchronisées avec Supabase">
+          <span class="sync-dot"></span>
+          <span>En ligne / Synchronisé</span>
+        </div>
+      `;
+      break;
+    case 'offline':
+      html = `
+        <div class="sync-status-badge status-offline" title="Mode hors-ligne. Modifications stockées localement.">
+          <span class="sync-dot"></span>
+          <span>Hors-ligne - Données locales</span>
+        </div>
+      `;
+      break;
+    case 'syncing':
+      html = `
+        <div class="sync-status-badge status-syncing" title="Synchronisation avec Supabase en cours...">
+          <span class="sync-icon-spin"></span>
+          <span>Synchronisation...</span>
+        </div>
+      `;
+      break;
+  }
+  container.innerHTML = html;
+}
+
+async function refreshCurrentView() {
+  const hash = window.location.hash.substring(1) || 'dashboard';
+  let routeBase = hash;
+  let routeParam = null;
+  let subRoute = null;
+  let subParam = null;
+  if (hash.includes('/')) {
+    const parts = hash.split('/');
+    routeBase = parts[0];
+    routeParam = parts[1];
+    subRoute = parts[2] || null;
+    subParam = parts[3] || null;
+  }
+  await loadViewData(routeBase, routeParam, subRoute, subParam);
+}
+const renderCurrentView = refreshCurrentView;
+window.refreshCurrentView = refreshCurrentView;
+window.renderCurrentView = refreshCurrentView;
+
+// Redirection globale vers le module autonome SyncManager
+async function syncData(options = {}) {
+  return SyncManager.triggerSync(options);
+}
+window.syncData = syncData;
+
+// --- MOCK DATA (Désactivé par défaut en production) ---
+async function checkAndInjectMockData({ force = false } = {}) {
+  // L'injection automatique de test est neutralisée en production pour ne jamais polluer la base.
+  // Elle ne s'exécute que sur demande explicite (ex: window.injectMockData()).
+  if (!force) {
+    return;
+  }
+  const clients = await getAll('clients');
+  if (clients.length === 0) {
+    showToast('Base vide. Injection de données de test...', 'warning');
+
+    // 1. Professionnels
+    const p1Id = await add('professionals', {
+      nom: 'Dubois', prenom: 'Pierre', telephone: '06 12 34 56 78', specialite: 'Vétérinaire',
+      notes: 'Clinique vétérinaire du Val. Disponible urgences.'
+    });
+    const p2Id = await add('professionals', {
+      nom: 'Leroy', prenom: 'Sophie', telephone: '07 98 76 54 32', specialite: 'Maréchal',
+      notes: 'Spécialiste du parage naturel physiologique équin.'
+    });
+
+    // 2. Clients
+    const cl1Id = await add('clients', {
+      nom: 'Laurent', prenom: 'Marie', telephone: '06 11 22 33 44', email: 'marie.laurent@gmail.com',
+      adresse: 'Ferme des Rêves, 78120 Rambouillet',
+      notes: 'Propriétaire très attentive. Préfère les relances par SMS.'
+    });
+    const cl2Id = await add('clients', {
+      nom: 'Martin', prenom: 'Jean', telephone: '06 55 44 33 22', email: 'jean.martin@outlook.fr',
+      adresse: '15 rue des Prés, 78610 Le Perray',
+      notes: 'Possède plusieurs chiens de chasse.'
+    });
+
+    // 3. Animaux
+    const an1Id = await add('animals', {
+      client_id: cl1Id, nom: 'Spirit', espece: 'Cheval', race: 'Selle Français', robe: 'Bai brun',
+      sexe: 'Mâle castré (Hongre)', date_naissance_ou_age: '2016-04-12', photo_blob: null,
+      stable_name: 'Écurie des Genêts', stable_address: 'Route de la Butte',
+      stable_zip: '78120', stable_city: 'Rambouillet', stable_distance: 15,
+      lieu_de_vie: 'Écurie des Genêts, Rambouillet', antecedents: 'Légère arthrose jarret gauche en hiver.',
+      housing_type: 'Pré + Box (Pré = grande surface)', social_type: 'À plusieurs (Non mixte)',
+      housing_mode: 'Pré + Box (Pré = grande surface)',
+      pros_associes_ids: [p1Id, p2Id]
+    });
+    const an2Id = await add('animals', {
+      client_id: cl1Id, nom: 'Luna', espece: 'Chien', race: 'Golden Retriever', robe: 'Fauve clair',
+      sexe: 'Femelle stérilisée', date_naissance_ou_age: '2021-08-20', photo_blob: null,
+      stable_name: 'Domicile', stable_address: 'Ferme des Rêves, 78120 Rambouillet',
+      stable_zip: '78120', stable_city: 'Rambouillet', stable_distance: 0, stable_at_home: true,
+      lieu_de_vie: 'Domicile', antecedents: 'Antécédents d\'otites allergiques.',
+      housing_type: 'Box + Paddock (Paddock = petite surface)', social_type: 'En duo',
+      housing_mode: 'Box + Paddock (Paddock = petite surface)',
+      pros_associes_ids: [p1Id]
+    });
+    const an3Id = await add('animals', {
+      client_id: cl2Id, nom: 'Oscar', espece: 'Chien', race: 'Setter Anglais', robe: 'Tricolore',
+      sexe: 'Mâle castré (Hongre)', date_naissance_ou_age: '2018-05-15', photo_blob: null,
+      stable_name: 'Paddock de la Forêt', stable_address: 'Route Forestière',
+      stable_zip: '78610', stable_city: 'Le Perray', stable_distance: 10,
+      lieu_de_vie: 'Paddock de la Forêt', antecedents: 'Rupture ligament croisé opéré en 2024.',
+      housing_type: 'Pré', social_type: 'À plusieurs (Mixte)',
+      housing_mode: 'Pré',
+      pros_associes_ids: [p1Id]
+    });
+
+    // 4. Séances
+    // Une séance il y a 10 jours pour Spirit
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 10);
+    const pastDateStr = pastDate.toISOString().split('T')[0];
+
+    const qAvantMock = {};
+    const q3Mock = {};
+    QUESTIONNAIRE_CRITERES.forEach(cr => {
+      qAvantMock[cr] = { note: 8, precisions: '' };
+      q3Mock[cr] = { note: 9, precisions: '' };
+    });
+    qAvantMock["Locomotion (Souplesse art./musc.)"] = { note: 5, precisions: 'Rigidité hanche droite.' };
+    qAvantMock["Autre"] = { note: 10, precisions: 'Tout va bien' };
+    
+    q3Mock["Locomotion (Souplesse art./musc.)"] = { note: 8, precisions: 'Nette amélioration.' };
+    q3Mock["Autre"] = { note: 10, precisions: 'Suivi' };
+
+    const s1Id = await add('sessions', {
+      animal_id: an1Id,
+      client_id: cl1Id,
+      date_seance: pastDateStr,
+      motif: 'Rigidité arrière-main et bassin bloqué',
+      n_seance_annee: 1,
+      q_avant_seance: qAvantMock,
+      q_3_semaines: q3Mock,
+      protocoles_realises: {
+        shiatsu: {
+          checked: true,
+          yin: { reins: true, foie: false, coeur: false, maitre_coeur: false, rate: false, poumon: false },
+          yang: { vessie: true, vesicule: false, grele: false, triple: false, estomac: false, gros_intestin: false },
+          vaisseaux: { gouverneur: true, conception: false },
+          precisions: 'Méridien Reins et Vessie stimulés pour libérer l\'énergie Eau bloquée.'
+        },
+        manuelles: { checked: false, texte: '' },
+        tensegrite: { checked: false },
+        cranio: { checked: false },
+        kinesiologie: { checked: false },
+        aura: { checked: false }
+      },
+      canvas_annotation_image_blob: '',
+      canvas_drawing_data_url: '',
+      cr_personnel: 'Cheval calme et attentif. Tensions résolues rapidement.',
+      delai_prochaine_seance: '2m',
+      resume_client_genere: '**Protocole Shiatsu**\nMéridiens et Merveilleux Vaisseaux travaillés : Reins (Yin), Vessie (Yang), Vaisseau Gouverneur'
+    });
+
+    // 5. Rappels
+    // Un rappel actif (dans 4 jours)
+    const activeDate = new Date();
+    activeDate.setDate(activeDate.getDate() + 4);
+    const activeDateStr = activeDate.toISOString().split('T')[0];
+    
+    await add('reminders', {
+      animal_id: an1Id,
+      client_id: cl1Id,
+      session_id: s1Id,
+      date_prevue: activeDateStr,
+      semaine_prevue: getYearWeek(new Date(activeDateStr)),
+      type_rappel: 'prendre_des_nouvelles',
+      statut: 'en_attente',
+      notes: 'Prendre des nouvelles de la hanche de Spirit (15j après).'
+    });
+
+    // Un rappel futur hors 2 semaines (dans 30 jours)
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 30);
+    const futureDateStr = futureDate.toISOString().split('T')[0];
+    
+    await add('reminders', {
+      animal_id: an2Id,
+      client_id: cl1Id,
+      session_id: null,
+      date_prevue: futureDateStr,
+      semaine_prevue: getYearWeek(new Date(futureDateStr)),
+      type_rappel: 'prendre_rdv',
+      statut: 'en_attente',
+      notes: 'Relance pour le bilan d\'été de Luna.'
+    });
+
+    showToast('Données de test injectées.');
+  }
+}
+window.injectMockData = (force = true) => checkAndInjectMockData({ force });
+
+// Helper : Obtient l'horodatage le plus précis de dernière modification d'une séance
+export function getSessionLastUpdateTime(session) {
+  if (!session) return 0;
+  if (session.last_modified && !isNaN(Number(session.last_modified))) {
+    return Number(session.last_modified);
+  }
+  if (session.updated_at) {
+    const t = new Date(session.updated_at).getTime();
+    if (!isNaN(t)) return t;
+  }
+  if (session.date_seance) {
+    const t = new Date(session.date_seance).getTime();
+    if (!isNaN(t)) return t;
+  }
+  return 0;
+}
+
+// --- MODALE COMPTE-RENDU DE SÉANCE PORTAIL ---
+let isPortalSessionModalOpening = false;
+let lastPortalSessionModalTime = 0;
+async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}) {
+  const now = Date.now();
+  if (!extraInfo.forceRegenerate && (isPortalSessionModalOpening || (now - lastPortalSessionModalTime < 1500))) {
+    console.warn("openPortalSessionModal déjà en cours ou trop rapprochée, appel ignoré.");
+    return;
+  }
+  isPortalSessionModalOpening = true;
+  lastPortalSessionModalTime = now;
+
+  try {
+    let session = null;
+    if (typeof sessionOrId === 'object' && sessionOrId !== null) {
+      session = sessionOrId;
+    } else {
+      session = await getById('sessions', Number(sessionOrId));
+    }
+
+  if (!session) {
+    showToast('Compte-rendu introuvable.', 'error');
+    return;
+  }
+
+  // Si l'animal n'a pas été passé, le récupérer
+  if (!animal && session.animal_id) {
+    animal = await getById('animals', session.animal_id);
+  }
+
+  // Vérification de sécurité stricte : correspondance séance <-> animal
+  if (!animal || Number(session.animal_id) !== Number(animal.id)) {
+    showToast('Accès refusé à ce compte-rendu.', 'error');
+    return;
+  }
+
+  // Vérification de sécurité contextuelle (portail client)
+  if (currentPortalClientId && Number(animal.client_id) !== Number(currentPortalClientId)) {
+    showToast('Accès refusé : cet animal n\'appartient pas à votre espace.', 'error');
+    return;
+  }
+
+  // Récupérer les données du propriétaire
+  const client = await getById('clients', session.client_id || animal.client_id);
+
+  // Si séance externe avec document joint, aiguillage direct vers la visionneuse universelle
+  const extAttachment = session.fileData || session.attachments;
+  if (session.isExternal && extAttachment) {
+    return await openUniversalDocument(extAttachment, session.fileName || session.file_name || 'document.pdf', `Compte-rendu ${session.profession || 'externe'} pour ${animal.nom}`, {
+      ...extraInfo,
+      fileType: session.fileType || session.file_type,
+      subtitle: `Séance du ${formatDate(session.date_seance)} • ${session.profession || 'Externe'}`,
+      text: `Compte-rendu ${session.profession || 'externe'} pour ${animal.nom}`
+    });
+  }
+
+  const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
+  let cleanDate = '';
+  if (session.date_seance) {
+    cleanDate = String(session.date_seance).split('T')[0].replace(/[\s/\\?%*:|"<>]+/g, '-');
+  } else {
+    cleanDate = new Date().toISOString().split('T')[0];
+  }
+  const filename = `CR_eKiKare_${cleanAnimalName}_${cleanDate}.pdf`;
+  const ownerStr = client ? ` • Propriétaire : ${client.prenom} ${client.nom.toUpperCase()}` : '';
+  const subtitle = `Séance du ${formatDate(session.date_seance)}${ownerStr}`;
+  const title = `Compte-Rendu — ${animal?.nom || 'Animal'}`;
+
+  // --- GESTION DU CACHE LOCAL INDEXEDDB (v1.8.0) ---
+  const cacheKey = `cr_pdf_${APP_VERSION}_${session.id}`;
+  const sessionUpdateTime = getSessionLastUpdateTime(session);
+
+  if (!extraInfo.forceRegenerate) {
+    try {
+      // Purge proactive des caches antérieurs ou corrompus pour cette séance
+      const legacyKeys = [
+        `cr_pdf_${session.id}`,
+        `cr_pdf_v1.7.4_${session.id}`,
+        `cr_pdf_v1.7.4_r2_${session.id}`,
+        `cr_pdf_v1.7.5_${session.id}`,
+        `cr_pdf_v1.7.6_${session.id}`,
+        `cr_pdf_v1.7.7_${session.id}`,
+        `cr_pdf_v1.7.8_${session.id}`,
+        `cr_pdf_v1.7.9_${session.id}`
+      ];
+      for (const lk of legacyKeys) {
+        try { await deletePdfCache(lk); } catch (_) {}
+      }
+
+      const cached = await getPdfCache(cacheKey);
+      const isCacheValid = cached && 
+        (cached.blob instanceof Blob) && 
+        (cached.blob.size > 5000) && 
+        (!sessionUpdateTime || (cached.updatedAt && cached.updatedAt >= sessionUpdateTime));
+
+      if (isCacheValid) {
+        console.log(`[pdf_cache] Cache HIT valide pour la séance #${session.id} (${(cached.blob.size / 1024).toFixed(1)} Ko)`);
+        return await openUniversalDocument(
+          cached.blob,
+          filename,
+          title,
+          {
+            ...extraInfo,
+            subtitle: subtitle,
+            onRegenerate: () => openPortalSessionModal(session, animal, { ...extraInfo, forceRegenerate: true })
+          }
+        );
+      } else if (cached && cached.blob && cached.blob.size <= 5000) {
+        await deletePdfCache(cacheKey);
+      }
+    } catch (errCache) {
+      console.warn("[pdf_cache] Erreur lecture cache:", errCache);
+    }
+  }
+
+  console.log(`[pdf_cache] Cache MISS ou forçage pour la séance #${session.id} : compilation html2pdf`);
+
+  const dialog = document.getElementById('dialog-portal-session-cr');
+  if (!dialog) return;
+
+  const subtitleEl = document.getElementById('portal-cr-dialog-subtitle');
+  if (subtitleEl) {
+    subtitleEl.textContent = subtitle;
+  }
+  const portalMotifEl = document.getElementById('portal-cr-dialog-motif');
+  if (portalMotifEl) {
+    portalMotifEl.textContent = '';
+    portalMotifEl.style.display = 'none';
+  }
+
+  // Logo officiel
+  const logoEl = dialog.querySelector('.print-logo');
+  if (logoEl) {
+    logoEl.src = 'assets/logo-ekikare.png';
+  }
+
+  // 1. En-tête date
+  const dateEl = document.getElementById('portal-cr-session-date');
+  if (dateEl) dateEl.textContent = `Séance du : ${formatDate(session.date_seance)}`;
+
+  // 2. Bloc Propriétaire (Client)
+  const clientNameEl = document.getElementById('portal-cr-client-name');
+  if (clientNameEl) {
+    clientNameEl.textContent = client ? `${client.prenom} ${client.nom.toUpperCase()}` : 'Propriétaire';
+  }
+  const clientContactEl = document.getElementById('portal-cr-client-contact');
+  if (clientContactEl) {
+    if (client) {
+      clientContactEl.innerHTML = `Tél : ${client.telephone || '-'} &bull; E-mail : ${client.email || '-'}`;
+    } else {
+      clientContactEl.textContent = '-';
+    }
+  }
+
+  // 3. Bloc Animal
+  const animalNameEl = document.getElementById('portal-cr-animal-name');
+  if (animalNameEl) animalNameEl.textContent = animal.nom;
+
+  const animalIdentityEl = document.getElementById('portal-cr-animal-identity');
+  if (animalIdentityEl) {
+    const breedText = animal.race || 'Race inconnue';
+    const robeText = animal.robe ? ` (${animal.robe})` : '';
+    animalIdentityEl.textContent = `${animal.espece} • ${breedText}${robeText}`;
+  }
+
+  const animalDetailsEl = document.getElementById('portal-cr-animal-details');
+  if (animalDetailsEl) {
+    const sexText = animal.sexe || 'Non précisé';
+    const ageText = calculateAge(animal.date_naissance_ou_age, animal.date_naissance_ou_age);
+    animalDetailsEl.textContent = `Sexe : ${sexText} • Âge : ${ageText}`;
+  }
+
+  const animalLivingEl = document.getElementById('portal-cr-animal-living');
+  if (animalLivingEl) {
+    const stableName = animal.stable_name || animal.lieu_de_vie || '-';
+    animalLivingEl.textContent = `Lieu de vie : ${stableName}`;
+  }
+
+  // 4. Motif de consultation
+  const motifEl = document.getElementById('portal-cr-session-objective');
+  if (motifEl) {
+    if (session.isExternal) {
+      const prof = escapeHtml(session.profession || 'Intervention externe');
+      const pract = escapeHtml(session.practitionerName || 'Praticien tiers');
+      const mot = formatMultilineText(session.motif || 'Séance de suivi');
+      motifEl.innerHTML = `<strong>${prof} - <em>${pract}</em></strong><br>${mot}`;
+    } else {
+      motifEl.innerHTML = formatMultilineText(session.motif || 'Séance de suivi');
+    }
+  }
+
+  // 5. Résumé de la séance
+  const resumeContentEl = document.getElementById('portal-cr-session-resume-content');
+  const rawResume = session.resume_client_genere || session.summary || '';
+  const clientResume = adaptResumeForClient(rawResume);
+  if (resumeContentEl) {
+    resumeContentEl.innerHTML = clientResume ? interpretMarkdownToHtml(clientResume) : '<em>Aucun résumé rédigé pour cette séance.</em>';
+  }
+
+  // 6. Schéma d'annotations
+  const canvasSection = document.getElementById('portal-cr-section-canvas');
+  const canvasImg = document.getElementById('portal-cr-session-canvas-img');
+  if (canvasSection && canvasImg) {
+    if (session.canvas_annotation_image_blob) {
+      canvasImg.src = session.canvas_annotation_image_blob;
+      canvasImg.setAttribute('src', session.canvas_annotation_image_blob);
+      canvasSection.style.setProperty('display', 'block', 'important');
+    } else {
+      canvasSection.style.setProperty('display', 'none', 'important');
+    }
+  }
+
+  // 7. Précisions générales
+  const precisionsSection = document.getElementById('portal-cr-section-precisions');
+  const precisionsContentEl = document.getElementById('portal-cr-session-precisions-content');
+  if (precisionsSection && precisionsContentEl) {
+    if (session.precisions && session.precisions.trim()) {
+      precisionsContentEl.innerHTML = interpretMarkdownToHtml(session.precisions);
+      precisionsSection.style.setProperty('display', 'block', 'important');
+    } else {
+      precisionsSection.style.setProperty('display', 'none', 'important');
+    }
+  }
+
+  // 8. Document joint (séances externes)
+  const attachSection = document.getElementById('portal-cr-section-attachment');
+  const attachContent = document.getElementById('portal-cr-session-attachment-content');
+  if (attachSection && attachContent) {
+    const portalDocResource = session.fileData || session.attachments;
+    if (portalDocResource) {
+      attachContent.innerHTML = `
+        <button type="button" class="btn btn-secondary btn-small btn-view-modal-ext-file" style="display: inline-flex; align-items: center; gap: 6px;">
+          📎 Consulter le document joint (${session.fileName || session.file_name || 'Fichier'})
+        </button>
+      `;
+      attachContent.querySelector('.btn-view-modal-ext-file').onclick = () => {
+        const preOpenedTab = prepareMobileTabIfNeeded();
+        openUniversalDocument(portalDocResource, session.fileName || session.file_name || 'document.pdf', `Document joint pour ${animal.nom}`, {
+          fileType: session.fileType || session.file_type,
+          subtitle: `Séance du ${formatDate(session.date_seance)} • ${session.profession || 'Externe'}`,
+          text: `Document joint séance pour ${animal.nom}`,
+          preOpenedTab
+        });
+      };
+      attachSection.style.setProperty('display', 'block', 'important');
+    } else {
+      attachSection.style.setProperty('display', 'none', 'important');
+    }
+  }
+
+
+
+  // 9. Date de génération
+  const genDateEl = document.getElementById('portal-cr-generation-date');
+  if (genDateEl) {
+    genDateEl.textContent = new Date().toLocaleDateString('fr-FR');
+  }
+
+  // Pipeline unifié : Compilation en Blob PDF via écran de chargement modal immédiat
+  const sheetElement = document.getElementById('portal-cr-sheet');
+
+  // Insertion obligatoire du bloc des mentions légales tout en bas du template du CR (après le conteneur du schéma)
+  sheetElement.querySelectorAll('.cr-legal-notice, .legal-notice, .print-footer').forEach(el => el.remove());
+  sheetElement.insertAdjacentHTML('beforeend', `
+    <div class="cr-legal-notice" style="margin-top: 30px; padding-top: 10px; border-top: 1px solid #cbd5e1; font-size: 7.5pt; line-height: 1.35; color: #4b5563; text-align: justify; page-break-inside: avoid !important;">
+      Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatifs et dans le cadre de partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif.
+    </div>
+  `);
+
+  await openUniversalDocument(
+    async () => {
+      const generatedBlob = await generatePdfBlobFromHtml(sheetElement.innerHTML, filename);
+      if (generatedBlob && generatedBlob.size > 5000) {
+        try {
+          await setPdfCache(cacheKey, generatedBlob, sessionUpdateTime || Date.now());
+          console.log(`[pdf_cache] Séance #${session.id} mise en cache (${(generatedBlob.size / 1024).toFixed(1)} Ko)`);
+        } catch (errSet) {
+          console.warn("[pdf_cache] Erreur sauvegarde cache:", errSet);
+        }
+      } else {
+        console.warn(`[pdf_cache] Séance #${session.id} : Blob anormalement petit (${generatedBlob?.size} octets), non mis en cache.`);
+      }
+      if (extraInfo.forceRegenerate) {
+        showToast("Compte-rendu PDF régénéré avec succès.");
+      }
+      return generatedBlob;
+    },
+    filename,
+    title,
+    {
+      ...extraInfo,
+      subtitle: subtitle,
+      onRegenerate: () => openPortalSessionModal(session, animal, { ...extraInfo, forceRegenerate: true })
+    }
+  );
+  } catch (err) {
+    console.error("Erreur openPortalSessionModal:", err);
+    showToast("Erreur lors de l'ouverture du compte-rendu.", "error");
+  } finally {
+    isPortalSessionModalOpening = false;
+  }
+}
+
+// --- MODALE ET EXPORT PDF : FICHE DE LIAISON / DOSSIER DE SANTE ANIMAL ---
+let isExportAnimalDossierModalOpening = false;
+async function openExportAnimalDossierModal(animalOrId) {
+  if (isExportAnimalDossierModalOpening) {
+    console.warn("openExportAnimalDossierModal déjà en cours, appel ignoré.");
+    return;
+  }
+  isExportAnimalDossierModalOpening = true;
+
+  try {
+    let animal = null;
+    if (typeof animalOrId === 'object' && animalOrId !== null) {
+      animal = animalOrId;
+    } else {
+      animal = await getById('animals', Number(animalOrId));
+    }
+
+    if (!animal) {
+      showToast("Animal introuvable pour l'export.", "error");
+      return;
+    }
+
+  const dialog = document.getElementById('dialog-export-animal-dossier');
+  if (!dialog) return;
+
+  const subtitleEl = document.getElementById('export-dossier-animal-subtitle');
+  if (subtitleEl) {
+    subtitleEl.textContent = `Dossier de suivi de ${animal.nom} (${animal.espece})`;
+  }
+
+  // Reset checkboxes to default (all checked)
+  const optIdentity = document.getElementById('export-opt-identity');
+  const optMedical = document.getElementById('export-opt-medical');
+  const optSessions = document.getElementById('export-opt-sessions');
+  const periodContainer = document.getElementById('export-sessions-period-container');
+  const period12mRadio = document.getElementById('export-period-12m');
+
+  if (optIdentity) optIdentity.checked = true;
+  if (optMedical) optMedical.checked = true;
+  if (optSessions) optSessions.checked = true;
+  if (period12mRadio) period12mRadio.checked = true;
+  if (periodContainer) periodContainer.style.display = 'flex';
+
+  // Dynamic toggle of period container when sessions checkbox changes
+  if (optSessions && periodContainer) {
+    optSessions.onchange = () => {
+      periodContainer.style.display = optSessions.checked ? 'flex' : 'none';
+    };
+  }
+
+  // Confirm download button (Visualiser la Fiche A4)
+  const confirmBtn = document.getElementById('btn-confirm-export-dossier');
+  if (confirmBtn) {
+    confirmBtn.onclick = async () => {
+      const includeIdentity = optIdentity ? optIdentity.checked : true;
+      const includeMedical = optMedical ? optMedical.checked : true;
+      const includeSessions = optSessions ? optSessions.checked : true;
+      
+      const selectedPeriodEl = document.querySelector('input[name="export-sessions-period"]:checked');
+      const sessionPeriod = selectedPeriodEl ? selectedPeriodEl.value : '12months';
+
+      if (!includeIdentity && !includeMedical && !includeSessions) {
+        showToast("Veuillez sélectionner au moins une section à exporter.", "warning");
+        return;
+      }
+
+      const preOpenedTab = prepareMobileTabIfNeeded();
+      dialog.close();
+      await openAnimalDossierPreviewModal(animal, {
+        includeIdentity,
+        includeMedical,
+        includeSessions,
+        sessionPeriod
+      }, { preOpenedTab });
+    };
+  }
+
+  // Cancel & close buttons
+  const cancelBtns = dialog.querySelectorAll('.btn-cancel-dialog, .btn-close-dialog');
+  cancelBtns.forEach(btn => {
+    btn.onclick = () => dialog.close();
+  });
+
+  // Backdrop click to close
+  dialog.onclick = (e) => {
+    const rect = dialog.getBoundingClientRect();
+    if (
+      e.clientX < rect.left ||
+      e.clientX > rect.right ||
+      e.clientY < rect.top ||
+      e.clientY > rect.bottom
+    ) {
+      dialog.close();
+    }
+  };
+
+    dialog.showModal();
+  } finally {
+    isExportAnimalDossierModalOpening = false;
+  }
+}
+
+let isAnimalDossierPreviewOpening = false;
+async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
+  if (isAnimalDossierPreviewOpening) {
+    console.warn("openAnimalDossierPreviewModal déjà en cours, appel ignoré.");
+    return;
+  }
+  isAnimalDossierPreviewOpening = true;
+
+  const dialog = document.getElementById('dialog-preview-animal-dossier');
+  if (!dialog) return;
+
+  const sheetContainer = document.getElementById('animal-dossier-preview-sheet');
+  if (!sheetContainer) return;
+
+  const subtitleEl = document.getElementById('preview-dossier-dialog-subtitle');
+  if (subtitleEl) {
+    subtitleEl.textContent = `${animal.nom} (${animal.espece}) • Dossier édité le ${new Date().toLocaleDateString('fr-FR')}`;
+  }
+
+  try {
+    // 1. Récupérer le client
+    const client = await getById('clients', animal.client_id);
+    const ownerName = client ? `${client.prenom} ${client.nom.toUpperCase()}` : 'Propriétaire inconnu';
+
+    // 2. Récupérer et filtrer les séances
+    let filteredSessions = [];
+    let periodLabel = '';
+    if (options.includeSessions) {
+      const allSessions = await getAll('sessions');
+      const animalSessions = allSessions.filter(s => Number(s.animal_id) === Number(animal.id));
+      animalSessions.sort((a, b) => new Date(b.date_seance) - new Date(a.date_seance));
+
+      if (options.sessionPeriod === '12months') {
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+        filteredSessions = animalSessions.filter(s => new Date(s.date_seance) >= oneYearAgo);
+        periodLabel = "12 derniers mois";
+      } else {
+        filteredSessions = animalSessions;
+        periodLabel = "Toutes les séances";
+      }
+    }
+
+    // 3. Construire les informations d'identité
+    const birthdateStr = animal.date_naissance_ou_age || '';
+    const ageDisplay = calculateAge(birthdateStr, birthdateStr);
+    const birthDisplay = birthdateStr ? `${formatDate(birthdateStr)} (${ageDisplay})` : ageDisplay;
+
+    const stableName = animal.stable_name || animal.lieu_de_vie || 'Non précisé';
+    let fullAddress = '-';
+    const stableAddress = animal.stable_address || '';
+    const stableZip = animal.stable_zip || '';
+    const stableCity = animal.stable_city || '';
+    const fullAddressParts = [];
+    if (stableAddress) fullAddressParts.push(stableAddress);
+    if (stableZip || stableCity) fullAddressParts.push(`${stableZip} ${stableCity}`.trim());
+    if (fullAddressParts.length > 0) fullAddress = fullAddressParts.join(', ');
+
+    let hType = animal.housing_type || animal.housing_mode || '-';
+    if (hType === 'Autre') hType = animal.housing_type_other || animal.housing_mode_other || 'Autre hébergement';
+    let sType = animal.social_type || '';
+    if (sType === 'Autre') sType = 'Autre vie sociale';
+    let combinedHousing = hType;
+    if (sType) combinedHousing += ` • ${sType}`;
+
+    const logoSrc = 'assets/logo-ekikare.png';
+
+    let html = `
+      <!-- EN-TETE OFFICIEL -->
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 16px; page-break-inside: avoid; break-inside: avoid;">
+        <tr>
+          <td style="vertical-align: top; padding: 0 0 16px 0;">
+            <h1 style="font-size: 1.4rem; font-weight: 700; color: #0f172a; margin: 0 0 4px 0;">
+              <span style="color: #D96B27;">eKiKare</span> • Dossier de suivi
+            </h1>
+            <p style="font-size: 0.85rem; color: #64748b; margin: 0 0 8px 0;">Dossier de suivi bien-être et de liaison interprofessionnelle</p>
+            <div style="display: inline-block; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #D96B27; padding: 8px 14px; border-radius: 6px; font-size: 0.95rem; font-weight: 600; color: #0f172a;">
+              <span>🐾 <strong>${animal.nom}</strong> (${animal.espece}${animal.race ? ' - ' + animal.race : ''})</span>
+              <span style="color: #94a3b8; font-weight: normal; margin-left: 6px;">• Édité le ${new Date().toLocaleDateString('fr-FR')}</span>
+            </div>
+          </td>
+          <td style="text-align: right; vertical-align: top; width: 230px; padding: 0 0 16px 0;">
+            <img src="${logoSrc}" alt="eKiKare" style="max-height: 48px; width: auto; object-fit: contain; display: block; margin-left: auto; margin-bottom: 4px;">
+            <span style="font-size: 0.76rem; color: #64748b; font-weight: 500; letter-spacing: 0.3px; display: block;">Techniques manuelles et énergétiques</span>
+          </td>
+        </tr>
+      </table>
+    `;
+
+    // SECTION 1: FICHE D'IDENTITE
+    if (options.includeIdentity) {
+      html += `
+        <div class="dossier-section-identity" style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
+          <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1.5px solid #e2e8f0;">
+            <span style="color: #D96B27;">1.</span> Signalement & Fiche d'Identité
+          </div>
+          <table style="width: 100%; border-collapse: separate; border-spacing: 16px 0; margin: 0; box-sizing: border-box;">
+            <tr>
+              <td style="width: 50%; vertical-align: top; padding: 0;">
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; color: #1e293b;">
+                  <h4 style="font-size: 0.88rem; font-weight: 700; color: #334155; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px;">Signalement & Mode de vie</h4>
+                  <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Nom :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.nom}</td></tr>
+                    ${animal.id_number ? `<tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">SIRE / Puce :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.id_number}</td></tr>` : ''}
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Espèce / Race :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.espece} • ${animal.race || 'Non précisée'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Robe / Sexe :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.robe || '-'} • ${animal.sexe || 'Non précisé'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Âge / Naissance :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${birthDisplay}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Mode de vie :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${combinedHousing}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Alimentation :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.nutrition_details || '-'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Travail / Objectif :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.work_objective || animal.lifestyle_details || '-'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Problématiques :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.main_problems || '-'}</td></tr>
+                  </table>
+                </div>
+              </td>
+              <td style="width: 50%; vertical-align: top; padding: 0;">
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; color: #1e293b;">
+                  <h4 style="font-size: 0.88rem; font-weight: 700; color: #334155; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px;">Propriétaire & Hébergement</h4>
+                  <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Propriétaire :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${ownerName}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Téléphone :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${client?.telephone || '-'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">E-mail :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${client?.email || '-'}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Adresse :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${client?.adresse || '-'}</td></tr>
+                    <tr><td colspan="2" style="border-top: 1px dashed #cbd5e1; padding: 4px 0 2px 0;"></td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Pension / Lieu :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${stableName}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Adresse pension :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${fullAddress}</td></tr>
+                    <tr><td style="width: 130px; padding: 3px 0; color: #64748b; font-weight: 500; vertical-align: top;">Suivi nutrition :</td><td style="padding: 3px 0; color: #0f172a; font-weight: 600; vertical-align: top;">${animal.nutritionist ? 'Oui' : 'Non'}</td></tr>
+                  </table>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </div>
+      `;
+    }
+
+    // SECTION 2: HISTORIQUE MEDICAL
+    if (options.includeMedical) {
+      const medEvents = animal.medical_events || [];
+      const MONTHS_ORDER = {
+        "Janvier": 1, "Février": 2, "Mars": 3, "Avril": 4, "Mai": 5, "Juin": 6,
+        "Juillet": 7, "Août": 8, "Septembre": 9, "Octobre": 10, "Novembre": 11, "Décembre": 12
+      };
+
+      medEvents.sort((a, b) => {
+        const yearA = parseInt(a.year) || 0;
+        const yearB = parseInt(b.year) || 0;
+        if (yearA !== yearB) return yearB - yearA;
+        const monthA = MONTHS_ORDER[a.month] || 0;
+        const monthB = MONTHS_ORDER[b.month] || 0;
+        return monthB - monthA;
+      });
+
+      html += `
+        <div class="dossier-section-medical" style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
+          <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1.5px solid #e2e8f0;">
+            <span style="color: #D96B27;">2.</span> Historique Médical & Pathologies
+          </div>
+      `;
+
+      if (medEvents.length > 0) {
+        html += `
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 6px;">
+            <thead>
+              <tr style="background: #f1f5f9; color: #475569; font-weight: 600; text-align: left;">
+                <th style="padding: 8px 12px; border: 1px solid #e2e8f0; width: 140px;">Période</th>
+                <th style="padding: 8px 12px; border: 1px solid #e2e8f0;">Événement / Pathologie / Antécédent</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+        medEvents.forEach(ev => {
+          html += `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 8px 12px; border: 1px solid #e2e8f0; font-weight: 700; color: #D96B27; white-space: nowrap;">${ev.year}${ev.month ? ' - ' + ev.month : ''}</td>
+              <td style="padding: 8px 12px; border: 1px solid #e2e8f0; color: #1e293b;">${ev.event}</td>
+            </tr>
+          `;
+        });
+        html += `
+            </tbody>
+          </table>
+        `;
+      } else if (animal.antecedents) {
+        html += `
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem;">
+            <p style="margin: 0; white-space: pre-line; color: #1e293b;">${animal.antecedents}</p>
+          </div>
+        `;
+      } else {
+        html += `
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; text-align: center; color: #64748b; font-style: italic;">
+            Aucun antécédent médical ou pathologie particulier consigné.
+          </div>
+        `;
+      }
+
+      html += `</div>`;
+    }
+
+    // SECTION 3: HISTORIQUE DES SEANCES DE SOINS / BIEN-ETRE
+    if (options.includeSessions) {
+      const hasPriorSections = options.includeIdentity || options.includeMedical;
+      const pageBreakStyle = hasPriorSections 
+        ? "page-break-before: always !important; break-before: page !important; padding-top: 15mm !important;" 
+        : "";
+      html += `
+        <div class="dossier-section-sessions" style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid; ${pageBreakStyle}">
+          <div style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1.5px solid #e2e8f0;">
+            <span style="color: #D96B27;">3.</span> Historique & Synthèse des Séances (${periodLabel})
+          </div>
+      `;
+
+      if (filteredSessions.length === 0) {
+        html += `
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; font-size: 0.85rem; text-align: center; color: #64748b; font-style: italic;">
+            Aucune séance enregistrée sur la période sélectionnée (${periodLabel}).
+          </div>
+        `;
+      } else {
+        filteredSessions.forEach(s => {
+          let cardTitle = '';
+          let rawSummary = '';
+
+          if (s.isExternal) {
+            cardTitle = `${s.profession || 'Intervention'}${s.practitionerName ? ' - ' + s.practitionerName : ''}`;
+            rawSummary = s.summary || '-';
+          } else {
+            const activeProtocols = getActiveProtocolsList(s);
+            cardTitle = activeProtocols.length > 0 ? activeProtocols.join(' + ') : (s.motif || `Séance du ${formatDate(s.date_seance)}`);
+            rawSummary = s.resume_client_genere || 'Aucun résumé client rédigé.';
+          }
+
+          const cleanSummaryHtml = interpretMarkdownToHtml(adaptResumeForClient(rawSummary));
+
+          html += `
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; page-break-inside: avoid; break-inside: avoid;">
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">
+                <tr>
+                  <td style="text-align: left; font-weight: 700; color: #0f172a; font-size: 0.88rem; padding: 0 0 4px 0;">${escapeHtml(cardTitle)}</td>
+                  <td style="text-align: right; font-size: 0.8rem; font-weight: 600; color: #D96B27; white-space: nowrap; padding: 0 0 4px 0;">${formatDate(s.date_seance)}</td>
+                </tr>
+              </table>
+              ${s.motif ? `<div style="font-size: 0.82rem; color: #475569; margin-bottom: 4px; line-height: 1.35; white-space: pre-line;"><strong>Motif :</strong> ${formatMultilineText(s.motif)}</div>` : ''}
+              <div style="font-size: 0.82rem; color: #334155; line-height: 1.4; margin: 0; word-break: break-word; white-space: pre-line;">
+                <strong style="color: #0f172a;">Résumé :</strong> <span>${cleanSummaryHtml}</span>
+              </div>
+            </div>
+          `;
+        });
+      }
+
+      html += `</div>`;
+    }
+
+    // PIED DE PAGE ET DECHARGE LEGALE
+    html += `
+      <div style="margin-top: 30px; border-top: 1px solid #cbd5e1; padding-top: 14px; page-break-inside: avoid; break-inside: avoid;">
+        <p style="font-size: 0.76rem; font-style: italic; line-height: 1.4; color: #64748b; text-align: justify; margin: 0 0 10px 0;">
+          « Ces notes sont purement personnelles et les informations qu’elles contiennent sont transmises à titre indicatif et dans le cadre d’un partage. Les indications anatomiques sont là uniquement comme repères pour localiser le travail énergétique effectué. Elles ne peuvent en aucun cas engager ma responsabilité, ni se substituer à un diagnostic, un avis et un suivi vétérinaire, ostéopathique ou éducatif. »
+        </p>
+        <p style="font-size: 0.74rem; color: #94a3b8; text-align: center; margin: 0;">
+          Fiche de liaison générée via l'application Suivi eKiKare le ${new Date().toLocaleDateString('fr-FR')} • Page générée automatiquement
+        </p>
+      </div>
+    `;
+
+    sheetContainer.innerHTML = html;
+
+    const cleanAnimalName = (animal?.nom || 'Animal').trim().replace(/[\s/\\?%*:|"<>]+/g, '_');
+    const filename = `Dossier_suivi_${cleanAnimalName}.pdf`;
+    const subtitle = `${animal.nom} (${animal.espece}) • Dossier édité le ${new Date().toLocaleDateString('fr-FR')}`;
+    const title = `Dossier de suivi — ${animal.nom}`;
+
+    // Pipeline unifié : Compilation en Blob PDF via écran de chargement modal immédiat
+    const sheetElement = document.getElementById('animal-dossier-preview-sheet');
+    await openUniversalDocument(
+      () => generatePdfBlobFromHtml(sheetElement.innerHTML, filename),
+      filename,
+      title,
+      {
+        ...extraInfo,
+        subtitle: subtitle
+      }
+    );
+
+  } catch (err) {
+    console.error("Erreur lors de l'ouverture de la prévisualisation du dossier:", err);
+    showToast("Erreur lors de l'affichage du dossier.", "error");
+  } finally {
+    isAnimalDossierPreviewOpening = false;
+  }
+}
+
+// --- MODULE CGV & RGPD (ACCEPTATION BLOQUANTE & CONSULTATION) ---
+let isCgvBlocking = false;
+let currentCgvClient = null;
+
+function setupCgvRgpdModal() {
+  const dialog = document.getElementById('dialog-cgv-rgpd');
+  if (!dialog || dialog.dataset.initialized === 'true') return;
+  dialog.dataset.initialized = 'true';
+
+  const closeBtn = document.getElementById('btn-close-cgv-dialog');
+  const consultationCloseBtn = document.getElementById('btn-close-cgv-consultation-footer');
+  const tabCgvBtn = document.getElementById('tab-cgv-btn');
+  const tabRgpdBtn = document.getElementById('tab-rgpd-btn');
+  const panelCgv = document.getElementById('panel-cgv');
+  const panelRgpd = document.getElementById('panel-rgpd');
+  const checkCgv = document.getElementById('cgv-consent-cgv');
+  const checkVet = document.getElementById('cgv-consent-vet');
+  const checkRgpd = document.getElementById('cgv-consent-rgpd');
+  const submitBtn = document.getElementById('btn-submit-cgv-rgpd');
+
+  const switchTab = (tab) => {
+    if (tab === 'cgv') {
+      if (tabCgvBtn) tabCgvBtn.classList.add('active');
+      if (tabRgpdBtn) tabRgpdBtn.classList.remove('active');
+      if (panelCgv) panelCgv.style.display = 'block';
+      if (panelRgpd) panelRgpd.style.display = 'none';
+    } else {
+      if (tabCgvBtn) tabCgvBtn.classList.remove('active');
+      if (tabRgpdBtn) tabRgpdBtn.classList.add('active');
+      if (panelCgv) panelCgv.style.display = 'none';
+      if (panelRgpd) panelRgpd.style.display = 'block';
+    }
+    dialog.scrollTop = 0;
+  };
+
+  if (tabCgvBtn) tabCgvBtn.onclick = () => switchTab('cgv');
+  if (tabRgpdBtn) tabRgpdBtn.onclick = () => switchTab('rgpd');
+
+  const closeConsultation = () => {
+    if (!isCgvBlocking) {
+      dialog.close();
+    }
+  };
+  if (closeBtn) closeBtn.onclick = closeConsultation;
+  if (consultationCloseBtn) consultationCloseBtn.onclick = closeConsultation;
+
+  // Empêcher l'annulation (Echap) en mode bloquant
+  dialog.addEventListener('cancel', (e) => {
+    if (isCgvBlocking) {
+      e.preventDefault();
+    }
+  });
+
+  // Empêcher la fermeture par clic en dehors en mode bloquant
+  dialog.addEventListener('click', (e) => {
+    if (isCgvBlocking) return;
+    const rect = dialog.getBoundingClientRect();
+    if (
+      e.clientX < rect.left ||
+      e.clientX > rect.right ||
+      e.clientY < rect.top ||
+      e.clientY > rect.bottom
+    ) {
+      dialog.close();
+    }
+  });
+
+  // Validation des trois cases à cocher obligatoires
+  const checkValidation = () => {
+    if (!submitBtn) return;
+    const isValid = Boolean(
+      checkCgv && checkCgv.checked &&
+      checkVet && checkVet.checked &&
+      checkRgpd && checkRgpd.checked
+    );
+    submitBtn.disabled = !isValid;
+    submitBtn.style.opacity = isValid ? '1' : '0.5';
+    submitBtn.style.cursor = isValid ? 'pointer' : 'not-allowed';
+  };
+
+  if (checkCgv) checkCgv.onchange = checkValidation;
+  if (checkVet) checkVet.onchange = checkValidation;
+  if (checkRgpd) checkRgpd.onchange = checkValidation;
+
+  // Validation et enregistrement de l'acceptation
+  if (submitBtn) {
+    submitBtn.onclick = async () => {
+      if (!currentCgvClient) {
+        dialog.close();
+        return;
+      }
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Validation en cours...";
+
+      try {
+        const nowIso = new Date().toISOString();
+        currentCgvClient.cgv_rgpd_accepted = true;
+        currentCgvClient.cgv_rgpd_accepted_at = nowIso;
+        currentCgvClient.cgv_rgpd_version = 'v7';
+        currentCgvClient.updated_at = nowIso;
+        currentCgvClient.last_modified = Date.now();
+        currentCgvClient.synced = 0;
+
+        // Nettoyage de sécurité dans la note si un ancien tag subsistait
+        if (currentCgvClient.notes) {
+          currentCgvClient.notes = String(currentCgvClient.notes).replace(/\[portal_token:[^\]]+\]/g, '').replace(/\[cgv_rgpd:[^\]]+\]/g, '').trim();
+        }
+
+        await updateLocal('clients', currentCgvClient);
+
+        // Synchronisation immédiate avec Supabase avant de fermer la modale
+        if (navigator.onLine) {
+          const supabase = getSupabaseClient();
+          if (supabase) {
+            try {
+              const patch = {
+                cgv_rgpd_accepted: true,
+                cgv_rgpd_accepted_at: nowIso,
+                cgv_rgpd_version: 'v7',
+                notes: currentCgvClient.notes || '',
+                updated_at: nowIso
+              };
+
+              let syncSuccess = false;
+              if (currentCgvClient.id) {
+                const resId = await supabase.from('clients').update(patch).eq('id', String(currentCgvClient.id));
+                if (!resId.error) syncSuccess = true;
+              }
+              if (!syncSuccess && currentCgvClient.uuid) {
+                const resUuid = await supabase.from('clients').update(patch).eq('uuid', currentCgvClient.uuid);
+                if (!resUuid.error) syncSuccess = true;
+              }
+
+              if (syncSuccess) {
+                currentCgvClient.synced = 1;
+                await updateLocal('clients', currentCgvClient);
+              }
+            } catch (errSync) {
+              console.warn("[Portal CGV] Erreur push direct Supabase:", errSync);
+            }
+          }
+
+          // Déclencher le push pending du SyncManager pour garantir l'intégrité de la file d'attente
+          try {
+            await SyncManager.pushPending();
+          } catch (ePush) {
+            console.warn("[Portal CGV] SyncManager.pushPending exception:", ePush);
+          }
+        }
+
+        isCgvBlocking = false;
+        dialog.close();
+        showToast("Conditions acceptées. Bienvenue sur votre espace de suivi !");
+      } catch (err) {
+        console.error("Erreur enregistrement validation CGV/RGPD:", err);
+        showToast("Erreur lors de la validation. Veuillez réessayer.", "error");
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Valider et accéder à mon espace";
+      }
+    };
+  }
+
+  // Écouteur global pour les boutons d'ouverture en consultation
+  document.querySelectorAll('.btn-open-cgv-modal').forEach(btn => {
+    btn.onclick = async () => {
+      let clientToView = currentCgvClient;
+      if (!clientToView && currentPortalClientId) {
+        clientToView = await getById('clients', currentPortalClientId);
+      }
+      openCgvRgpdDialog(clientToView, false);
+    };
+  });
+}
+
+async function openCgvRgpdDialog(client, isBlocking = false) {
+  setupCgvRgpdModal();
+  const dialog = document.getElementById('dialog-cgv-rgpd');
+  if (!dialog) return;
+
+  isCgvBlocking = Boolean(isBlocking);
+  currentCgvClient = client;
+
+  const closeBtn = document.getElementById('btn-close-cgv-dialog');
+  const blockingFooter = document.getElementById('cgv-blocking-footer');
+  const consultationFooter = document.getElementById('cgv-consultation-footer');
+  const checkCgv = document.getElementById('cgv-consent-cgv');
+  const checkVet = document.getElementById('cgv-consent-vet');
+  const checkRgpd = document.getElementById('cgv-consent-rgpd');
+  const submitBtn = document.getElementById('btn-submit-cgv-rgpd');
+  const subtitle = document.getElementById('cgv-dialog-subtitle');
+
+  // Remettre sur l'onglet CGV par défaut
+  const tabCgvBtn = document.getElementById('tab-cgv-btn');
+  const tabRgpdBtn = document.getElementById('tab-rgpd-btn');
+  const panelCgv = document.getElementById('panel-cgv');
+  const panelRgpd = document.getElementById('panel-rgpd');
+  if (tabCgvBtn) tabCgvBtn.classList.add('active');
+  if (tabRgpdBtn) tabRgpdBtn.classList.remove('active');
+  if (panelCgv) panelCgv.style.display = 'block';
+  if (panelRgpd) panelRgpd.style.display = 'none';
+
+  if (isCgvBlocking) {
+    if (closeBtn) closeBtn.style.display = 'none';
+    if (blockingFooter) blockingFooter.style.display = 'block';
+    if (consultationFooter) consultationFooter.style.display = 'none';
+    if (subtitle) subtitle.textContent = "Validation obligatoire avant accès à l'espace de suivi";
+    if (checkCgv) checkCgv.checked = false;
+    if (checkVet) checkVet.checked = false;
+    if (checkRgpd) checkRgpd.checked = false;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.5';
+      submitBtn.style.cursor = 'not-allowed';
+    }
+  } else {
+    if (closeBtn) closeBtn.style.display = 'block';
+    if (blockingFooter) blockingFooter.style.display = 'none';
+    if (consultationFooter) consultationFooter.style.display = 'flex';
+    if (subtitle) subtitle.textContent = "Consultation des Conditions Générales et de la Politique RGPD";
+  }
+
+  if (typeof dialog.showModal === 'function') {
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+  } else {
+    dialog.style.display = 'block';
+  }
+  dialog.scrollTop = 0;
+}
+
+// --- PORTAIL CLIENT ---
+async function renderPortalDetails(tokenOrId) {
+  hidePractitionerLockOverlay();
+
+  const container = document.querySelector('#view-portal .portal-container') || document.getElementById('view-portal');
+  const closedView = document.getElementById('portal-closed-view');
+  const activeView = document.getElementById('portal-active-view');
+  const portalAnimalsContainer = document.getElementById('portal-client-animals');
+  const ownerTitle = document.getElementById('portal-owner-title');
+
+  // Fonction interne de mise à jour fluide de l'affichage sans masquer les conteneurs
+  const renderClientUI = async (c) => {
+    if (!c) return;
+    if (c.archived_at) {
+      currentPortalClientId = c.id;
+      currentPortalClientToken = c.uuid || String(c.id);
+      sessionStorage.setItem('portalClientId', currentPortalClientId);
+      sessionStorage.setItem('portalClientToken', currentPortalClientToken);
+
+      if (activeView) activeView.style.display = 'none';
+      if (closedView) {
+        closedView.innerHTML = `
+          <div style="min-height: 80vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem;">
+            <div style="font-size: 3rem; margin-bottom: 1rem;">📁</div>
+            <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 0.75rem;">Espace clôturé</h2>
+            <p style="max-width: 500px; color: #9ca3af; line-height: 1.5;">
+              Le dossier associé à cet espace client a été archivé. L'accès aux informations et aux modifications n'est plus disponible.<br><br>
+              Pour toute question, contactez directement votre praticien.
+            </p>
+          </div>
+        `;
+        closedView.style.display = 'block';
+      }
+      return;
+    }
+
+    currentPortalClientId = c.id;
+    currentPortalClientToken = c.uuid || String(c.id);
+    sessionStorage.setItem('portalClientId', currentPortalClientId);
+    sessionStorage.setItem('portalClientToken', currentPortalClientToken);
+
+    if (closedView) closedView.style.display = 'none';
+    if (activeView) activeView.style.display = 'block';
+
+    // 2. Espace Client : Blocage si CGV & RGPD non acceptés
+    if (!c.cgv_rgpd_accepted) {
+      openCgvRgpdDialog(c, true);
+    }
+
+    if (ownerTitle) ownerTitle.textContent = `Espace Suivi de ${c.prenom || ''} ${(c.nom || '').toUpperCase()}`.trim();
+    const phoneEl = document.getElementById('portal-client-phone');
+    if (phoneEl) phoneEl.textContent = c.telephone || '-';
+    const emailEl = document.getElementById('portal-client-email');
+    if (emailEl) emailEl.textContent = c.email || '-';
+    const addressEl = document.getElementById('portal-client-address');
+    if (addressEl) addressEl.textContent = c.adresse || '-';
+    const stableEl = document.getElementById('portal-client-stable');
+    if (stableEl) stableEl.textContent = c.ecurie || '-';
+
+    const btnEditContact = document.getElementById('btn-portal-edit-contact');
+    if (btnEditContact) {
+      btnEditContact.style.display = 'inline-flex';
+      btnEditContact.onclick = () => {
+        openClientDialog(c);
+      };
+    }
+
+    const btnAddAnimal = document.getElementById('btn-portal-add-animal');
+    if (btnAddAnimal) {
+      btnAddAnimal.style.display = 'inline-flex';
+      btnAddAnimal.onclick = () => {
+        openAnimalDialog(null, c.id);
+      };
+    }
+
+    // Récupérer et afficher les animaux associés à ce client
+    const animals = await getByIndex('animals', 'client_id', c.id);
+    if (portalAnimalsContainer) {
+      portalAnimalsContainer.innerHTML = '';
+      if (animals.length === 0) {
+        portalAnimalsContainer.innerHTML = '<p class="empty-state">Aucun animal enregistré sur votre compte.</p>';
+      } else {
+        for (const an of animals) {
+          const portalToken = currentPortalClientToken || c.uuid || c.id;
+          const card = document.createElement('a');
+          card.className = 'animal-mini-card';
+          card.href = `#portal/${portalToken}/animals/${an.id}`;
+          
+          const avatarText = (an.nom || '').substring(0, 2).toUpperCase();
+          const ageDisplay = calculateAge(an.date_naissance_ou_age, an.date_naissance_ou_age);
+          const locText = getAnimalLocationSummary(an);
+          const archiveBadge = an.archived_at ? `<span class="badge" style="background: rgba(217, 107, 39, 0.2); color: #f59e0b; border: 1px solid rgba(217, 107, 39, 0.4); font-size: 0.75rem; padding: 2px 7px; border-radius: 6px; font-weight: 600; margin-left: 8px;">Dossier clôturé</span>` : '';
+
+          card.innerHTML = `
+            <div class="animal-mini-info">
+              <div class="animal-avatar-mini">${avatarText}</div>
+              <div>
+                <span class="animal-mini-name">${an.nom || ''} ${archiveBadge}</span>
+                <div class="animal-mini-details">${an.espece || ''} &bull; ${an.race || 'Race inconnue'} &bull; ${ageDisplay}</div>
+                <div class="animal-mini-location" style="font-size:0.85rem; color:var(--text-sub); margin-top:2px;">📍 ${locText}</div>
+              </div>
+            </div>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          `;
+
+          portalAnimalsContainer.appendChild(card);
+        }
+      }
+    }
+  };
+
+  // 1. Recherche locale immédiate (0ms de latence, zéro clignotement)
+  let client = await getClientByUuid(tokenOrId);
+  if (!client && !isNaN(Number(tokenOrId))) {
+    client = await getById('clients', Number(tokenOrId));
+  }
+
+  if (client) {
+    await renderClientUI(client);
+  } else if (navigator.onLine) {
+    // 2. Synchronisation distante uniquement si non présent localement
+    try {
+      const remoteClient = await fetchClientPortalData(tokenOrId);
+      if (remoteClient) {
+        client = remoteClient;
+        await renderClientUI(client);
+      }
+    } catch (err) {
+      console.warn("fetchClientPortalData distant:", err);
+    }
+  }
+
+  // 3. Cas où le client est définitivement introuvable (local et distant)
+  if (!client) {
+    if (closedView) closedView.style.display = 'none';
+    if (activeView) activeView.style.display = 'block';
+    if (portalAnimalsContainer) {
+      portalAnimalsContainer.innerHTML = `
+        <div class="empty-state glass-card" style="text-align: center; padding: 48px 24px; margin: 16px 0; border-radius: 16px;">
+          <div style="font-size: 2.2rem; margin-bottom: 12px;">🔍</div>
+          <h3 style="font-size: 1.15rem; font-weight: 600; color: #fff; margin-bottom: 6px;">Espace client introuvable</h3>
+          <p style="font-size: 0.88rem; color: var(--text-sub, #94a3b8); max-width: 420px; margin: 0 auto; line-height: 1.5;">
+            Ce lien de suivi est introuvable ou a été désactivé.<br>
+            Veuillez contacter votre praticienne pour obtenir un nouveau lien personnalisé.
+          </p>
+        </div>
+      `;
+    }
+    if (ownerTitle) ownerTitle.textContent = "Espace Suivi eKiKare";
+    const pPhone = document.getElementById('portal-client-phone');
+    if (pPhone) pPhone.textContent = "-";
+    const pEmail = document.getElementById('portal-client-email');
+    if (pEmail) pEmail.textContent = "-";
+    const pAddress = document.getElementById('portal-client-address');
+    if (pAddress) pAddress.textContent = "-";
+    const pStable = document.getElementById('portal-client-stable');
+    if (pStable) pStable.textContent = "-";
+  }
+}
+
+// --- ACTUALISATION RÉACTIVE DU PROFIL CLIENT ---
+
+/**
+ * Recharge et affiche la fiche client / profil à l'écran depuis IndexedDB sans rechargement de page.
+ */
+async function renderClient() {
+  const portalToken = currentPortalClientToken ||
+                      sessionStorage.getItem('portalClientToken') ||
+                      currentPortalClientId ||
+                      sessionStorage.getItem('portalClientId');
+
+  if (window.location.hash.startsWith('#portal') || portalToken) {
+    let tokenOrId = portalToken;
+    if (window.location.hash.startsWith('#portal/')) {
+      const parts = window.location.hash.replace(/^#\/?portal\//, '').split('/');
+      if (parts[0]) tokenOrId = parts[0];
+    }
+    if (tokenOrId && typeof renderPortalDetails === 'function') {
+      await renderPortalDetails(tokenOrId);
+    }
+  } else if (window.location.hash.startsWith('#clients/') && typeof currentClientId !== 'undefined' && currentClientId) {
+    if (typeof renderClientDetails === 'function') {
+      await renderClientDetails(currentClientId);
+    }
+  } else if (window.location.hash === '#clients' || window.location.hash.startsWith('#clients')) {
+    if (typeof renderClientsList === 'function') {
+      await renderClientsList();
+    }
+  }
+}
+window.renderClient = renderClient;
+
+/**
+ * Charge les données fraîches du client depuis IndexedDB.
+ */
+async function loadClientData(clientIdOrToken = null) {
+  const token = clientIdOrToken ||
+                currentPortalClientToken ||
+                sessionStorage.getItem('portalClientToken') ||
+                currentPortalClientId ||
+                sessionStorage.getItem('portalClientId') ||
+                (typeof currentClientId !== 'undefined' ? currentClientId : null);
+  if (!token) return null;
+  let client = await getClientByUuid(token);
+  if (!client && !isNaN(Number(token))) {
+    client = await getById('clients', Number(token));
+  }
+  return client;
+}
+window.loadClientData = loadClientData;
+
+/**
+ * Réactualise la vue active dans l'interface sans rechargement lourd.
+ */
+async function refreshUI() {
+  if (typeof refreshCurrentView === 'function') {
+    await refreshCurrentView();
+  }
+}
+window.refreshUI = refreshUI;
+
+// Écouter l'événement global pour actualiser la fiche client / profil en direct
+window.addEventListener('clients-updated', () => {
+  if (typeof renderClient === 'function') renderClient();
+  if (typeof loadClientData === 'function') loadClientData();
+  if (typeof refreshUI === 'function') refreshUI();
+});
+
+window.openCgvRgpdDialog = openCgvRgpdDialog;
