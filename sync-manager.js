@@ -22,7 +22,7 @@ import {
   mapSupabaseToLocal,
   reconcileClientUUIDsFromSupabase,
   registerDatabaseChangeCallback
-} from './db.js?v=1.8.0';
+} from './db.js?v=1.8.1';
 
 /**
  * Récupère le client Supabase actif (via window.supabaseClient ou getSupabaseClient)

@@ -1,16 +1,20 @@
 // Service Worker eKiKare
-const CACHE_NAME = 'ekikare-cache-v1.8.0';
+const IS_BETA = self.location.pathname.includes('/beta');
+const CACHE_VERSION = 'v1.8.1';
+const CACHE_PREFIX = IS_BETA ? 'ekikare-beta-' : 'ekikare-cache-';
+const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION}`;
 
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './style.css?v=1.8.0',
-  './app.js?v=1.8.0',
-  './db.js?v=1.8.0',
-  './sync-manager.js?v=1.8.0',
-  './lib/pinch-zoom.umd.js?v=1.8.0',
+  './style.css?v=1.8.1',
+  './app.js?v=1.8.1',
+  './db.js?v=1.8.1',
+  './sync-manager.js?v=1.8.1',
+  './lib/pinch-zoom.umd.js?v=1.8.1',
   './manifest.json',
   './favicon.ico',
+  './horse_skeleton.png',
   './assets/logo-icon.png',
   './assets/logo-ekikare.png',
   './assets/icon-192.png',
@@ -36,7 +40,10 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
-          if (key !== CACHE_NAME) {
+          const belongsToSameEnv = IS_BETA
+            ? key.startsWith('ekikare-beta-')
+            : !key.startsWith('ekikare-beta-');
+          if (belongsToSameEnv && key !== CACHE_NAME) {
             console.log('[SW] Suppression ancien cache:', key);
             return caches.delete(key);
           }
@@ -63,7 +70,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Stratégie Network-First avec repli sur le cache pour un usage hors-ligne fiable
+  // Stratégie Network-First avec repli sur le cache isolé (Prod vs Beta)
   event.respondWith(
     fetch(request)
       .then((networkResponse) => {
@@ -76,13 +83,15 @@ self.addEventListener('fetch', (event) => {
         return networkResponse;
       })
       .catch(() => {
-        return caches.match(request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          if (request.headers.get('accept')?.includes('text/html')) {
-            return caches.match('./index.html');
-          }
+        return caches.open(CACHE_NAME).then((cache) => {
+          return cache.match(request).then((cachedResponse) => {
+            if (cachedResponse) {
+              return cachedResponse;
+            }
+            if (request.headers.get('accept')?.includes('text/html')) {
+              return cache.match('./index.html');
+            }
+          });
         });
       })
   );

@@ -4658,3 +4658,40 @@ dialog#dialog-cgv-rgpd:not([open]),
   }
 }
 
+/* ==========================================================================
+   ENVIRONNEMENT BETA / TEST BADGE
+   ========================================================================== */
+.beta-env-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 999px;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.15);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.beta-env-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+}
+
+@media print {
+  .beta-env-badge {
+    display: none !important;
+  }
+}
+
+

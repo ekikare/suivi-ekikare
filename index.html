@@ -31,7 +31,7 @@
     }
   </script>
   <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="manifest.json?v=1.8.0">
+  <link rel="manifest" href="./manifest.json?v=1.8.1">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -39,17 +39,17 @@
   <meta name="apple-mobile-web-app-title" content="eKiKare">
 
   <!-- Icons (Favicon & Touch Icons) -->
-  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1.8.0">
-  <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png?v=1.8.0">
-  <link rel="icon" type="image/png" href="assets/logo-icon.png?v=1.8.0">
-  <link rel="shortcut icon" href="favicon.ico?v=1.8.0">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1.8.0">
+  <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png?v=1.8.1">
+  <link rel="icon" type="image/png" sizes="512x512" href="./assets/icon-512.png?v=1.8.1">
+  <link rel="icon" type="image/png" href="./assets/logo-icon.png?v=1.8.1">
+  <link rel="shortcut icon" href="./favicon.ico?v=1.8.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png?v=1.8.1">
 
   <!-- Google Fonts: Outfit -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.8.0">
+  <link rel="stylesheet" href="./style.css?v=1.8.1">
   <!-- Leaflet library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -60,14 +60,14 @@
   <!-- PDF.js library for high-fidelity canvas PDF rendering & zoom on mobile/tablets -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <!-- PinchZoom library for touch gestures & continuous focal zoom -->
-  <script src="lib/pinch-zoom.umd.js?v=1.8.0"></script>
+  <script src="./lib/pinch-zoom.umd.js?v=1.8.1"></script>
 </head>
 <body>
   <div class="app-container">
     <!-- Sidebar de navigation -->
     <aside class="sidebar">
       <div class="sidebar-brand" id="sidebar-brand-toggle" role="button" tabindex="0" title="Ouvrir / fermer le menu" aria-label="Menu de navigation">
-        <img src="assets/logo-icon.png" alt="Logo eKiKare" class="brand-logo-img">
+        <img src="./assets/logo-icon.png" alt="Logo eKiKare" class="brand-logo-img">
         <span class="brand-text">Suivi <span class="accent-text">eKiKare</span></span>
       </div>
 
@@ -110,7 +110,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <p class="app-version">eKiKare v1.8.0 &bull; Offline Database</p>
+        <p class="app-version">eKiKare v1.8.1 &bull; Offline Database</p>
       </div>
     </aside>
 
@@ -121,7 +121,7 @@
     <main class="main-content">
       <!-- Top Header -->
       <header class="app-header">
-        <div class="header-left-group" style="display: flex; align-items: center; gap: 12px;">
+        <div class="header-left-group" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
           <button class="btn-burger-menu" id="btn-header-burger" aria-label="Menu de navigation" title="Ouvrir le menu">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="3" y1="12" x2="21" y2="12"/>
@@ -130,6 +130,7 @@
             </svg>
           </button>
           <div id="sync-status-container"></div>
+          <span id="beta-env-badge" class="beta-env-badge" style="display: none;" title="Environnement de test / pré-production isolé (/beta/)">VERSION BETA</span>
         </div>
         <div class="header-meta">
           <span class="header-date" id="current-date">-</span>
@@ -2025,7 +2026,7 @@
             <option value="1x par an">1x par an</option>
             <option value="2x par an">2x par an</option>
             <option value="3x par an">3x par an</option>
-            <option value="4x par an">4x par an</option>
+            <option value="4x par an" selected>4x par an</option>
             <option value="Autre">Autre</option>
           </select>
           <input type="text" id="animal-form-tracking-mode-other" placeholder="Précisez le suivi..." autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="next" style="display: none; margin-top: 5px;">
@@ -3073,7 +3074,7 @@
   <div id="toast-container"></div>
 
   <!-- Script principal -->
-  <script type="module" src="app.js?v=1.8.0"></script>
+  <script type="module" src="./app.js?v=1.8.1"></script>
 
   <!-- Service Worker PWA -->
   <script>
@@ -3087,7 +3088,7 @@
       });
 
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1.8.0')
+        navigator.serviceWorker.register('./sw.js?v=1.8.1')
           .then((reg) => {
             console.log('[PWA] Service Worker actif (scope:', reg.scope, ')');
             try { reg.update(); } catch (_) {}

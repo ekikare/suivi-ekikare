@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.8.0';
+} from './db.js?v=1.8.1';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.0';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.1';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -42,28 +42,42 @@ if (typeof window !== 'undefined' && initialClient) {
   window.supabaseClient = initialClient;
 }
 
+// Détection de l'environnement Beta (/beta/)
+export const IS_BETA_ENV = typeof window !== 'undefined' && window.location.pathname.includes('/beta');
+
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.8.0';
+export const APP_VERSION = 'v1.8.1';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
+  window.IS_BETA_ENV = IS_BETA_ENV;
 }
 
-// Purge automatique des caches PDF lors d'un changement de version (ex: v1.7.8)
+// Purge automatique des caches PDF lors d'un changement de version
 try {
-  const storedVersion = localStorage.getItem('ekikare_version');
+  const versionStorageKey = IS_BETA_ENV ? 'ekikare_version_beta' : 'ekikare_version';
+  const storedVersion = localStorage.getItem(versionStorageKey);
   if (storedVersion !== APP_VERSION) {
     console.log(`[Version] Nouvelle version détectée (${APP_VERSION}), purge des caches obsolètes...`);
     clearAllPdfCache().catch(e => console.warn('[Version] Erreur purge pdf cache:', e));
-    localStorage.setItem('ekikare_version', APP_VERSION);
+    localStorage.setItem(versionStorageKey, APP_VERSION);
   }
 } catch (_) {}
 
-// Mise à jour dynamique de la version affichée dans le menu latéral / pied de page
+// Mise à jour dynamique de la version affichée et du badge VERSION BETA
 function syncAppVersionDisplay() {
   const versionEls = document.querySelectorAll('.app-version');
   versionEls.forEach(el => {
-    el.innerHTML = `eKiKare ${APP_VERSION} &bull; Offline Database`;
+    el.innerHTML = `eKiKare ${APP_VERSION}${IS_BETA_ENV ? ' (BETA)' : ''} &bull; Offline Database`;
   });
+
+  const betaBadge = document.getElementById('beta-env-badge');
+  if (betaBadge) {
+    betaBadge.style.display = IS_BETA_ENV ? 'inline-flex' : 'none';
+  }
+
+  if (IS_BETA_ENV && typeof document !== 'undefined' && !document.title.startsWith('[BETA]')) {
+    document.title = `[BETA] ${document.title}`;
+  }
 }
 if (typeof document !== 'undefined') {
   if (document.readyState === 'loading') {
@@ -2491,8 +2505,8 @@ async function renderAnimalsList() {
       valA = (a.archive_reason || '').toLowerCase();
       valB = (b.archive_reason || '').toLowerCase();
     } else if (currentSortCol === 'tracking') {
-      const trackA = a.trackingMode || a.modeSuivi || a.tracking_mode || 'À la demande';
-      const trackB = b.trackingMode || b.modeSuivi || b.tracking_mode || 'À la demande';
+      const trackA = a.trackingMode || a.modeSuivi || a.tracking_mode || '4x par an';
+      const trackB = b.trackingMode || b.modeSuivi || b.tracking_mode || '4x par an';
       const otherA = a.tracking_mode_other || '';
       const otherB = b.tracking_mode_other || '';
       valA = (trackA === 'Autre' ? otherA : trackA).toLowerCase();
@@ -2550,7 +2564,7 @@ async function renderAnimalsList() {
 
       const prob = an.mainIssues || an.problematique || an.main_problems || '-';
       
-      const tracking = an.trackingMode || an.modeSuivi || an.tracking_mode || 'À la demande';
+      const tracking = an.trackingMode || an.modeSuivi || an.tracking_mode || '4x par an';
       const trackingText = tracking === 'Autre' ? (an.tracking_mode_other || 'Autre') : tracking;
 
       let col7Html = trackingText;
@@ -2683,7 +2697,7 @@ async function renderAnimalDetails(animalId) {
   }
 
   // Tracking frequency display
-  const trackingText = animal.tracking_mode === 'Autre' ? (animal.tracking_mode_other || 'Autre suivi') : (animal.tracking_mode || 'À la demande');
+  const trackingText = animal.tracking_mode === 'Autre' ? (animal.tracking_mode_other || 'Autre suivi') : (animal.tracking_mode || '4x par an');
   document.getElementById('detail-animal-tracking-mode-display').textContent = `Suivi : ${trackingText}`;
   document.getElementById('detail-animal-tracking-mode').textContent = trackingText;
 
@@ -7472,19 +7486,21 @@ animals.forEach(an => {
     downloadCSV(csv, 'animaux_ekikare.csv');
   };
 
-  // Forcer la mise à jour de l'application et purger les caches du navigateur
+  // Forcer la mise à jour de l'application et purger les caches du navigateur (isolé Prod vs Beta)
   const handleForceCacheRefresh = async () => {
     showToast('Purge du cache et mise à jour de l\'application en cours...', 'info');
     try {
-      // 1. Vider les caches du navigateur
+      // 1. Vider uniquement les caches de l'environnement courant (Beta ou Prod)
       if ('caches' in window) {
         const keys = await caches.keys();
-        await Promise.all(keys.map(k => caches.delete(k)));
+        const envKeys = keys.filter(k => IS_BETA_ENV ? k.startsWith('ekikare-beta-') : !k.startsWith('ekikare-beta-'));
+        await Promise.all(envKeys.map(k => caches.delete(k)));
       }
-      // 2. Désinscrire et réactualiser le Service Worker
+      // 2. Désinscrire uniquement le Service Worker de l'environnement courant
       if ('serviceWorker' in navigator) {
         const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map(r => r.unregister()));
+        const envRegs = registrations.filter(r => IS_BETA_ENV ? r.scope.includes('/beta') : !r.scope.includes('/beta'));
+        await Promise.all(envRegs.map(r => r.unregister()));
       }
     } catch (err) {
       console.error('Erreur lors de la purge du cache:', err);
@@ -9377,7 +9393,7 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
     document.getElementById('animal-form-social-type').value = animal.social_type || animal.social_life || custom.social_type || 'Individuel';
     
     // Suivi & alimentation
-    const trackMode = animal.tracking_mode || custom.tracking_mode || 'À la demande';
+    const trackMode = animal.tracking_mode || custom.tracking_mode || '4x par an';
     trackingSelect.value = trackMode;
     trackingOther.value = animal.tracking_mode_other || custom.tracking_mode_other || '';
     trackingOther.style.display = trackMode === 'Autre' ? 'block' : 'none';
@@ -9474,7 +9490,7 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
 
     document.getElementById('animal-form-social-type').value = 'Individuel';
     
-    trackingSelect.value = 'À la demande';
+    trackingSelect.value = '4x par an';
     trackingOther.value = '';
     trackingOther.style.display = 'none';
 
