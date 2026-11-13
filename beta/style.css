@@ -231,6 +231,20 @@ body {
   animation: pulse-red 2s infinite;
 }
 
+#reminder-badge.badge-overdue {
+  background-color: var(--color-danger, #ef4444);
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+  animation: pulse-red 2s infinite;
+}
+
+#reminder-badge.badge-upcoming {
+  background-color: #3b82f6;
+  color: #ffffff;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.35);
+  animation: none;
+}
+
 .sidebar-footer {
   padding: 20px;
   border-top: 1px solid var(--glass-border);

@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.8.5';
+} from './db.js?v=1.8.6';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.5';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.6';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -46,7 +46,7 @@ if (typeof window !== 'undefined' && initialClient) {
 export const IS_BETA_ENV = typeof window !== 'undefined' && window.location.pathname.includes('/beta');
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.8.5';
+export const APP_VERSION = 'v1.8.6';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
   window.IS_BETA_ENV = IS_BETA_ENV;
@@ -1533,17 +1533,107 @@ function isReminderTriggered(datePrevueStr) {
 
 // --- REMINDER BADGE SIDEBAR ---
 async function updateReminderBadge() {
-  const reminders = await getAll('reminders');
-  const activeReminders = reminders.filter(r => r.statut === 'en_attente' && isReminderTriggered(r.date_prevue));
   const badge = document.getElementById('reminder-badge');
-  if (badge) {
-    if (activeReminders.length > 0) {
-      badge.textContent = activeReminders.length;
-      badge.style.display = 'inline-block';
+  if (!badge) return;
+
+  // 1. Calcul des bornes temporelles (heure locale, semaine ISO du lundi au dimanche)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // En JS, getDay() renvoie 0 pour dimanche et 1..6 pour lundi..samedi
+  const dayOfWeek = today.getDay() === 0 ? 7 : today.getDay(); // 1 (lundi) à 7 (dimanche)
+  const daysUntilSunday = 7 - dayOfWeek;
+
+  const endOfCurrentWeek = new Date(today);
+  endOfCurrentWeek.setDate(today.getDate() + daysUntilSunday);
+  endOfCurrentWeek.setHours(23, 59, 59, 999);
+
+  // 2. Récupération et filtrage des rappels actifs rattachés à un animal/client actif
+  const [reminders, animals, clients] = await Promise.all([
+    getAll('reminders'),
+    getAll('animals'),
+    getAll('clients')
+  ]);
+
+  const animalMap = new Map(animals.map(a => [a.id, a]));
+  const clientMap = new Map(clients.map(c => [c.id, c]));
+
+  let overdueCount = 0;
+  let totalUrgentCount = 0;
+
+  for (const r of reminders) {
+    if (!r) continue;
+
+    // Exclure les rappels terminés
+    const isCompleted =
+      Boolean(r.completed) ||
+      r.status === 'done' ||
+      r.status === 'completed' ||
+      r.statut === 'fait';
+    if (isCompleted) continue;
+
+    // Vérifier que l'animal et/ou le client rattaché est actif (non archivé, non supprimé)
+    const hasSpecificAnimal = Boolean(r.animal_id && r.animal_id !== 'ALL');
+    const animal = hasSpecificAnimal ? animalMap.get(r.animal_id) : null;
+    if (hasSpecificAnimal && (!animal || animal.archived_at)) {
+      continue;
+    }
+
+    const effectiveClientId = r.client_id || (animal ? animal.client_id : null);
+    if (effectiveClientId) {
+      const client = clientMap.get(effectiveClientId);
+      if (!client || client.archived_at) {
+        continue;
+      }
+    } else if (!animal) {
+      // Rappel orphelin sans client ni animal actif
+      continue;
+    }
+
+    // Parsing de la date d'échéance en heure locale (00:00:00)
+    const rawDate = r.date_prevue || r.due_date || r.dueDate;
+    if (!rawDate) continue;
+
+    let dueDate;
+    const strDate = String(rawDate).trim();
+    const ymdMatch = strDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (ymdMatch) {
+      dueDate = new Date(Number(ymdMatch[1]), Number(ymdMatch[2]) - 1, Number(ymdMatch[3]), 0, 0, 0, 0);
     } else {
-      badge.style.display = 'none';
+      dueDate = new Date(strDate);
+      dueDate.setHours(0, 0, 0, 0);
+    }
+    if (isNaN(dueDate.getTime())) continue;
+
+    if (dueDate < today) {
+      overdueCount++;
+    }
+    if (dueDate <= endOfCurrentWeek) {
+      totalUrgentCount++;
     }
   }
+
+  // 3. Affichage et couleur dynamique du badge
+  badge.classList.remove('badge-overdue', 'badge-upcoming');
+
+  if (totalUrgentCount === 0) {
+    badge.style.display = 'none';
+    badge.textContent = '0';
+  } else {
+    badge.textContent = String(totalUrgentCount);
+    badge.style.display = 'inline-block';
+    if (overdueCount > 0) {
+      badge.classList.add('badge-overdue');
+    } else {
+      badge.classList.add('badge-upcoming');
+    }
+  }
+}
+
+const updateRemindersBadge = updateReminderBadge;
+if (typeof window !== 'undefined') {
+  window.updateReminderBadge = updateReminderBadge;
+  window.updateRemindersBadge = updateRemindersBadge;
 }
 
 // --- RENDU : TABLEAU DE BORD (DASHBOARD) ---
@@ -7208,6 +7298,7 @@ async function saveSessionForm() {
     showToast(`${remindersToSave.length} rappel(s) planifié(s).`);
   }
 
+  await updateReminderBadge();
   window.location.hash = `sessions/${savedId}`;
 }
 
