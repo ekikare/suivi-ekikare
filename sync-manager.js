@@ -22,7 +22,7 @@ import {
   mapSupabaseToLocal,
   reconcileClientUUIDsFromSupabase,
   registerDatabaseChangeCallback
-} from './db.js?v=1.8.3';
+} from './db.js?v=1.8.5';
 
 /**
  * Récupère le client Supabase actif (via window.supabaseClient ou getSupabaseClient)
@@ -155,6 +155,8 @@ export function buildScalarPatch(storeName, record) {
         }
       } else if (key === 'custom_details' && typeof val === 'object' && !Array.isArray(val)) {
         patch[key] = JSON.stringify(val);
+      } else if (key === 'protocols' && typeof val === 'object' && val !== null && !Array.isArray(val)) {
+        patch[key] = val;
       }
     }
   }
