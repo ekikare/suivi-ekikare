@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.8.0';
+} from './db.js?v=1.8.3';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.0';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.3';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -42,28 +42,42 @@ if (typeof window !== 'undefined' && initialClient) {
   window.supabaseClient = initialClient;
 }
 
+// Détection de l'environnement Beta (/beta/)
+export const IS_BETA_ENV = typeof window !== 'undefined' && window.location.pathname.includes('/beta');
+
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.8.0';
+export const APP_VERSION = 'v1.8.3';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
+  window.IS_BETA_ENV = IS_BETA_ENV;
 }
 
-// Purge automatique des caches PDF lors d'un changement de version (ex: v1.7.8)
+// Purge automatique des caches PDF lors d'un changement de version
 try {
-  const storedVersion = localStorage.getItem('ekikare_version');
+  const versionStorageKey = IS_BETA_ENV ? 'ekikare_version_beta' : 'ekikare_version';
+  const storedVersion = localStorage.getItem(versionStorageKey);
   if (storedVersion !== APP_VERSION) {
     console.log(`[Version] Nouvelle version détectée (${APP_VERSION}), purge des caches obsolètes...`);
     clearAllPdfCache().catch(e => console.warn('[Version] Erreur purge pdf cache:', e));
-    localStorage.setItem('ekikare_version', APP_VERSION);
+    localStorage.setItem(versionStorageKey, APP_VERSION);
   }
 } catch (_) {}
 
-// Mise à jour dynamique de la version affichée dans le menu latéral / pied de page
+// Mise à jour dynamique de la version affichée et du badge VERSION BETA
 function syncAppVersionDisplay() {
   const versionEls = document.querySelectorAll('.app-version');
   versionEls.forEach(el => {
-    el.innerHTML = `eKiKare ${APP_VERSION} &bull; Offline Database`;
+    el.innerHTML = `eKiKare ${APP_VERSION}${IS_BETA_ENV ? ' (BETA)' : ''} &bull; Offline Database`;
   });
+
+  const betaBadge = document.getElementById('beta-env-badge');
+  if (betaBadge) {
+    betaBadge.style.display = IS_BETA_ENV ? 'inline-flex' : 'none';
+  }
+
+  if (IS_BETA_ENV && typeof document !== 'undefined' && !document.title.startsWith('[BETA]')) {
+    document.title = `[BETA] ${document.title}`;
+  }
 }
 if (typeof document !== 'undefined') {
   if (document.readyState === 'loading') {
@@ -1476,7 +1490,13 @@ function formatWeekDisplay(yearWeekStr) {
 }
 
 function calculateFutureDate(fromDateStr, delayType) {
-  const date = new Date(fromDateStr);
+  const parts = String(fromDateStr || '').split('-');
+  let date;
+  if (parts.length === 3) {
+    date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
+  } else {
+    date = new Date(fromDateStr);
+  }
   if (isNaN(date.getTime())) return fromDateStr;
   
   switch(delayType) {
@@ -1485,6 +1505,7 @@ function calculateFutureDate(fromDateStr, delayType) {
     case '1m': date.setMonth(date.getMonth() + 1); break;
     case '2m': date.setMonth(date.getMonth() + 2); break;
     case '3m': date.setMonth(date.getMonth() + 3); break;
+    case '6m': date.setMonth(date.getMonth() + 6); break;
   }
   
   const y = date.getFullYear();
@@ -2491,8 +2512,8 @@ async function renderAnimalsList() {
       valA = (a.archive_reason || '').toLowerCase();
       valB = (b.archive_reason || '').toLowerCase();
     } else if (currentSortCol === 'tracking') {
-      const trackA = a.trackingMode || a.modeSuivi || a.tracking_mode || 'À la demande';
-      const trackB = b.trackingMode || b.modeSuivi || b.tracking_mode || 'À la demande';
+      const trackA = a.trackingMode || a.modeSuivi || a.tracking_mode || '4x par an';
+      const trackB = b.trackingMode || b.modeSuivi || b.tracking_mode || '4x par an';
       const otherA = a.tracking_mode_other || '';
       const otherB = b.tracking_mode_other || '';
       valA = (trackA === 'Autre' ? otherA : trackA).toLowerCase();
@@ -2550,7 +2571,7 @@ async function renderAnimalsList() {
 
       const prob = an.mainIssues || an.problematique || an.main_problems || '-';
       
-      const tracking = an.trackingMode || an.modeSuivi || an.tracking_mode || 'À la demande';
+      const tracking = an.trackingMode || an.modeSuivi || an.tracking_mode || '4x par an';
       const trackingText = tracking === 'Autre' ? (an.tracking_mode_other || 'Autre') : tracking;
 
       let col7Html = trackingText;
@@ -2683,7 +2704,7 @@ async function renderAnimalDetails(animalId) {
   }
 
   // Tracking frequency display
-  const trackingText = animal.tracking_mode === 'Autre' ? (animal.tracking_mode_other || 'Autre suivi') : (animal.tracking_mode || 'À la demande');
+  const trackingText = animal.tracking_mode === 'Autre' ? (animal.tracking_mode_other || 'Autre suivi') : (animal.tracking_mode || '4x par an');
   document.getElementById('detail-animal-tracking-mode-display').textContent = `Suivi : ${trackingText}`;
   document.getElementById('detail-animal-tracking-mode').textContent = trackingText;
 
@@ -4658,7 +4679,85 @@ function collectQuestionnaireData(containerId) {
 }
 
 let reminderItemIndex = 0;
-function addReminderRow(data = null) {
+let areSessionRemindersManuallyModified = false;
+
+/**
+ * Calcule la liste des rappels par défaut à pré-remplir lors de la création d'un CR
+ * selon le "Mode de suivi" (tracking_mode / tracking_mode_other) de l'animal.
+ */
+function getDefaultRemindersConfigForAnimal(animal, sessionDateStr) {
+  const baseDate = sessionDateStr || new Date().toISOString().split('T')[0];
+  let trackMode = '';
+  let trackOther = '';
+
+  if (animal) {
+    let custom = {};
+    if (animal.custom_details) {
+      if (typeof animal.custom_details === 'object') {
+        custom = animal.custom_details;
+      } else if (typeof animal.custom_details === 'string') {
+        try { custom = JSON.parse(animal.custom_details); } catch (_) {}
+      }
+    }
+    trackMode = String(animal.tracking_mode || animal.trackingMode || animal.modeSuivi || custom.tracking_mode || '').trim();
+    trackOther = String(animal.tracking_mode_other || custom.tracking_mode_other || '').trim();
+  }
+
+  const normMode = trackMode.toLowerCase().replace(/\s+/g, ' ');
+  const normOther = trackOther.toLowerCase().replace(/\s+/g, ' ');
+
+  // Cas B : Le mode de suivi est "Autre" ET tracking_mode_other indique "1x/mois" (ex: "1x/mois", "1 fois par mois", "mensuel")
+  const isAutre = normMode === 'autre';
+  const isMonthlyOther = /(?:^|\b)(1\s*(?:x|fois)\s*(?:\/|par\s*)mois|mensuel(?:le)?|tous\s+les\s+mois)(?:\b|$)/i.test(normOther);
+  if (isAutre && isMonthlyOther) {
+    return [
+      {
+        type_rappel: 'Planifier un nouveau RDV',
+        delay: '3w',
+        date_prevue: calculateFutureDate(baseDate, '3w'),
+        notes: ''
+      }
+    ];
+  }
+
+  // Cas A : Le mode de suivi de l'animal est "2x/an" ou "1x/an" (insensible à la casse/espaces, ex: "2x/an", "2x par an", "1x/an", "1x par an")
+  const checkStr = isAutre ? normOther : normMode;
+  const isOneOrTwoPerYear = /^(?:1|2)\s*(?:x|fois)\s*(?:\/|par\s*)an$/i.test(checkStr);
+  if (isOneOrTwoPerYear) {
+    return [
+      {
+        type_rappel: 'Prendre des nouvelles',
+        delay: '3w',
+        date_prevue: calculateFutureDate(baseDate, '3w'),
+        notes: ''
+      },
+      {
+        type_rappel: 'Planifier un nouveau RDV',
+        delay: '6m',
+        date_prevue: calculateFutureDate(baseDate, '6m'),
+        notes: ''
+      }
+    ];
+  }
+
+  // Cas C : Tous les autres cas ("4x/an" par défaut, "3x/an", non renseigné ou autre texte)
+  return [
+    {
+      type_rappel: 'Prendre des nouvelles',
+      delay: '3w',
+      date_prevue: calculateFutureDate(baseDate, '3w'),
+      notes: ''
+    },
+    {
+      type_rappel: 'Planifier un nouveau RDV',
+      delay: '3m',
+      date_prevue: calculateFutureDate(baseDate, '3m'),
+      notes: ''
+    }
+  ];
+}
+
+function addReminderRow(data = null, options = {}) {
   const container = document.getElementById('reminders-dynamic-list');
   if (!container) return;
   
@@ -4672,10 +4771,12 @@ function addReminderRow(data = null) {
   row.style.border = '1px solid var(--glass-border)';
   row.style.borderRadius = 'var(--border-radius-md)';
   row.setAttribute('data-index', idx);
+  row.dataset.autoGenerated = options.isAuto ? 'true' : 'false';
+  row.dataset.manualDate = 'false';
   
   // Pre-fill values
   const dateVal = data ? (data.date_prevue || data.due_date || '') : '';
-  const delayVal = data ? (data.delay || '2m') : '2m';
+  const delayVal = data ? (data.delay || '3w') : '3w';
   const rawType = data ? (data.type_rappel || data.title || data.motif || '') : 'Prendre des nouvelles';
   const notesVal = data ? (data.notes || data.description || data.note || '') : '';
 
@@ -4705,11 +4806,12 @@ function addReminderRow(data = null) {
           <option value="1m" ${delayVal === '1m' ? 'selected' : ''}>Dans 1 mois</option>
           <option value="2m" ${delayVal === '2m' ? 'selected' : ''}>Dans 2 mois</option>
           <option value="3m" ${delayVal === '3m' ? 'selected' : ''}>Dans 3 mois</option>
+          <option value="6m" ${delayVal === '6m' ? 'selected' : ''}>Dans 6 mois</option>
           <option value="custom" ${delayVal === 'custom' ? 'selected' : ''}>Date personnalisée</option>
         </select>
       </div>
       
-      <div class="form-group custom-date-field" style="margin-bottom: 0; display: ${delayVal === 'custom' ? 'block' : 'none'};">
+      <div class="form-group custom-date-field" style="margin-bottom: 0; display: block;">
         <label style="font-size:0.85rem; font-weight:500;">Date prévue <span style="color:var(--color-danger)">*</span></label>
         <input type="date" class="reminder-item-date" data-index="${idx}" value="${dateVal}" enterkeyhint="next" style="padding: 8px; font-size:0.85rem; width:100%;">
       </div>
@@ -4738,12 +4840,14 @@ function addReminderRow(data = null) {
   // Handle delay change
   const delaySelect = row.querySelector('.reminder-item-delay');
   const dateInput = row.querySelector('.reminder-item-date');
-  const customField = row.querySelector('.custom-date-field');
   
-  const updateDateFromDelay = () => {
+  const updateDateFromDelay = (markManual = false) => {
     const delay = delaySelect.value;
     const isCustom = delay === 'custom';
-    customField.style.display = isCustom ? 'block' : 'none';
+    if (markManual) {
+      areSessionRemindersManuallyModified = true;
+      row.dataset.manualDate = isCustom ? 'true' : 'false';
+    }
     
     if (!isCustom) {
       const sessionDate = document.getElementById('session-form-date').value || new Date().toISOString().split('T')[0];
@@ -4752,14 +4856,25 @@ function addReminderRow(data = null) {
     }
   };
   
-  delaySelect.addEventListener('change', updateDateFromDelay);
+  delaySelect.addEventListener('change', () => updateDateFromDelay(true));
+  
+  // Handle manual date input change
+  if (dateInput) {
+    dateInput.addEventListener('change', () => {
+      areSessionRemindersManuallyModified = true;
+      row.dataset.manualDate = 'true';
+      delaySelect.value = 'custom';
+    });
+  }
   
   // Handle type change (toggle custom type text field)
   const typeSelect = row.querySelector('.reminder-item-type');
   const customTypeGroup = row.querySelector('.reminder-item-custom-type-group');
   const customTypeInput = row.querySelector('.reminder-item-custom-type');
+  const notesInput = row.querySelector('.reminder-item-notes');
   if (typeSelect) {
     typeSelect.addEventListener('change', () => {
+      areSessionRemindersManuallyModified = true;
       const isCustom = typeSelect.value === 'Autre';
       if (customTypeGroup) customTypeGroup.style.display = isCustom ? 'block' : 'none';
       if (isCustom && customTypeInput) {
@@ -4767,14 +4882,25 @@ function addReminderRow(data = null) {
       }
     });
   }
+  if (customTypeInput) {
+    customTypeInput.addEventListener('input', () => {
+      areSessionRemindersManuallyModified = true;
+    });
+  }
+  if (notesInput) {
+    notesInput.addEventListener('input', () => {
+      areSessionRemindersManuallyModified = true;
+    });
+  }
   
   // Set initial date if not custom and empty
   if (!dateVal && delayVal !== 'custom') {
-    updateDateFromDelay();
+    updateDateFromDelay(false);
   }
   
   // Delete row listener
   row.querySelector('.btn-remove-reminder-row').addEventListener('click', () => {
+    areSessionRemindersManuallyModified = true;
     row.remove();
   });
   
@@ -4928,9 +5054,20 @@ async function prepareSessionEditor(param) {
   if (remindersContainer) {
     remindersContainer.innerHTML = '';
   }
+  areSessionRemindersManuallyModified = false;
   
   // Date par défaut aujourd'hui
   document.getElementById('session-form-date').value = new Date().toISOString().split('T')[0];
+
+  // Pré-remplissage automatique des rappels selon le mode de suivi de l'animal (création uniquement)
+  const populateAutoRemindersForSession = (animalId) => {
+    if (isEditing || !remindersContainer) return;
+    const selectedAn = animals.find(a => Number(a.id) === Number(animalId)) || null;
+    const sessionDate = document.getElementById('session-form-date').value || new Date().toISOString().split('T')[0];
+    const defaultReminders = getDefaultRemindersConfigForAnimal(selectedAn, sessionDate);
+    remindersContainer.innerHTML = '';
+    defaultReminders.forEach(r => addReminderRow(r, { isAuto: true }));
+  };
 
   // --- LOGIQUE DE PRÉ-REMPLISSAGE INTELLIGENT < 2 MOIS ---
   const updatePrefillBannerForAnimal = async (animalId) => {
@@ -4979,11 +5116,17 @@ async function prepareSessionEditor(param) {
     const currentVal = Number(animalSelect.value);
     if (!isEditing) {
       updatePrefillBannerForAnimal(currentVal);
+      if (!areSessionRemindersManuallyModified) {
+        populateAutoRemindersForSession(currentVal);
+      }
     }
   };
 
-  if (!isEditing && targetAnimalId) {
-    await updatePrefillBannerForAnimal(targetAnimalId);
+  if (!isEditing) {
+    populateAutoRemindersForSession(targetAnimalId);
+    if (targetAnimalId) {
+      await updatePrefillBannerForAnimal(targetAnimalId);
+    }
   }
 
   // Charger les structures des Questionnaires
@@ -6353,6 +6496,7 @@ function setupFormListeners() {
   if (btnAddReminderItem) {
     btnAddReminderItem.onclick = (e) => {
       e.preventDefault();
+      areSessionRemindersManuallyModified = true;
       addReminderRow();
     };
   }
@@ -6418,15 +6562,26 @@ function setupFormListeners() {
     });
   }
 
-  // Modifier la date de séance recalculera la date de rappel si pas en custom
+  // Modifier la date de séance recalculera automatiquement les dates d'échéance des rappels (tant qu'elles ne sont pas en date personnalisée)
   const sessionFormDateEl = document.getElementById('session-form-date');
   if (sessionFormDateEl) {
     sessionFormDateEl.addEventListener('change', () => {
+      const sessionDate = sessionFormDateEl.value;
+      if (!sessionDate) return;
+
+      // Recalculer les rappels dynamiques de la séance
+      document.querySelectorAll('#reminders-dynamic-list .reminder-row-item').forEach(row => {
+        const delaySelect = row.querySelector('.reminder-item-delay');
+        const dateInput = row.querySelector('.reminder-item-date');
+        if (delaySelect && dateInput && delaySelect.value !== 'custom' && row.dataset.manualDate !== 'true') {
+          dateInput.value = calculateFutureDate(sessionDate, delaySelect.value);
+        }
+      });
+
       const delayEl = document.getElementById('session-reminder-delay');
       if (delayEl) {
         const delay = delayEl.value;
         if (delay !== 'custom') {
-          const sessionDate = sessionFormDateEl.value;
           const targetDate = calculateFutureDate(sessionDate, delay);
           const reminderDateEl = document.getElementById('session-reminder-date');
           if (reminderDateEl) reminderDateEl.value = targetDate;
@@ -7472,19 +7627,21 @@ animals.forEach(an => {
     downloadCSV(csv, 'animaux_ekikare.csv');
   };
 
-  // Forcer la mise à jour de l'application et purger les caches du navigateur
+  // Forcer la mise à jour de l'application et purger les caches du navigateur (isolé Prod vs Beta)
   const handleForceCacheRefresh = async () => {
     showToast('Purge du cache et mise à jour de l\'application en cours...', 'info');
     try {
-      // 1. Vider les caches du navigateur
+      // 1. Vider uniquement les caches de l'environnement courant (Beta ou Prod)
       if ('caches' in window) {
         const keys = await caches.keys();
-        await Promise.all(keys.map(k => caches.delete(k)));
+        const envKeys = keys.filter(k => IS_BETA_ENV ? k.startsWith('ekikare-beta-') : !k.startsWith('ekikare-beta-'));
+        await Promise.all(envKeys.map(k => caches.delete(k)));
       }
-      // 2. Désinscrire et réactualiser le Service Worker
+      // 2. Désinscrire uniquement le Service Worker de l'environnement courant
       if ('serviceWorker' in navigator) {
         const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map(r => r.unregister()));
+        const envRegs = registrations.filter(r => IS_BETA_ENV ? r.scope.includes('/beta') : !r.scope.includes('/beta'));
+        await Promise.all(envRegs.map(r => r.unregister()));
       }
     } catch (err) {
       console.error('Erreur lors de la purge du cache:', err);
@@ -9377,7 +9534,7 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
     document.getElementById('animal-form-social-type').value = animal.social_type || animal.social_life || custom.social_type || 'Individuel';
     
     // Suivi & alimentation
-    const trackMode = animal.tracking_mode || custom.tracking_mode || 'À la demande';
+    const trackMode = animal.tracking_mode || custom.tracking_mode || '4x par an';
     trackingSelect.value = trackMode;
     trackingOther.value = animal.tracking_mode_other || custom.tracking_mode_other || '';
     trackingOther.style.display = trackMode === 'Autre' ? 'block' : 'none';
@@ -9474,7 +9631,7 @@ async function openAnimalDialog(animal = null, preselectedClientId = null) {
 
     document.getElementById('animal-form-social-type').value = 'Individuel';
     
-    trackingSelect.value = 'À la demande';
+    trackingSelect.value = '4x par an';
     trackingOther.value = '';
     trackingOther.style.display = 'none';
 

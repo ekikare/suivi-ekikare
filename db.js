@@ -136,7 +136,7 @@ export function mapLocalToSupabase(storeName, item) {
         housing_type: item.housing_type || item.housing_mode || existingCustom.housing_type || '',
         housing_type_other: item.housing_type_other || item.housing_mode_other || existingCustom.housing_type_other || '',
         social_type: item.social_type || item.social_life || existingCustom.social_type || '',
-        tracking_mode: item.tracking_mode || existingCustom.tracking_mode || 'À la demande',
+        tracking_mode: item.tracking_mode || existingCustom.tracking_mode || '4x par an',
         tracking_mode_other: item.tracking_mode_other || existingCustom.tracking_mode_other || '',
         nutritionist: item.nutritionist !== undefined
           ? Boolean(item.nutritionist)
@@ -340,7 +340,7 @@ export function mapSupabaseToLocal(storeName, item) {
         medical_events: Array.isArray(parsedCustom.medical_events) ? parsedCustom.medical_events : (Array.isArray(item.medical_events) ? item.medical_events : []),
         antecedents: item.medical_history || '',
         pros_associes_ids: Array.isArray(parsedCustom.pros_associes_ids) ? parsedCustom.pros_associes_ids : (Array.isArray(item.pros_associes_ids) ? item.pros_associes_ids : []),
-        tracking_mode: item.tracking_mode || parsedCustom.tracking_mode || 'À la demande',
+        tracking_mode: item.tracking_mode || parsedCustom.tracking_mode || '4x par an',
         tracking_mode_other: parsedCustom.tracking_mode_other || '',
         nutritionist: Boolean(parsedCustom.nutritionist),
         nutrition_details: item.diet || parsedCustom.nutrition_details || '',
