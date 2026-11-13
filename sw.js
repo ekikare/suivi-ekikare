@@ -1,17 +1,17 @@
 // Service Worker eKiKare
 const IS_BETA = self.location.pathname.includes('/beta');
-const CACHE_VERSION = 'v1.8.2';
+const CACHE_VERSION = 'v1.8.3';
 const CACHE_PREFIX = IS_BETA ? 'ekikare-beta-' : 'ekikare-cache-';
 const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION}`;
 
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './style.css?v=1.8.2',
-  './app.js?v=1.8.2',
-  './db.js?v=1.8.2',
-  './sync-manager.js?v=1.8.2',
-  './lib/pinch-zoom.umd.js?v=1.8.2',
+  './style.css?v=1.8.3',
+  './app.js?v=1.8.3',
+  './db.js?v=1.8.3',
+  './sync-manager.js?v=1.8.3',
+  './lib/pinch-zoom.umd.js?v=1.8.3',
   './manifest.json',
   './favicon.ico',
   './horse_skeleton.png',
