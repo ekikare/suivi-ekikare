@@ -178,24 +178,54 @@ export function mapLocalToSupabase(storeName, item) {
         archive_reason: item.archive_reason || null
       };
       break;
-    case 'sessions':
+    case 'sessions': {
+      const isExtSession = Boolean(item.isExternal || item.session_type === 'Externe' || item.sessionType === 'Externe');
+      let baseProtocols = item.protocols || item.protocoles_realises || null;
+      if (typeof baseProtocols === 'string') {
+        try { baseProtocols = JSON.parse(baseProtocols); } catch (_) { baseProtocols = null; }
+      }
+      const isPrivateSession = Boolean(
+        item.is_private ??
+        item.isPrivate ??
+        (baseProtocols && typeof baseProtocols === 'object' ? (baseProtocols.is_private ?? baseProtocols.isPrivate) : false)
+      );
+
+      let serializedProtocols = baseProtocols;
+      if (isExtSession || isPrivateSession) {
+        serializedProtocols = {
+          ...(baseProtocols && typeof baseProtocols === 'object' ? baseProtocols : {}),
+          is_private: isPrivateSession,
+          file_name: item.fileName || item.file_name || (baseProtocols && baseProtocols.file_name) || '',
+          file_type: item.fileType || item.file_type || (baseProtocols && baseProtocols.file_type) || ''
+        };
+      }
+
+      const extPrivateMeta = isExtSession
+        ? JSON.stringify({
+            is_private: isPrivateSession,
+            file_name: item.fileName || item.file_name || '',
+            file_type: item.fileType || item.file_type || ''
+          })
+        : (item.privateClinicalNotes || item.private_clinical_notes || item.notes_observations || null);
+
       specificFields = {
         client_id: String(item.clientId || item.client_id || ''),
         animal_id: String(item.animalId || item.animal_id || ''),
-        session_type: item.sessionType || item.session_type || (item.isExternal ? 'Externe' : 'Générale'),
+        session_type: item.sessionType || item.session_type || (isExtSession ? 'Externe' : 'Générale'),
         practitioner_name: item.practitionerName || item.practitioner_name || null,
         practitioner_profession: item.practitionerProfession || item.practitioner_profession || item.profession || null,
         session_date: item.sessionDate || item.session_date || item.date_seance || new Date().toISOString().split('T')[0],
         reason: item.reason || item.motif || null,
-        protocols: item.protocols || item.protocoles_realises || null,
+        protocols: serializedProtocols,
         summary: item.summary || item.cr_personnel || null,
-        private_clinical_notes: item.privateClinicalNotes || item.private_clinical_notes || item.notes_observations || null,
+        private_clinical_notes: extPrivateMeta,
         detailed_pro_report: item.detailedProReport || item.detailed_pro_report || item.precisions || null,
         general_notes: item.generalNotes || item.general_notes || item.resume_client_genere || null,
         anatomical_drawing: item.anatomicalDrawing || item.anatomical_drawing || item.canvas_annotation_image_blob || null,
         attachments: item.attachments || item.fileData || null
       };
       break;
+    }
     case 'professionals':
       const profFullName = [item.prenom || item.first_name || '', item.nom || item.last_name || ''].filter(Boolean).join(' ').trim() || item.name || '';
       specificFields = {
@@ -351,7 +381,31 @@ export function mapSupabaseToLocal(storeName, item) {
         archived_at: item.archived_at || parsedCustom.archived_at || null,
         archive_reason: item.archive_reason || parsedCustom.archive_reason || null
       };
-    case 'sessions':
+    case 'sessions': {
+      let parsedProtocols = {};
+      if (item.protocols) {
+        if (typeof item.protocols === 'object' && item.protocols !== null) {
+          parsedProtocols = item.protocols;
+        } else if (typeof item.protocols === 'string') {
+          try { parsedProtocols = JSON.parse(item.protocols); } catch (_) { parsedProtocols = {}; }
+        }
+      }
+
+      let parsedExtMeta = {};
+      if (item.session_type === 'Externe' && typeof item.private_clinical_notes === 'string' && item.private_clinical_notes.trim().startsWith('{')) {
+        try { parsedExtMeta = JSON.parse(item.private_clinical_notes); } catch (_) { parsedExtMeta = {}; }
+      }
+
+      const isPrivateFlag = Boolean(
+        item.is_private ??
+        item.isPrivate ??
+        parsedProtocols.is_private ??
+        parsedProtocols.isPrivate ??
+        parsedExtMeta.is_private ??
+        parsedExtMeta.isPrivate ??
+        false
+      );
+
       return {
         ...local,
         animal_id: item.animal_id ? Number(item.animal_id) : null,
@@ -361,21 +415,24 @@ export function mapSupabaseToLocal(storeName, item) {
         n_seance_annee: item.n_seance_annee !== null ? Number(item.n_seance_annee) : null,
         q_avant_seance: item.q_avant_seance || {},
         q_3_semaines: item.q_3_semaines || {},
-        protocoles_realises: item.protocols || {},
+        protocoles_realises: parsedProtocols,
         canvas_annotation_image_blob: item.anatomical_drawing || (local && local.canvas_annotation_image_blob) || '',
         canvas_drawing_data_url: item.canvas_drawing_data_url || (local && local.canvas_drawing_data_url) || '',
         cr_personnel: item.summary || '',
-        notes_observations: item.private_clinical_notes || '',
+        notes_observations: item.session_type === 'Externe' ? '' : (item.private_clinical_notes || ''),
         precisions: item.detailed_pro_report || '',
         resume_client_genere: item.general_notes || '',
         isExternal: item.session_type === 'Externe',
+        is_private: isPrivateFlag,
+        isPrivate: isPrivateFlag,
         practitionerName: item.practitioner_name || '',
         profession: item.practitioner_profession || '',
         summary: item.summary || '',
         fileData: item.attachments || '',
-        fileName: item.file_name || '',
-        fileType: item.file_type || ''
+        fileName: item.file_name || parsedProtocols.file_name || parsedExtMeta.file_name || '',
+        fileType: item.file_type || parsedProtocols.file_type || parsedExtMeta.file_type || ''
       };
+    }
     case 'professionals':
       let profPrenom = item.prenom || item.first_name || '';
       let profNom = item.nom || item.last_name || '';
