@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.8.7';
+} from './db.js?v=1.8.8';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.7';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.8';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -46,7 +46,7 @@ if (typeof window !== 'undefined' && initialClient) {
 export const IS_BETA_ENV = typeof window !== 'undefined' && window.location.pathname.includes('/beta');
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.8.7';
+export const APP_VERSION = 'v1.8.8';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
   window.IS_BETA_ENV = IS_BETA_ENV;
