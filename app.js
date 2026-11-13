@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.8.3';
+} from './db.js?v=1.8.4';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.3';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.4';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -46,7 +46,7 @@ if (typeof window !== 'undefined' && initialClient) {
 export const IS_BETA_ENV = typeof window !== 'undefined' && window.location.pathname.includes('/beta');
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.8.3';
+export const APP_VERSION = 'v1.8.4';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
   window.IS_BETA_ENV = IS_BETA_ENV;
@@ -2837,7 +2837,15 @@ async function renderAnimalDetails(animalId) {
 
   // Historique des séances de l'animal
   const sessions = await getAll('sessions');
-  const animalSessions = sessions.filter(s => s.animal_id === animalId);
+  const isPortalMode = Boolean(
+    currentPortalClientId ||
+    (window.location.hash && window.location.hash.includes('portal')) ||
+    document.documentElement.classList.contains('portal-mode')
+  );
+  const animalSessions = sessions.filter(s =>
+    s.animal_id === animalId &&
+    (!isPortalMode || !(s.is_private || s.isPrivate))
+  );
   const sessionsContainer = document.getElementById('detail-animal-sessions');
   sessionsContainer.innerHTML = '';
 
@@ -2857,11 +2865,15 @@ async function renderAnimalDetails(animalId) {
         
         const cleanSummary = formatTimelineSummary(s.summary || '-');
         const crBtnHtml = docResource ? `<button type="button" class="btn btn-secondary btn-small btn-view-cr" style="display:inline-flex; align-items:center; gap:4px; padding: 2px 8px; font-size: 0.78rem;">📄 Voir le CR</button>` : '';
+        const isPriv = Boolean(s.is_private || s.isPrivate);
+        const privateBadgeHtml = (!isPortalMode && isPriv)
+          ? `<span class="badge-private-note" style="display:inline-flex; align-items:center; gap:4px; font-size:0.7rem; font-weight:600; padding:2px 8px; border-radius:999px; background:rgba(245, 158, 11, 0.16); color:#fbbf24; border:1px solid rgba(245, 158, 11, 0.4); margin-left:6px; vertical-align:middle;">🔒 Privé</span>`
+          : '';
         
         item.innerHTML = `
-          <div class="timeline-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
-            <div class="timeline-objective" style="font-size:0.86rem; font-weight:700; color:#ffffff; margin:0;">
-              ${s.profession || 'Intervention'}${s.practitionerName ? ` - <em style="font-weight:normal; font-style:italic; color:#96A5BA;">${s.practitionerName}</em>` : ''}
+          <div class="timeline-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px; gap:8px; flex-wrap:wrap;">
+            <div class="timeline-objective" style="font-size:0.86rem; font-weight:700; color:#ffffff; margin:0; display:flex; align-items:center; flex-wrap:wrap;">
+              <span>${s.profession || 'Intervention'}${s.practitionerName ? ` - <em style="font-weight:normal; font-style:italic; color:#96A5BA;">${s.practitionerName}</em>` : ''}</span>${privateBadgeHtml}
             </div>
             <span class="badge-external" style="font-size:0.72rem; padding: 2px 8px; margin:0;">${formatDate(s.date_seance)}</span>
           </div>
@@ -8815,9 +8827,20 @@ function openExternalSessionDialog(session = null, animalId = null) {
   const professionSelect = document.getElementById('ext-session-profession');
   const otherGroup = document.getElementById('group-ext-session-profession-other');
   const otherInput = document.getElementById('ext-session-profession-other');
+  const groupPrivate = document.getElementById('group-ext-session-private');
+  const privateCheckbox = document.getElementById('ext-session-private');
+
+  const isPortalMode = Boolean(
+    currentPortalClientId ||
+    (window.location.hash && window.location.hash.includes('portal')) ||
+    document.documentElement.classList.contains('portal-mode')
+  );
+  if (groupPrivate) {
+    groupPrivate.style.display = isPortalMode ? 'none' : 'block';
+  }
   
   if (session) {
-    const isStandard = ['Ostéopathe', 'Masseur', 'Maréchal', 'Podologue', 'Dentiste', 'Nutritionniste', 'Naturopathe', 'Nutri + Naturo', 'Vétérinaire', 'Coach', 'Comportementaliste', 'Saddle Fitter'].includes(session.profession);
+    const isStandard = ['Note / Événement', 'Ostéopathe', 'Masseur', 'Maréchal', 'Podologue', 'Dentiste', 'Nutritionniste', 'Naturopathe', 'Nutri + Naturo', 'Vétérinaire', 'Coach', 'Comportementaliste', 'Saddle Fitter'].includes(session.profession);
     if (isStandard) {
       professionSelect.value = session.profession;
       otherGroup.style.display = 'none';
@@ -8833,6 +8856,9 @@ function openExternalSessionDialog(session = null, animalId = null) {
     document.getElementById('ext-session-practitioner').value = session.practitionerName || '';
     document.getElementById('ext-session-motif').value = session.motif || '';
     document.getElementById('ext-session-summary').value = session.summary || '';
+    if (privateCheckbox) {
+      privateCheckbox.checked = !isPortalMode && Boolean(session.is_private || session.isPrivate);
+    }
     
     extSessionFileData = session.fileData || null;
     extSessionFileName = session.fileName || null;
@@ -8846,6 +8872,9 @@ function openExternalSessionDialog(session = null, animalId = null) {
     document.getElementById('ext-session-practitioner').value = '';
     document.getElementById('ext-session-motif').value = '';
     document.getElementById('ext-session-summary').value = '';
+    if (privateCheckbox) {
+      privateCheckbox.checked = false;
+    }
     
     extSessionFileData = null;
     extSessionFileName = null;
@@ -8899,9 +8928,12 @@ function openExternalSessionDialog(session = null, animalId = null) {
     }
     
     const animal = await getById('animals', finalAnimalId);
+    const isPrivate = !isPortalMode && Boolean(privateCheckbox && privateCheckbox.checked);
     
     const sessionObj = {
       isExternal: true,
+      is_private: isPrivate,
+      isPrivate: isPrivate,
       animal_id: finalAnimalId,
       client_id: animal ? (animal.client_id || animal.clientId || null) : null,
       date_seance: dateVal,
@@ -11073,6 +11105,10 @@ async function openPortalSessionModal(sessionOrId, animal = null, extraInfo = {}
     showToast('Accès refusé : cet animal n\'appartient pas à votre espace.', 'error');
     return;
   }
+  if (currentPortalClientId && (session.is_private || session.isPrivate)) {
+    showToast('Accès refusé à cette note.', 'error');
+    return;
+  }
 
   // Récupérer les données du propriétaire
   const client = await getById('clients', session.client_id || animal.client_id);
@@ -11461,12 +11497,15 @@ async function openAnimalDossierPreviewModal(animal, options, extraInfo = {}) {
     const client = await getById('clients', animal.client_id);
     const ownerName = client ? `${client.prenom} ${client.nom.toUpperCase()}` : 'Propriétaire inconnu';
 
-    // 2. Récupérer et filtrer les séances
+    // 2. Récupérer et filtrer les séances (exclure les notes privées dans le portail / export dossier)
     let filteredSessions = [];
     let periodLabel = '';
     if (options.includeSessions) {
       const allSessions = await getAll('sessions');
-      const animalSessions = allSessions.filter(s => Number(s.animal_id) === Number(animal.id));
+      const animalSessions = allSessions.filter(s =>
+        Number(s.animal_id) === Number(animal.id) &&
+        !(s.is_private || s.isPrivate)
+      );
       animalSessions.sort((a, b) => new Date(b.date_seance) - new Date(a.date_seance));
 
       if (options.sessionPeriod === '12months') {
