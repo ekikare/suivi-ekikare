@@ -32,9 +32,9 @@ import {
   setPdfCache,
   deletePdfCache,
   clearAllPdfCache
-} from './db.js?v=1.8.6';
+} from './db.js?v=1.8.7';
 
-import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.6';
+import { SyncManager, buildScalarPatch } from './sync-manager.js?v=1.8.7';
 
 // Exposition immédiate du client Supabase pour tout le scope applicatif et la console
 const initialClient = getSupabaseClient();
@@ -46,7 +46,7 @@ if (typeof window !== 'undefined' && initialClient) {
 export const IS_BETA_ENV = typeof window !== 'undefined' && window.location.pathname.includes('/beta');
 
 // Version courante de l'application (alignée avec sw.js)
-export const APP_VERSION = 'v1.8.6';
+export const APP_VERSION = 'v1.8.7';
 if (typeof window !== 'undefined') {
   window.APP_VERSION = APP_VERSION;
   window.IS_BETA_ENV = IS_BETA_ENV;
@@ -1572,22 +1572,19 @@ async function updateReminderBadge() {
       r.statut === 'fait';
     if (isCompleted) continue;
 
-    // Vérifier que l'animal et/ou le client rattaché est actif (non archivé, non supprimé)
+    // Si un animal_id spécifique est renseigné, vérifier uniquement que cet animal existe et n'est pas archivé.
+    // Si aucun animal/client n'est renseigné (tâche générale), inclure systématiquement le rappel.
     const hasSpecificAnimal = Boolean(r.animal_id && r.animal_id !== 'ALL');
-    const animal = hasSpecificAnimal ? animalMap.get(r.animal_id) : null;
-    if (hasSpecificAnimal && (!animal || animal.archived_at)) {
-      continue;
-    }
-
-    const effectiveClientId = r.client_id || (animal ? animal.client_id : null);
-    if (effectiveClientId) {
-      const client = clientMap.get(effectiveClientId);
-      if (!client || client.archived_at) {
+    if (hasSpecificAnimal) {
+      const animal = animalMap.get(r.animal_id);
+      if (!animal || animal.archived_at) {
         continue;
       }
-    } else if (!animal) {
-      // Rappel orphelin sans client ni animal actif
-      continue;
+    } else if (r.client_id) {
+      const client = clientMap.get(r.client_id);
+      if (client && client.archived_at) {
+        continue;
+      }
     }
 
     // Parsing de la date d'échéance en heure locale (00:00:00)
